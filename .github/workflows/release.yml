@@ -1,0 +1,132 @@
+# Релиз по тегу vX.Y.Z: проверка → бинарники под Linux (glibc и musl, x64 и arm64) и macOS (подписаны) →
+# сжатые копии, SHA256SUMS и install.sh с адресом этого репозитория → GitHub Release.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Установка из релиза:
+#   curl -fsSL https://github.com/<owner>/<repo>/releases/latest/download/install.sh | bash
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Существующий тег, например v0.1.0
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  BUN_VERSION: 1.4.4
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Тег совпадает с версией программы
+        run: bun scripts/release.ts check-tag "$TAG"
+      - run: bun install --frozen-lockfile
+      - run: bun run build:manager
+      - run: bun run check
+      - run: shellcheck install.sh
+
+  linux:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/release.ts build linux-x64 linux-arm64 linux-x64-musl linux-arm64-musl
+      - name: Запуск на glibc и на musl (Alpine)
+        run: |
+          dist/release/cms-linux-x64 version
+          docker run --rm -v "$PWD/dist/release:/release:ro" alpine:3 \
+            sh -c 'apk add --no-cache libgcc libstdc++ && /release/cms-linux-x64-musl version'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/release/cms-*
+          if-no-files-found: error
+          retention-days: 3
+
+  macos:
+    needs: check
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/release.ts build darwin-arm64 darwin-x64
+      # Ad-hoc подпись: без неё Apple Silicon не запустит бинарник. Файл, скачанный curl, карантина не
+      # получает, поэтому Gatekeeper его не спрашивает; нотаризация нужна только для загрузки браузером.
+      - name: Подпись
+        run: |
+          for file in dist/release/cms-darwin-*; do
+            codesign --force --sign - --entitlements scripts/entitlements.plist "$file"
+            codesign --verify --verbose "$file"
+          done
+          dist/release/cms-darwin-arm64 version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/release/cms-*
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    needs: [linux, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist/release
+          merge-multiple: true
+      - name: Сжатые копии, SHA256SUMS, install.sh
+        run: bun scripts/release.ts pack --repo "$GITHUB_REPOSITORY"
+      - name: Установщик ставит то, что собрано
+        run: |
+          CMS_DOWNLOAD_URL="file://$PWD/dist/release" CMS_NO_MODIFY_PATH=1 bash dist/release/install.sh
+          "$HOME/.local/bin/cms" version
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Тег с дефисом (v0.2.0-rc.1) — пре-релиз, если стабильный уже есть: releases/latest указывает только
+          # на стабильные. Пока их нет, альфы и беты — обычные релизы, иначе установка одной строкой вела бы
+          # в пустоту.
+          prerelease=()
+          stable=$(gh release list --exclude-pre-releases --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName // ""')
+          if [[ "$TAG" == *-* && -n "$stable" ]]; then prerelease=(--prerelease); fi
+          gh release create "$TAG" \
+            dist/release/*.gz dist/release/SHA256SUMS dist/release/install.sh \
+            --title "Eile $TAG" --generate-notes --verify-tag "${prerelease[@]}"

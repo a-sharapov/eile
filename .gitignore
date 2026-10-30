@@ -1,0 +1,19 @@
+node_modules/
+dist/
+
+# SQLite databases created by `bun run dev` / the binary
+*.db
+*.db-shm
+*.db-wal
+
+.DS_Store
+
+# Сборка: входной файл бинарника и SPA менеджера
+.build/
+manager/build/
+manager/.svelte-kit/
+manager/node_modules/
+@source/
+
+# Архив критики дизайна
+.impeccable/

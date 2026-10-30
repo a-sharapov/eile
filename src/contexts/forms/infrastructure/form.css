@@ -1,0 +1,123 @@
+/* Формы сайта по умолчанию: :where() не прибавляет специфичности — любой стиль шаблона сильнее.
+   Цвета и скругления — те же переменные --t-*, что у компонентов набора. */
+:where(.cms-form) {
+  display: grid;
+  gap: 1rem;
+  max-width: 36rem;
+}
+
+:where(.cms-form) :where(.field, fieldset) {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+:where(.cms-form) :where(.field > label, legend) {
+  font-weight: 600;
+}
+
+:where(.cms-form) :where(fieldset label) {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  font-weight: 400;
+}
+
+/* Согласие — текст со ссылкой: переносится одним абзацем, галочка висит слева. */
+:where(.cms-form) :where(.field-consent label) {
+  display: block;
+  padding-left: 1.5rem;
+  font-weight: 400;
+}
+
+:where(.cms-form) :where(.field-consent input) {
+  float: left;
+  margin: 0.3em 0 0 -1.5rem;
+}
+
+:where(.cms-form)
+  :where(
+    input:not([type="checkbox"], [type="radio"], [type="range"]),
+    select,
+    textarea
+  ) {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.6rem 0.75rem;
+  border: 0.0625rem solid var(--t-border, #c9cfd8);
+  border-radius: var(--t-radius, 0.375rem);
+  background: var(--t-surface, #fff);
+  color: inherit;
+  font: inherit;
+}
+
+:where(.cms-form) :where(textarea) {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+:where(.cms-form) :where(input, select, textarea, button):focus-visible {
+  outline: 0.125rem solid var(--t-accent, #2f6fde);
+  outline-offset: 0.125rem;
+}
+
+:where(.cms-form) :where([aria-invalid="true"]) {
+  border-color: var(--t-danger, #c62828);
+}
+
+:where(.cms-form) :where(.hint) {
+  color: var(--t-muted, #5b6472);
+  font-size: 0.875em;
+}
+
+:where(.cms-form) :where(.field-error) {
+  margin: 0;
+  color: var(--t-danger, #c62828);
+  font-size: 0.875em;
+}
+
+:where(.cms-form) :where(button[type="submit"], .field-submit button) {
+  justify-self: start;
+  min-height: 2.75rem;
+  padding: 0 1.5rem;
+  border: 0;
+  border-radius: var(--t-radius, 0.375rem);
+  background: var(--t-accent, #2f6fde);
+  color: var(--t-on-accent, #fff);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+:where(.cms-form) :where(button[aria-busy="true"]) {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+:where(.cms-form-message, .cms-form-sent) {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-radius: var(--t-radius, 0.375rem);
+}
+
+:where(.cms-form-message) {
+  background: color-mix(in oklch, var(--t-danger, #c62828) 10%, transparent);
+  color: var(--t-danger, #c62828);
+}
+
+:where(.cms-form-sent) {
+  background: color-mix(in oklch, var(--t-success, #2f9e44) 12%, transparent);
+}
+
+/* Ловушка для ботов: вне экрана, не в порядке Tab, не для читалок. */
+.cms-trap {
+  position: absolute !important;
+  left: -10000px !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+}

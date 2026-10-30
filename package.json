@@ -1,0 +1,30 @@
+{
+  "name": "cms",
+  "version": "0.1.0-alpha.1",
+  "description": "Fast, elegant CMS in the spirit of MODX Evo: Bun + SQLite + Svelte, shipped as one binary",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "postinstall": "bun install --cwd manager",
+    "dev": "bun --watch src/main.ts",
+    "dev:manager": "bun run --cwd manager dev",
+    "start": "bun src/main.ts",
+    "test": "NODE_ENV=production bun test src tests",
+    "typecheck": "tsc --noEmit",
+    "format": "biome format --write",
+    "lint": "biome check",
+    "check": "bun run lint && bun run typecheck && bun run --cwd manager check && bun run test",
+    "build:manager": "bun run --cwd manager build",
+    "build": "bun scripts/build.ts",
+    "release": "bun scripts/release.ts"
+  },
+  "dependencies": {
+    "svelte": "5.57.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.4",
+    "@types/bun": "^1.4.4",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,138 @@
+import {
+  emptyField,
+  type FieldDraft,
+  type FormBlock,
+  formBlockId,
+} from './form-blocks.ts';
+import type { FieldKind } from './types.ts';
+
+// Разбор HTML формы на блоки — в браузере, через DOM: сервер разбирает ту же разметку HTMLRewriter.
+
+const _text = (value: string): string =>
+  value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+
+const _attrOf = (element: Element | null, name: string): string =>
+  element?.getAttribute(name) ?? '';
+
+const _labelText = (element: Element | null): string =>
+  (element?.textContent ?? '')
+    .replace(/\*\s*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+// Текст согласия обратно: ссылка — в фигурных скобках, как её пишут в редакторе.
+const _consentText = (label: Element | null): string =>
+  ((copy) => (
+    copy
+      ?.querySelectorAll('a')
+      .forEach((_) => void (_.textContent = `{${_.textContent}}`)),
+    _labelText(copy)
+  ))(label?.cloneNode(true) as Element | null);
+
+// Поле из разметки: то, что умеет форма поля; остальное остаётся в `original`.
+const _draftOf = (wrapper: Element): FieldDraft => {
+  const kind = (wrapper.getAttribute('data-field') || 'text') as FieldKind;
+  const controls = [...wrapper.querySelectorAll('input, select, textarea')];
+  const control = controls[0] ?? null;
+  const consentLink = wrapper.querySelector('a[href^="[~"]');
+  return {
+    ...emptyField(kind),
+    label:
+      kind === 'consent'
+        ? _consentText(wrapper.querySelector('label'))
+        : wrapper.getAttribute('data-label') ||
+          _labelText(wrapper.querySelector('legend, label')),
+    name: _attrOf(control, 'name'),
+    required: controls.some((_) => _.hasAttribute('required')),
+    placeholder:
+      control?.tagName === 'SELECT'
+        ? (control.querySelector('option[value=""]')?.textContent ?? '')
+        : _attrOf(control, 'placeholder'),
+    hint: wrapper.querySelector('.hint')?.textContent?.trim() ?? '',
+    pattern: _attrOf(control, 'pattern'),
+    min: _attrOf(control, 'min'),
+    max: _attrOf(control, 'max'),
+    step: _attrOf(control, 'step'),
+    maxLength: _attrOf(control, 'maxlength'),
+    message: wrapper.getAttribute('data-message') ?? '',
+    options:
+      kind === 'select'
+        ? [...(control?.querySelectorAll('option') ?? [])]
+            .filter((_) => _.value !== '')
+            .map((_) =>
+              _.value === _.textContent
+                ? _.value
+                : `${_.value} | ${_.textContent}`
+            )
+            .join('\n')
+        : kind === 'radio' || kind === 'checkbox'
+          ? controls
+              .map((input) =>
+                ((label) =>
+                  label === (input as HTMLInputElement).value
+                    ? label
+                    : `${(input as HTMLInputElement).value} | ${label}`)(
+                  _labelText(input.closest('label'))
+                )
+              )
+              .join('\n')
+          : '',
+    consentPage: consentLink
+      ? Number(
+          /\[~(\d+)~\]/.exec(consentLink.getAttribute('href') ?? '')?.[1]
+        ) || null
+      : null,
+  };
+};
+
+const _hiddenOf = (input: Element): FieldDraft => ({
+  ...emptyField('hidden'),
+  name: _attrOf(input, 'name'),
+  label: _attrOf(input, 'data-label'),
+  source: _attrOf(input, 'data-source'),
+  value: _attrOf(input, 'value'),
+});
+
+// Подряд идущий текст и неполевая разметка — один текстовый блок.
+const _merge = (blocks: FormBlock[], html: string): FormBlock[] =>
+  ((last) =>
+    last?.kind === 'text'
+      ? [...blocks.slice(0, -1), { ...last, html: `${last.html}${html}` }]
+      : [...blocks, { id: formBlockId(), kind: 'text', html }])(blocks.at(-1));
+
+/** HTML формы → блоки: обёртки data-field и скрытые поля — полями, остальное — текстом. */
+export var parseForm = (source: string): FormBlock[] => {
+  const template = document.createElement('template');
+  template.innerHTML = source;
+  return [...template.content.childNodes].reduce<FormBlock[]>(
+    (blocks, node) => {
+      const element =
+        node.nodeType === Node.ELEMENT_NODE ? (node as Element) : null;
+      const field = element?.hasAttribute('data-field')
+        ? _draftOf(element)
+        : element?.matches('input[type="hidden"]')
+          ? _hiddenOf(element)
+          : null;
+      return field
+        ? [
+            ...blocks,
+            {
+              id: formBlockId(),
+              kind: 'field',
+              field,
+              original: element!.outerHTML,
+            },
+          ]
+        : node.nodeType === Node.TEXT_NODE && !node.textContent?.trim()
+          ? blocks
+          : _merge(
+              blocks,
+              element ? element.outerHTML : _text(node.textContent ?? '')
+            );
+    },
+    []
+  );
+};
