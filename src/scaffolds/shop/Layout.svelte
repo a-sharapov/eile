@@ -5,6 +5,7 @@
 <script lang="ts">
 import type { Snippet } from 'svelte';
 import Menu from '$components/Menu';
+import SearchForm from '$components/SearchForm';
 import { link, site as settings } from '$core';
 import Island from '$core/Island';
 
@@ -38,6 +39,7 @@ const policy = link(Number(site.custom.policy));
   <div class="bar">
     <a class="name" href="/">{site.name}</a>
     <Menu depth={2} />
+    <div class="find"><SearchForm page={site.custom.searchPage} /></div>
     {#if cart}<Island name="CartLink" props={{ url: cart }} />{/if}
   </div>
 </header>
@@ -217,6 +219,11 @@ const policy = link(Number(site.custom.policy));
     flex: 1;
   }
 
+  .find {
+    flex: none;
+    width: 11rem;
+  }
+
   .name {
     color: var(--green-deep);
     font-size: 1.25rem;
@@ -280,6 +287,12 @@ const policy = link(Number(site.custom.policy));
     padding-top: 1.5rem;
     border-top: 0.0625rem solid rgb(255 255 255 / 0.14);
     font-size: 0.875rem;
+  }
+
+  @media (max-width: 64rem) {
+    .find {
+      width: 2.5rem;
+    }
   }
 
   @media (max-width: 56rem) {

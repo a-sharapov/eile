@@ -42,6 +42,7 @@ import type {
   ModulePage,
   Modules,
   PageCache,
+  RedirectRules,
   Region,
   RequestInfo,
   Snapshot,
@@ -66,8 +67,11 @@ export type Delivery =
   | {
       readonly kind: 'redirect';
       readonly location: string;
-      /** Внешний адрес отдаётся как есть, без query исходного запроса. */
+      /** Внешний адрес отдаётся как есть, без кодирования. */
       readonly external: boolean;
+      readonly status: 301 | 302;
+      /** Дописать query исходного запроса: у своих адресов и у правил переадресации. */
+      readonly query: boolean;
     };
 
 export type PageDeliveryPorts = {
@@ -84,6 +88,8 @@ export type PageDeliveryPorts = {
   readonly report?: Report;
   /** Модули тегов `[#Form:name]`: что рисует каждый. */
   readonly modules?: Modules;
+  /** Правила переадресации из менеджера: адрес без страницы → цель. */
+  readonly redirects?: RedirectRules;
 };
 
 /** Ключ контекста, через который `$core/Uncached` отмечает свой регион. */
@@ -102,10 +108,17 @@ const _NESTED = new Map([
   [REGIONS_CONTEXT, { mark: () => '', island: () => '', module: () => '' }],
 ]);
 
-const _redirect = (location: string, external = false): Delivery => ({
+const _redirect = (
+  location: string,
+  external = false,
+  status: 301 | 302 = 301,
+  query = !external
+): Delivery => ({
   kind: 'redirect',
   location,
   external,
+  status,
+  query,
 });
 
 const _page =
@@ -135,6 +148,7 @@ export var definePageDelivery = ({
   hooks,
   report = NO_REPORT,
   modules = {},
+  redirects,
 }: PageDeliveryPorts) => {
   const regionFailed =
     (request: RequestInfo, region: Region) =>
@@ -552,20 +566,45 @@ export var definePageDelivery = ({
         : null;
   };
 
+  // Цель правила `[~id~]` идёт за страницей; страница снята с публикации — правило молчит.
+  const ruleTarget = (to: string, site: SiteSettings): string | null =>
+    ((id) =>
+      id === null
+        ? to
+        : ((page) => page && pageUrl(page, site.homePageId))(
+            content.page(Number(id))
+          ))(/^\[~(\d+)~\]$/.exec(to)?.[1] ?? null);
+
+  // Правила владельца сайта: после живых страниц (ошибка в правиле не закроет страницу), но раньше
+  // прежних адресов и плагинов — явное решение человека важнее автоматического.
+  const ruled = (path: string, site: SiteSettings): Delivery | null =>
+    ((found) =>
+      found &&
+      ((to) =>
+        to === null
+          ? null
+          : (redirects!.hit(found.id),
+            _redirect(to, !to.startsWith('/'), found.status, true)))(
+        ruleTarget(found.to, site)
+      ))(redirects?.match(path) ?? null);
+
   const notFound = (
     request: RequestInfo,
     site: SiteSettings
   ): Promise<Delivery> =>
     ((moved) =>
       moved
-        ? Promise.resolve(_redirect(moved))
+        ? Promise.resolve(moved)
         : hooks
             .notFound(request.path)
             .then((location) =>
               location === null
                 ? notFoundPage(request, site)
                 : _redirect(location, !location.startsWith('/'))
-            ))(movedTo(request.path, site));
+            ))(
+      ruled(request.path, site) ??
+        ((path) => path && _redirect(path))(movedTo(request.path, site))
+    );
 
   const resolve = (path: string, site: SiteSettings): PageView | null =>
     path !== '/'

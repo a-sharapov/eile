@@ -4,6 +4,7 @@ import { ago, moment } from '#lib/format.ts';
 import { type MessageKey, t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
+import { failed } from '#lib/notices.svelte.ts';
 import { session } from '#lib/session.svelte.ts';
 import {
   childrenOf,
@@ -15,10 +16,16 @@ import {
   tree,
   treeLoad,
 } from '#lib/tree.svelte.ts';
-import type { Activity, PageAction, PageNode } from '#lib/types.ts';
+import type {
+  Activity,
+  DiagnosticsReport,
+  PageAction,
+  PageNode,
+} from '#lib/types.ts';
 import LoadState from '#lib/ui/LoadState.svelte';
 import PageHeader from '#lib/ui/PageHeader.svelte';
 import { resolve } from '$app/paths';
+import Diagnostics from './Diagnostics.svelte';
 import PageTable from './PageTable.svelte';
 
 type Status = 'published' | 'draft' | 'scheduled';
@@ -110,9 +117,34 @@ const _stored = (): string | null => {
   }
 };
 
-let view = $state<'map' | 'table'>(_stored() === 'map' ? 'map' : 'table');
+type View = 'map' | 'table' | 'diagnostics';
 
-const pick = (next: 'map' | 'table') => {
+// Диагностика — администратору: она про настройки, медиатеку и формы.
+const admin = $derived(session.user?.role === 'admin');
+
+let view = $state<View>(
+  ((stored) =>
+    stored === 'map' || stored === 'diagnostics' ? stored : 'table')(_stored())
+);
+const shown = $derived<View>(view === 'diagnostics' && !admin ? 'table' : view);
+
+let report = $state<DiagnosticsReport | null>(null);
+let checking = $state(false);
+const diagnosticsLoad = defineLoad(() =>
+  api.get<DiagnosticsReport>('/diagnostics').then((_) => (report = _))
+);
+// Число проблем на вкладке видно сразу, а не только на самой диагностике.
+$effect(() => void (admin && diagnosticsLoad.retry()));
+
+const recheck = () =>
+  checking ||
+  ((checking = true),
+  api
+    .get<DiagnosticsReport>('/diagnostics?fresh=1')
+    .then((_) => void (report = _), failed)
+    .finally(() => (checking = false)));
+
+const pick = (next: View) => {
   view = next;
   try {
     localStorage.setItem(_VIEW_KEY, next);
@@ -124,8 +156,14 @@ const pick = (next: 'map' | 'table') => {
 
 {#snippet actions()}
   <div class="views" role="group" aria-label={t('overview.view')}>
-    <button type="button" aria-pressed={view === 'table'} onclick={() => pick('table')}>{@html icons.list}{t('overview.viewTable')}</button>
-    <button type="button" aria-pressed={view === 'map'} onclick={() => pick('map')}>{@html icons.tree}{t('overview.viewMap')}</button>
+    <button type="button" aria-pressed={shown === 'table'} title={t('overview.viewTable')} onclick={() => pick('table')}>{@html icons.list}<span class="label">{t('overview.viewTable')}</span></button>
+    <button type="button" aria-pressed={shown === 'map'} title={t('overview.viewMap')} onclick={() => pick('map')}>{@html icons.tree}<span class="label">{t('overview.viewMap')}</span></button>
+    {#if admin}
+      <button type="button" aria-pressed={shown === 'diagnostics'} title={t('overview.viewDiagnostics')} onclick={() => pick('diagnostics')}>
+        {@html icons.activity}<span class="label">{t('overview.viewDiagnostics')}</span>
+        {#if report && report.problems > 0}<span class="problems" title={t('overview.problems')}><span class="sr-only">{t('overview.problems')}: </span>{report.problems}</span>{/if}
+      </button>
+    {/if}
   </div>
   <a class="button primary" href={resolve('/(app)/pages/[id]', { id: 'new' })}>{@html icons.plus}{t('pages.new')}</a>
 {/snippet}
@@ -170,7 +208,9 @@ const pick = (next: 'map' | 'table') => {
 <!-- Видимый заголовок экрана — сам сайт (ствол карты); «Обзор сайта» — для читалки и в пути. -->
 <PageHeader title={t('overview.title')} crumbs={[{ label: t('nav.pages') }]} {actions} titleHidden />
 
-{#if view === 'table'}
+{#if shown === 'diagnostics'}
+  <Diagnostics {report} load={diagnosticsLoad} refresh={recheck} busy={checking} />
+{:else if shown === 'table'}
   <section class="table-view" aria-labelledby="map-title">
     {@render mapHead()}
     <p class="muted table-hint">{t('table.hint')}</p>
@@ -291,6 +331,33 @@ const pick = (next: 'map' | 'table') => {
   .views :global(svg) {
     width: 0.95rem;
     height: 0.95rem;
+  }
+
+  /* Телефон: три вида и «Новая страница» не помещаются в строку — у видов остаются значки. */
+  @media (width < 40rem) {
+    .views .label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+
+  /* Сколько проблем нашла диагностика: тихий тёплый счётчик рядом с подписью вкладки. */
+  .problems {
+    min-width: 1.25rem;
+    margin-left: 0.15rem;
+    padding: 0 0.35rem;
+    border-radius: 1rem;
+    background: var(--warn-soft);
+    color: var(--warn);
+    font-size: 0.6875rem;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.25rem;
+    text-align: center;
   }
 
   .table-view {

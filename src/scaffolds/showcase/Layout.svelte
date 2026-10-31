@@ -5,6 +5,7 @@
 <script lang="ts">
 import type { Snippet } from 'svelte';
 import Menu from '$components/Menu';
+import SearchForm from '$components/SearchForm';
 import { link, site as settings } from '$core';
 
 let {
@@ -36,6 +37,7 @@ const policy = link(Number(site.custom.policy));
   <div class="bar">
     <a class="name" href="/">{site.name}</a>
     <Menu depth={2} />
+    <div class="find"><SearchForm page={site.custom.searchPage} /></div>
     <a class="phone" href="tel:{phone.replace(/[^\d+]/g, '')}">{phone}</a>
   </div>
 </header>
@@ -215,6 +217,13 @@ const policy = link(Number(site.custom.policy));
     text-decoration: none;
   }
 
+  /* Меню и телефон занимают шапку: поле — на широком экране, иначе лупа поближе к меню. */
+  .find {
+    flex: none;
+    width: 2.5rem;
+    margin-inline-start: -1.5rem;
+  }
+
   .phone {
     color: var(--ink);
     font-weight: 600;
@@ -271,6 +280,13 @@ const policy = link(Number(site.custom.policy));
     gap: 0.5rem 2rem;
     margin-top: 2.5rem !important;
     font-size: 0.875rem;
+  }
+
+  @media (min-width: 100rem) {
+    .find {
+      width: 11rem;
+      margin-inline-start: 0;
+    }
   }
 
   @media (max-width: 56rem) {

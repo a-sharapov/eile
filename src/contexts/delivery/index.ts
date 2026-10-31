@@ -10,6 +10,7 @@ import type {
 import type { DesignEvent } from '../design/index.ts';
 import { type MediaEvent, stemOf } from '../media/index.ts';
 import type { SiteSettings } from '../site/index.ts';
+import { SEARCH_TAG } from './application/component-runtime.ts';
 import { defineDiscovery } from './application/discovery.ts';
 import { defineLinks } from './application/links.ts';
 import {
@@ -22,6 +23,7 @@ import type {
   Modules,
   PageCache,
   PageCacheStats,
+  RedirectRules,
   RequestInfo,
   TemplateViews,
 } from './application/ports.ts';
@@ -38,8 +40,15 @@ import { defineSiteHandler } from './interface/site-handler.ts';
 export {
   type ComponentRuntime,
   defineComponentRuntime,
+  SEARCH_TAG,
+  type SearchResults,
 } from './application/component-runtime.ts';
-export type { PageCacheStats } from './application/ports.ts';
+export type {
+  PageCacheStats,
+  RedirectRules,
+  SearchHit,
+  SiteSearch,
+} from './application/ports.ts';
 export {
   defineRenderScope,
   type RenderScope,
@@ -67,7 +76,9 @@ const _page = (event: DomainEvent): readonly string[] => {
     parentId: number | null;
     previousParentId?: number | null;
   };
+  // Выдачу поиска меняет любая страница: тег search сбрасывается с каждой правкой.
   return [
+    SEARCH_TAG,
     `page:${pageId}`,
     `branch:${pageId}`,
     `children:${parentId ?? 'root'}`,
@@ -132,6 +143,7 @@ export var defineDelivery = ({
   dictionary,
   report,
   modules,
+  redirects,
 }: {
   content: PublishedContent;
   settings: () => SiteSettings;
@@ -144,6 +156,8 @@ export var defineDelivery = ({
   report?: Report;
   /** Модули тегов `[#Form:name]`. */
   modules?: Modules;
+  /** Правила переадресации из менеджера. */
+  redirects?: RedirectRules;
 }) => {
   const cache = defineMemoryPageCache(
     () => settings().pageCacheMb * 1024 * 1024
@@ -161,6 +175,7 @@ export var defineDelivery = ({
     hooks,
     report,
     modules,
+    redirects,
   });
   // Успешные ответы страниц по кэшу — с запуска или с ручного сброса: видно, работает ли кэш. 404 от
   // ботов, перебирающих адреса, долю не портят.

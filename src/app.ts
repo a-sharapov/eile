@@ -6,6 +6,13 @@ import {
   defineAssistant,
 } from './contexts/assistant/index.ts';
 import {
+  CERTIFICATES_TABLES,
+  type Certificates,
+  certificatesMigrations,
+  defineCertificates,
+  type HttpsOptions,
+} from './contexts/certificates/index.ts';
+import {
   type Clock,
   type ContentService,
   contentMigrations,
@@ -24,6 +31,10 @@ import {
   designMigrations,
 } from './contexts/design/index.ts';
 import {
+  type DiagnosticsService,
+  defineDiagnostics,
+} from './contexts/diagnostics/index.ts';
+import {
   defineExtensions,
   type ExtensionsService,
   extensionsMigrations,
@@ -37,6 +48,7 @@ import {
 } from './contexts/forms/index.ts';
 import {
   defineIdentity,
+  IDENTITY_SERVER_TABLES,
   type IdentityService,
   identityMigrations,
 } from './contexts/identity/index.ts';
@@ -59,10 +71,29 @@ import {
   type Transports,
 } from './contexts/notify/index.ts';
 import {
+  defineRedirects,
+  type RedirectsService,
+  redirectsMigrations,
+} from './contexts/redirects/index.ts';
+import {
+  clearSearchIndex,
+  defineSearch,
+  SEARCH_PATH,
+  SEARCH_TABLES,
+  type Search,
+  searchMigrations,
+} from './contexts/search/index.ts';
+import {
   defineSite,
   type SiteService,
   siteMigrations,
 } from './contexts/site/index.ts';
+import {
+  defineUpkeep,
+  UPKEEP_SERVER_TABLES,
+  type Upkeep,
+  upkeepMigrations,
+} from './contexts/upkeep/index.ts';
 import { KIT } from './kit/index.ts';
 import {
   type Archive,
@@ -84,9 +115,12 @@ import {
   openDatabase,
 } from './platform/database.ts';
 import { defineEventBus } from './platform/event-bus.ts';
+import { REPOSITORY } from './product.ts';
 import { applyScaffold, type Scaffold } from './scaffolds/scaffold.ts';
+import { serverChecks } from './server-checks.ts';
 import { attempt, fail } from './shared/kernel/errors.ts';
 import { errorDetail, errorKey } from './shared/kernel/report.ts';
+import { redirectPages, siteFacts } from './site-facts.ts';
 
 export type AppOptions = {
   /** Файл SQLite; по умолчанию база в памяти. */
@@ -101,6 +135,12 @@ export type AppOptions = {
   readonly background?: boolean;
   /** Каналы уведомлений без сети — для тестов. */
   readonly transports?: Transports;
+  /** Адрес API релизов вместо GitHub — для тестов. */
+  readonly releasesUrl?: string;
+  /** Проверять обновления; по умолчанию да, если нет CMS_NO_UPDATE_CHECK=1. */
+  readonly updateCheck?: boolean;
+  /** HTTPS без прокси: сервер сам выпускает и продлевает сертификат Let's Encrypt на эти домены. */
+  readonly https?: HttpsOptions;
 };
 
 /** То, что Bun передаёт в fetch вторым аргументом: по нему узнаём адрес посетителя. */
@@ -122,6 +162,13 @@ export type App = {
   readonly assistant: AssistantService;
   readonly notify: Notify;
   readonly forms: Forms;
+  /** Автокопии по расписанию и проверка обновлений. */
+  readonly upkeep: Upkeep;
+  readonly search: Search;
+  readonly certificates: Certificates;
+  readonly redirects: RedirectsService;
+  /** Диагностика сайта; другие модули добавляют проверки через `register`. */
+  readonly diagnostics: DiagnosticsService;
   /** Копия всего сайта в один файл: база, элементы, медиа. */
   readonly backup: (target: string) => void;
   /** Записи сайта текстом (JSON); сеансов входа в нём нет. */
@@ -149,16 +196,26 @@ const _MIGRATIONS: readonly Migration[] = [
   ...assistantMigrations,
   ...notifyMigrations,
   ...formsMigrations,
+  ...upkeepMigrations,
+  ...searchMigrations,
+  ...certificatesMigrations,
+  ...redirectsMigrations,
 ];
 
-// Сеансы входа, подключение ИИ (его ключ), каналы уведомлений и их очередь — не содержимое сайта, а
-// этого сервера: в копию не попадают и при восстановлении остаются свои.
+// Сеансы входа, подключение ИИ (его ключ), каналы уведомлений и их очередь, сертификаты HTTPS и их
+// ключи — не содержимое сайта, а этого сервера: в копию не попадают и при восстановлении остаются свои.
 const _SERVER_ONLY = [
-  'identity_sessions',
+  ...IDENTITY_SERVER_TABLES,
   ASSISTANT_TABLE,
   ...NOTIFY_TABLES,
   ...FORMS_SERVER_TABLES,
+  ...UPKEEP_SERVER_TABLES,
+  ...CERTIFICATES_TABLES,
 ];
+
+// Индекс поиска выводится из страниц: в JSON-копию не идёт, восстановление его не трогает, а после
+// восстановления он строится заново. В копию .db попадает как есть — согласованным.
+const _DERIVED = [..._SERVER_ONLY, ...SEARCH_TABLES];
 
 // Копий «до восстановления» рядом с базой — не больше трёх последних.
 const _KEEP_BEFORE_RESTORE = 3;
@@ -167,6 +224,8 @@ const _KEEP_BEFORE_RESTORE = 3;
 const _AUDIT: Readonly<Record<string, string>> = {
   'identity.user_created': 'В менеджере новый пользователь',
   'identity.role_changed': 'У пользователя менеджера сменилась роль',
+  'identity.password_reset':
+    'Пароль пользователя менеджера сброшен по ссылке из письма',
   'identity.user_removed': 'Пользователь менеджера удалён',
 };
 
@@ -196,6 +255,12 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
     transports: options.transports,
   });
   const report = notify.incidents.report;
+  const certificates = defineCertificates({
+    db,
+    clock,
+    report,
+    ...(options.https ? { https: options.https } : {}),
+  });
   bus.onAny(
     (event) =>
       void (
@@ -221,6 +286,16 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
     })
   );
   const content = defineContent({ db, bus, clock });
+  const search = defineSearch({
+    db,
+    bus,
+    published: content.published,
+    tree: content.drafts.tree,
+    site: () =>
+      ((_) => ({ language: _.language, notFoundPageId: _.notFoundPageId }))(
+        settings()
+      ),
+  });
   const identity = defineIdentity({ db, bus, clock });
   const scope = defineRenderScope();
   const media = defineMedia({ db, bus });
@@ -234,8 +309,10 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
     settings,
     scope,
     media,
-    dictionary
+    dictionary,
+    search.search
   );
+  const searchHandler = search.handler(runtime.link);
   const design = defineDesign({
     db,
     bus,
@@ -278,6 +355,12 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
     notify: (notice, channels, source) =>
       void notify.send(notice, channels, source),
   });
+  const redirects = defineRedirects({
+    db,
+    bus,
+    clock,
+    pages: redirectPages(content, site),
+  });
   const delivery = defineDelivery({
     content: content.published,
     settings,
@@ -288,6 +371,20 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
     dictionary,
     report,
     modules: { Form: forms.render },
+    redirects: { match: redirects.match, hit: redirects.hit },
+  });
+  const diagnostics = defineDiagnostics({
+    bus,
+    clock,
+    facts: siteFacts({
+      content,
+      site,
+      media,
+      forms,
+      notify,
+      design,
+      redirects,
+    }),
   });
 
   void (
@@ -295,6 +392,24 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
     content.isEmpty() &&
     applyScaffold(options.scaffold, { content, design, site, forms })
   );
+
+  const upkeep = defineUpkeep({
+    db,
+    path: options.databasePath ?? ':memory:',
+    without: _SERVER_ONLY,
+    clock,
+    report,
+    version: VERSION,
+    repository: REPOSITORY,
+    releasesUrl: options.releasesUrl,
+    updateCheck: options.updateCheck ?? process.env.CMS_NO_UPDATE_CHECK !== '1',
+  });
+  serverChecks({
+    upkeep,
+    https: certificates.status,
+    site,
+    persistent: options.databasePath !== undefined,
+  }).forEach((_) => void diagnostics.register(_));
 
   const manager = defineManager({
     content,
@@ -311,6 +426,10 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
     notify,
     forms,
     pageCache: delivery.cache,
+    upkeep,
+    https: certificates.status,
+    redirects,
+    diagnostics,
     version: VERSION,
     db,
   });
@@ -321,11 +440,13 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
       ? manager.handle(request, client)
       : path.startsWith(FORMS_PREFIX)
         ? forms.handle(request, client)
-        : path.startsWith(`${ASSETS_PREFIX}/`)
-          ? design.assets(request)
-          : path.startsWith(MEDIA_PREFIX)
-            ? Promise.resolve(media.handle(request))
-            : delivery.handle(request);
+        : path === SEARCH_PATH
+          ? Promise.resolve(searchHandler.handle(request, client))
+          : path.startsWith(`${ASSETS_PREFIX}/`)
+            ? design.assets(request)
+            : path.startsWith(MEDIA_PREFIX)
+              ? Promise.resolve(media.handle(request))
+              : delivery.handle(request);
   };
 
   return {
@@ -343,6 +464,11 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
     assistant,
     notify,
     forms,
+    upkeep,
+    search,
+    certificates,
+    redirects,
+    diagnostics,
   };
 };
 
@@ -412,7 +538,8 @@ export var createApp = (options: AppOptions = {}): App => {
         const before = parts.identity.users
           .list()
           .map((_) => ({ id: _.id, email: _.email }));
-        restoreDatabase(db, source, _SERVER_ONLY);
+        restoreDatabase(db, source, _DERIVED);
+        clearSearchIndex(db);
         stopBackground();
         parts = _compose(db, { ...options, scaffold: undefined }, backup);
         stopBackground = startBackground();
@@ -428,7 +555,7 @@ export var createApp = (options: AppOptions = {}): App => {
 
   const backup: Backup = {
     database: () => snapshot(db, _SERVER_ONLY),
-    archive: () => exportArchive(db, _SERVER_ONLY),
+    archive: () => exportArchive(db, _DERIVED),
     restore,
   };
 
@@ -436,9 +563,18 @@ export var createApp = (options: AppOptions = {}): App => {
   // Фон — у собранных заново контекстов: восстановление копии останавливает прежний и запускает новый.
   const startBackground = (): (() => void) =>
     options.background
-      ? ((notify, forms) => () => (notify(), forms()))(
+      ? ((notify, forms, upkeep, warm) => () => (
+          notify(), forms(), upkeep(), clearTimeout(warm)
+        ))(
           parts.notify.start(),
-          parts.forms.start()
+          parts.forms.start(),
+          parts.upkeep.start(),
+          // Индекс поиска строится вскоре после запуска, а не на первом поиске посетителя.
+          setTimeout(
+            () =>
+              void attempt(parts.search.warm, (error) => console.error(error)),
+            1000
+          )
         )
       : () => undefined;
   let stopBackground = startBackground();
@@ -481,6 +617,21 @@ export var createApp = (options: AppOptions = {}): App => {
     },
     get forms() {
       return parts.forms;
+    },
+    get upkeep() {
+      return parts.upkeep;
+    },
+    get search() {
+      return parts.search;
+    },
+    get certificates() {
+      return parts.certificates;
+    },
+    get redirects() {
+      return parts.redirects;
+    },
+    get diagnostics() {
+      return parts.diagnostics;
     },
     backup: (target) => backupDatabase(db, target, _SERVER_ONLY),
     archive: backup.archive,

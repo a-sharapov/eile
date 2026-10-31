@@ -1,3 +1,4 @@
+import activity from 'lucide-static/icons/activity.svg?raw';
 import archiveRestore from 'lucide-static/icons/archive-restore.svg?raw';
 import arrowDown from 'lucide-static/icons/arrow-down.svg?raw';
 import arrowUp from 'lucide-static/icons/arrow-up.svg?raw';
@@ -52,6 +53,7 @@ import palette from 'lucide-static/icons/palette.svg?raw';
 import panelLeft from 'lucide-static/icons/panel-left.svg?raw';
 import panelLeftClose from 'lucide-static/icons/panel-left-close.svg?raw';
 import panelLeftOpen from 'lucide-static/icons/panel-left-open.svg?raw';
+import pencil from 'lucide-static/icons/pencil.svg?raw';
 import phone from 'lucide-static/icons/phone.svg?raw';
 import plug from 'lucide-static/icons/plug.svg?raw';
 import plus from 'lucide-static/icons/plus.svg?raw';
@@ -87,6 +89,7 @@ const fileHash =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10.5 11.5 10 18.5"/><path d="M14.5 11.5 14 18.5"/><path d="M8.5 13.5h7"/><path d="M8.5 16.5h7"/></svg>';
 
 export var icons = {
+  activity: _icon(activity),
   alert: _icon(circleAlert),
   arrowDown: _icon(arrowDown),
   arrowUp: _icon(arrowUp),
@@ -140,6 +143,7 @@ export var icons = {
   palette: _icon(palette),
   panelClose: _icon(panelLeftClose),
   panelOpen: _icon(panelLeftOpen),
+  pencil: _icon(pencil),
   phone: _icon(phone),
   plug: _icon(plug),
   plus: _icon(plus),

@@ -15,13 +15,15 @@ bun run build      # SPA + dist/cms: один файл, запуск: dist/cms -
 dist/cms new blog --db site.db              # сайт из каркаса: blog, portfolio, company, showcase, shop
 dist/cms import-evo dump.sql --db site.db   # перенос сайта Evo
 dist/cms backup copy.db --db site.db        # бэкап всего сайта одним файлом
+dist/cms --domain example.com --db site.db  # HTTPS без прокси: Let's Encrypt сам
+dist/cms update                             # новая версия со сверкой SHA256SUMS
 dist/cms help [команда]                     # справка с примерами; info, users — сводка и пользователи
 ```
 
 ## Где что
 
 - `docs/` — видение, суть Evo, единый язык, архитектура, ADR, дорожная карта. Начинай с `docs/README.md`.
-- `src/contexts/{content,design,site,delivery,identity,media,extensions,assistant,manager}` — ограниченные контексты. `src/app.ts` — корень
+- `src/contexts/{content,design,site,delivery,identity,media,extensions,assistant,manager,notify,forms,search,redirects,diagnostics,upkeep,certificates}` — ограниченные контексты. `src/app.ts` — корень
   композиции.
 - `src/scaffolds/` — каркасы сайтов для `cms new` и приветствие новой базы; `tests/fixtures/demo.ts` — демо-сайт тестов.
 - `manager/` — SPA менеджера (SvelteKit 3, TypeScript 6, свой `package.json`); перед правкой — скилл `sveltekit-3`.

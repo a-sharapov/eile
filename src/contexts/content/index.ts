@@ -8,12 +8,14 @@ import { defineFieldRepository } from './infrastructure/sqlite-field-repository.
 import { defineOldPathRepository } from './infrastructure/sqlite-old-path-repository.ts';
 import { definePageRepository } from './infrastructure/sqlite-page-repository.ts';
 import { definePublishedContent } from './infrastructure/sqlite-published-content.ts';
+import { defineRevisionRepository } from './infrastructure/sqlite-revision-repository.ts';
 
 export type {
   Clock,
   ContentService,
   CreatePageInput,
   PageRef,
+  RestoreInput,
 } from './application/content-service.ts';
 export type {
   ChildrenOptions,
@@ -34,6 +36,13 @@ export type {
   PageChanges,
   PageKind,
 } from './domain/page.ts';
+export type {
+  Author,
+  Revision,
+  RevisionAction,
+  Snapshot,
+} from './domain/revision.ts';
+export type { RevisionSummary } from './domain/revision-repository.ts';
 export { contentMigrations } from './infrastructure/migrations.ts';
 
 /** Контекст content: дерево страниц, их поля и публикация. */
@@ -55,6 +64,7 @@ export var defineContent = ({
     pages: definePageRepository(db),
     fields: defineFieldRepository(db),
     oldPaths: defineOldPathRepository(db),
+    revisions: defineRevisionRepository(db),
     published,
     drafts: published.drafts,
     bus,

@@ -9,6 +9,9 @@ export var defineOldPathRepository = (db: Database): OldPathRepository => {
   const byPage = db.query<{ path: string }, [number]>(
     'SELECT path FROM content_old_paths WHERE page_id = ? ORDER BY moved_at DESC'
   );
+  const all = db.query<{ path: string; page_id: number; moved_at: string }, []>(
+    'SELECT path, page_id, moved_at FROM content_old_paths ORDER BY moved_at DESC, path'
+  );
   const upsert = db.query(
     `INSERT INTO content_old_paths (path, page_id, moved_at) VALUES (?, ?, ?)
      ON CONFLICT (path) DO UPDATE SET page_id = excluded.page_id, moved_at = excluded.moved_at`
@@ -19,6 +22,12 @@ export var defineOldPathRepository = (db: Database): OldPathRepository => {
     pageFor: (path) =>
       ((row) => (row ? parsePageId(row.page_id) : null))(byPath.get(path)),
     of: (pageId) => byPage.all(pageId).map((_) => _.path),
+    all: () =>
+      all.all().map((_) => ({
+        path: _.path,
+        pageId: parsePageId(_.page_id),
+        movedAt: _.moved_at,
+      })),
     save: (path, pageId, at) => void upsert.run(path, pageId, at),
     remove: (path) => void remove.run(path),
     removeOf: (pageId) => void removeOf.run(pageId),

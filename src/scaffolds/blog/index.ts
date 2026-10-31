@@ -92,7 +92,7 @@ export var BLOG: Scaffold = {
   summary: 'лента записей с порциями, страница автора и форма для писем',
   siteName: 'Заметки на полях',
   description: 'Заметки о книгах, ремесле и привычках',
-  kit: ['Menu', 'PostList', 'PostMeta'],
+  kit: ['Menu', 'PostList', 'PostMeta', 'SearchForm', 'SearchResults'],
   components: {
     Layout: _text(layout),
     RecentPosts: _text(recentPosts),
@@ -124,6 +124,7 @@ export var BLOG: Scaffold = {
       allowLinks: true,
     },
   },
+  settings: { searchPage: '@{search}' },
   pages: [
     {
       key: 'home',
@@ -158,6 +159,15 @@ export var BLOG: Scaffold = {
       template: 'Page',
       content:
         '<p>Такой страницы здесь нет — возможно, её переименовали. Загляните в <a href="[~@{blog}~]">записи</a> или вернитесь <a href="/">на главную</a>.</p>',
+      hiddenFromMenu: true,
+      searchable: false,
+    },
+    {
+      key: 'search',
+      title: 'Поиск',
+      alias: 'search',
+      template: 'Page',
+      content: '[[SearchResults]]',
       hiddenFromMenu: true,
       searchable: false,
     },

@@ -136,7 +136,16 @@ export var COMPANY: Scaffold = {
   siteName: 'Инженерное бюро',
   description:
     'Отопление, вентиляция и электрика для домов и офисов: проект, монтаж и обслуживание.',
-  kit: ['Menu', 'Breadcrumbs', 'PostList', 'PostMeta', 'Modal', 'ModalButton'],
+  kit: [
+    'Menu',
+    'Breadcrumbs',
+    'PostList',
+    'PostMeta',
+    'Modal',
+    'ModalButton',
+    'SearchForm',
+    'SearchResults',
+  ],
   components: {
     Layout: _text(layout),
     PageHead: _text(pageHead),
@@ -191,6 +200,7 @@ export var COMPANY: Scaffold = {
     },
   },
   settings: {
+    searchPage: '@{search}',
     phone: '+7 (900) 000-00-00',
     email: 'info@example.com',
     address: 'Москва, ул. Примерная, 12, офис 3',
@@ -301,6 +311,15 @@ export var COMPANY: Scaffold = {
       introText: 'Такой страницы нет — возможно, её переименовали.',
       content:
         '<p>Начните с <a href="/">главной</a> или посмотрите <a href="[~@{services}~]">услуги и цены</a>.</p>',
+      hiddenFromMenu: true,
+      searchable: false,
+    },
+    {
+      key: 'search',
+      title: 'Поиск',
+      alias: 'search',
+      template: 'Page',
+      content: '[[SearchResults]]',
       hiddenFromMenu: true,
       searchable: false,
     },

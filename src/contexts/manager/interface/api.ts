@@ -12,7 +12,9 @@ import {
   type Report,
 } from '../../../shared/kernel/report.ts';
 import { type AssistantService, isCode } from '../../assistant/index.ts';
+import type { HttpsStatus } from '../../certificates/index.ts';
 import type {
+  Author,
   ContentService,
   CreatePageInput,
   Field,
@@ -25,6 +27,7 @@ import type {
 } from '../../content/index.ts';
 import type { PageCacheStats } from '../../delivery/index.ts';
 import type { DesignService } from '../../design/index.ts';
+import type { DiagnosticsReport } from '../../diagnostics/index.ts';
 import type { ExtensionsService } from '../../extensions/index.ts';
 import type {
   FormsService,
@@ -39,8 +42,14 @@ import {
   type UserView,
 } from '../../identity/index.ts';
 import type { MediaService } from '../../media/index.ts';
-import type { ChannelKind, NotifyService } from '../../notify/index.ts';
+import {
+  type ChannelKind,
+  message,
+  type NotifyService,
+} from '../../notify/index.ts';
+import type { RedirectsService } from '../../redirects/index.ts';
 import type { SiteService, SiteSettings } from '../../site/index.ts';
+import type { UpkeepService } from '../../upkeep/index.ts';
 import type { ActivityLog, PageAction } from '../domain/activity.ts';
 import {
   type AppearanceRepository,
@@ -84,6 +93,16 @@ export type ManagerServices = {
   readonly pageCache: {
     readonly stats: () => PageCacheStats;
     readonly clear: () => PageCacheStats;
+  };
+  /** Автокопии по расписанию и проверка обновлений. */
+  readonly upkeep: Pick<UpkeepService, 'backups' | 'updates'>;
+  /** Сертификат HTTPS, если его выпускает сам сервер; null — HTTPS не его забота. */
+  readonly https: () => HttpsStatus | null;
+  /** Правила переадресации сайта. */
+  readonly redirects: RedirectsService;
+  /** Диагностика сайта; `again` — посчитать заново. */
+  readonly diagnostics: {
+    readonly report: (again?: boolean) => DiagnosticsReport;
   };
 };
 
@@ -133,12 +152,19 @@ const _UNSAFE = ['POST', 'PUT', 'PATCH', 'DELETE'];
 // Код DomainError → HTTP-статус по второй части кода (`identity.too_many_attempts`).
 const _STATUS: Readonly<Record<string, number>> = {
   invalid_credentials: 401,
+  // Ссылка сброса пароля устарела или использована; сброс по почте не настроен.
+  reset_invalid: 410,
+  reset_unavailable: 409,
+  too_many_requests: 429,
   element_in_use: 409,
   element_exists: 409,
   plugin_exists: 409,
   field_exists: 409,
   kit_changed: 409,
   form_exists: 409,
+  rule_exists: 409,
+  loop: 409,
+  chain: 409,
   no_deliveries: 409,
   kit_not_found: 404,
   // Уведомления: канал не настроен — конфликт с настройками; канал отказал при проверке — шлюз.
@@ -160,6 +186,9 @@ const _STATUS: Readonly<Record<string, number>> = {
   unreachable: 502,
   empty: 502,
   timeout: 504,
+  // Обслуживание: копия уже делается — конфликт; страница релизов не ответила — шлюз.
+  backup_running: 409,
+  releases_unavailable: 502,
   _: 422,
 };
 
@@ -363,6 +392,11 @@ const _routes = ({
   notify,
   forms,
   pageCache,
+  report,
+  upkeep,
+  https,
+  redirects,
+  diagnostics,
   version,
 }: ApiServices): readonly Route[] => {
   const searchOf = (request: Request) => new URL(request.url).searchParams;
@@ -604,6 +638,12 @@ const _routes = ({
   const appearanceOf = (userId: number) =>
     appearance.get(userId) ?? DEFAULT_APPEARANCE;
 
+  // Автор правки для истории страницы: имя — на момент правки, как в журнале.
+  const authorOf = (user: UserView): Author => ({
+    id: user.id,
+    name: user.name,
+  });
+
   const fieldsOf = (template: string) =>
     content.fields.list().filter((_) => _.templates.includes(template));
 
@@ -689,6 +729,13 @@ const _routes = ({
             url: settings.siteUrl,
           }))(site.settings.get()),
           version,
+          // «Забыли пароль?» — только когда письмо есть чем отправить.
+          passwordReset: notify.email.ready(),
+          // Новая версия программы — только тем, кто ведёт сайт: им её и ставить.
+          update:
+            user && can(user.role, 'site.edit')
+              ? upkeep.updates.latest()
+              : null,
         }),
     ],
     [
@@ -735,6 +782,72 @@ const _routes = ({
           { 'set-cookie': _cookie(request, '', 0) }
         );
       },
+    ],
+    // Сброс пароля: ответ одинаковый, есть такая почта или нет; письмо уходит в фоне, чтобы и время
+    // ответа ничего не выдавало. Ссылка — только в письме: ни в очереди, ни в журнале её нет.
+    [
+      'POST',
+      '/password/forgot',
+      'public',
+      ({ request, body, client }) =>
+        body().then((_) =>
+          notify.email.ready()
+            ? ((link) => (
+                void (
+                  link &&
+                  notify.email
+                    .send(
+                      link.user.email,
+                      _resetLetter(
+                        link.user.name,
+                        _managerLink(
+                          request,
+                          site.settings.get().siteUrl,
+                          `reset?token=${link.token}`
+                        )
+                      )
+                    )
+                    .then(undefined, (error) =>
+                      report({
+                        kind: 'identity.reset_mail_failed',
+                        severity: 'warning',
+                        title: 'Не ушло письмо для сброса пароля',
+                        detail: errorDetail(error),
+                        key: errorKey('identity.reset_mail_failed', error),
+                      })
+                    )
+                ),
+                _json(202, {})
+              ))(identity.recovery.request(String(_.email ?? ''), client))
+            : fail(
+                'manager.reset_unavailable',
+                'Password reset by email is not configured'
+              )
+        ),
+    ],
+    [
+      'POST',
+      '/password/check',
+      'public',
+      ({ body }) =>
+        body().then((_) =>
+          _json(200, { valid: identity.recovery.check(String(_.token ?? '')) })
+        ),
+    ],
+    [
+      'POST',
+      '/password/reset',
+      'public',
+      ({ body }) =>
+        body()
+          .then((_) =>
+            identity.recovery.reset(
+              String(_.token ?? ''),
+              String(_.password ?? '')
+            )
+          )
+          // Почта — тому, у кого ссылка из её же ящика: вход откроется с ней.
+          .then((user) => _json(200, { email: user.email })),
     ],
     [
       'POST',
@@ -886,7 +999,8 @@ const _routes = ({
               pageDetails(
                 content.pages.edit(
                   Number(params.id),
-                  guardPage(user!, content.drafts.page(Number(params.id)), _)
+                  guardPage(user!, content.drafts.page(Number(params.id)), _),
+                  authorOf(user!)
                 )
               )
             )
@@ -906,7 +1020,8 @@ const _routes = ({
               pageDetails(
                 content.pages.setFields(
                   Number(params.id),
-                  can(user!.role, 'design.edit') ? _ : cleanFields(_)
+                  can(user!.role, 'design.edit') ? _ : cleanFields(_),
+                  authorOf(user!)
                 )
               )
             )
@@ -925,6 +1040,51 @@ const _routes = ({
               200,
               pageDetails(
                 content.pages.move(Number(params.id), _.parentId ?? null)
+              )
+            )
+          )
+      ),
+    ],
+    [
+      'GET',
+      '/pages/:id/revisions',
+      'content.edit',
+      ({ params }) => _json(200, content.revisions.list(Number(params.id))),
+    ],
+    [
+      'GET',
+      '/pages/:id/revisions/:revision',
+      'content.edit',
+      ({ params }) =>
+        _json(
+          200,
+          content.revisions.get(Number(params.id), Number(params.revision))
+        ),
+    ],
+    [
+      // Возврат — та же правка: у кого нет права на код, тому HTML версии чистится, как при сохранении.
+      'POST',
+      '/pages/:id/revisions/:revision/restore',
+      'content.edit',
+      logged(
+        () => 'edited',
+        ({ params, user }) =>
+          _json(
+            200,
+            pageDetails(
+              content.revisions.restore(
+                Number(params.id),
+                Number(params.revision),
+                {
+                  author: authorOf(user!),
+                  prepare: (input) =>
+                    (({ fields = {}, ...changes }) => ({ changes, fields }))(
+                      guardPage(user!, content.drafts.page(Number(params.id)), {
+                        ...input.changes,
+                        fields: input.fields,
+                      })
+                    ),
+                }
               )
             )
           )
@@ -1226,8 +1386,129 @@ const _routes = ({
       'forms.edit',
       ({ params }) => (forms.forms.remove(params.name!), _json(200, {})),
     ],
+    [
+      'GET',
+      '/upkeep',
+      'site.edit',
+      () =>
+        _json(200, {
+          backups: upkeep.backups.status(),
+          updates: upkeep.updates.status(),
+        }),
+    ],
+    [
+      'PUT',
+      '/upkeep/backups',
+      'site.edit',
+      ({ body }) =>
+        body().then((_) => _json(200, upkeep.backups.configure(_ ?? {}))),
+    ],
+    [
+      'POST',
+      '/upkeep/backups/run',
+      'site.edit',
+      () =>
+        upkeep.backups
+          .run(true)
+          .then(() => _json(200, upkeep.backups.status())),
+    ],
+    [
+      'PUT',
+      '/upkeep/updates',
+      'site.edit',
+      ({ body }) =>
+        body().then((_) =>
+          _json(200, upkeep.updates.configure(_?.enabled === true))
+        ),
+    ],
+    [
+      'POST',
+      '/upkeep/updates/check',
+      'site.edit',
+      () => upkeep.updates.check().then((_) => _json(200, _)),
+    ],
     ['GET', '/cache', 'site.edit', () => _json(200, pageCache.stats())],
+    [
+      'GET',
+      '/diagnostics',
+      'site.edit',
+      ({ request }) =>
+        _json(200, diagnostics.report(searchOf(request).has('fresh'))),
+    ],
+    [
+      'GET',
+      '/redirects',
+      'site.edit',
+      () =>
+        ((titles) =>
+          _json(200, {
+            rules: redirects.rules.list(),
+            // Прежние адреса страниц: с них сайт сам отвечает 301 на новые.
+            moved: content.pages.allOldPaths().map((_) => ({
+              ..._,
+              title: titles.get(_.pageId) ?? '',
+            })),
+          }))(new Map(content.drafts.tree().map((_) => [_.id, _.title]))),
+    ],
+    [
+      'POST',
+      '/redirects',
+      'site.edit',
+      ({ body }) =>
+        body().then((_) => _json(201, redirects.rules.create(_ ?? {}))),
+    ],
+    [
+      'GET',
+      '/redirects/export',
+      'site.edit',
+      () =>
+        new Response(redirects.rules.export(), {
+          headers: {
+            'content-type': 'text/csv; charset=utf-8',
+            'content-disposition': `attachment; filename="redirects-${new Date().toISOString().slice(0, 10)}.csv"`,
+            'cache-control': 'no-store',
+          },
+        }),
+    ],
+    [
+      'POST',
+      '/redirects/import',
+      'site.edit',
+      ({ body }) =>
+        body().then((_) =>
+          _json(200, redirects.rules.import(String(_?.csv ?? '')))
+        ),
+    ],
+    [
+      'POST',
+      '/redirects/forget',
+      'site.edit',
+      ({ body }) =>
+        body().then(
+          (_) => (
+            content.pages.forgetOldPath(String(_?.path ?? '')), _json(200, {})
+          )
+        ),
+    ],
+    [
+      'PUT',
+      '/redirects/:id',
+      'site.edit',
+      ({ params, body }) =>
+        body().then((_) =>
+          _json(200, redirects.rules.edit(Number(params.id), _ ?? {}))
+        ),
+    ],
+    [
+      'DELETE',
+      '/redirects/:id',
+      'site.edit',
+      ({ params }) => (
+        redirects.rules.remove(Number(params.id)), _json(200, {})
+      ),
+    ],
     ['DELETE', '/cache', 'site.edit', () => _json(200, pageCache.clear())],
+    ['GET', '/https', 'site.edit', () => _json(200, https())],
     ['GET', '/notify', 'site.edit', () => _json(200, notify.settings.status())],
     [
       'PUT',
@@ -1658,6 +1939,25 @@ const _originOf = (url: string): string | null =>
     () => (url ? new URL(url).origin : null),
     () => null
   );
+
+/** Ссылка на страницу менеджера для письма: адрес сайта из настроек, иначе адрес запроса. */
+const _managerLink = (
+  request: Request,
+  siteUrl: string,
+  page: string
+): string =>
+  ((url) =>
+    `${_originOf(siteUrl) ?? url.origin}${url.pathname.replace(/\/api\/.*$/, '')}/${page}`)(
+    new URL(request.url)
+  );
+
+const _resetLetter = (name: string, link: string) =>
+  message({
+    topic: 'account',
+    title: 'Новый пароль для менеджера',
+    text: `Здравствуйте, ${name}! Кто-то — надеемся, вы — попросил сбросить пароль к менеджеру сайта. Ссылка ниже действует 30 минут и сработает один раз.\n\nЕсли это были не вы, ничего не делайте: пароль останется прежним.`,
+    link: { label: 'Задать новый пароль', url: link },
+  });
 
 /** JSON API менеджера под `/manager/api`. */
 export var defineManagerApi = (services: ApiServices) => {

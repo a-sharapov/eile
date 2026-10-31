@@ -328,6 +328,20 @@ export var defineNotifyService = ({
         .then(undefined, (error) =>
           fail('notify.test_failed', failureOf(error).message)
         ),
+    /**
+     * Письмо одному адресату сразу, мимо очереди: в очереди и журнале не остаётся того, что в письме
+     * (ссылка сброса пароля). Не ушло — отказ, повторов нет.
+     */
+    email: {
+      ready: (): boolean => settings.get().email !== null,
+      send: (to: string, item: Message): Promise<void> =>
+        ((current) =>
+          current
+            ? transports.email.send(current, [to], item, site().name)
+            : Promise.reject(
+                fail('notify.not_configured', 'Email is not configured')
+              ))(settings.get().email),
+    },
     telegram: {
       me: (input: Record<string, unknown> = {}): Promise<string> =>
         Promise.resolve(input).then(savedTelegram).then(transports.telegram.me),

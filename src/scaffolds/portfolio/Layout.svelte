@@ -5,6 +5,7 @@
 <script lang="ts">
 import type { Snippet } from 'svelte';
 import Menu from '$components/Menu';
+import SearchForm from '$components/SearchForm';
 import { site as settings } from '$core';
 
 let {
@@ -33,7 +34,10 @@ const telegram = site.custom.telegram.replace(/^@/, '');
 <a class="skip" href="#work">К содержимому</a>
 <header class="top">
   <a class="name" href="/">{site.name}</a>
-  <Menu depth={1} />
+  <div class="tools">
+    <Menu depth={1} />
+    <div class="find"><SearchForm page={site.custom.searchPage} /></div>
+  </div>
 </header>
 <main id="work">
   {@render children()}
@@ -174,6 +178,17 @@ const telegram = site.custom.telegram.replace(/^@/, '');
     font-size: 0.9375rem;
   }
 
+  .tools {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem 1.5rem;
+  }
+
+  .find {
+    --search-height: 2.25rem;
+    width: 11rem;
+  }
+
   .name {
     font-size: 1.125rem;
     font-weight: 750;
@@ -213,5 +228,16 @@ const telegram = site.custom.telegram.replace(/^@/, '');
   .copy {
     color: var(--muted);
     font-size: 0.875rem;
+  }
+
+  /* Меню уходит в бургер — поле сжимается до лупы рядом с ним. */
+  @media (max-width: 48rem) {
+    .tools {
+      gap: 0.25rem;
+    }
+
+    .find {
+      width: 2.25rem;
+    }
   }
 </style>

@@ -4,6 +4,7 @@ import { defineIdentityService } from './application/identity-service.ts';
 import {
   bunPasswordHasher,
   cryptoTokens,
+  definePasswordResetRepository,
   defineSessionRepository,
   defineUserRepository,
 } from './infrastructure/sqlite-identity.ts';
@@ -11,11 +12,15 @@ import {
 export type {
   IdentityService,
   Login,
+  ResetLink,
   UserView,
 } from './application/identity-service.ts';
 export type { IdentityEvent } from './domain/events.ts';
 export { can, type Permission, type Role } from './domain/user.ts';
-export { identityMigrations } from './infrastructure/sqlite-identity.ts';
+export {
+  IDENTITY_SERVER_TABLES,
+  identityMigrations,
+} from './infrastructure/sqlite-identity.ts';
 
 /** Контекст identity: пользователи менеджера, роли и сессии. */
 export var defineIdentity = ({
@@ -30,6 +35,7 @@ export var defineIdentity = ({
   defineIdentityService({
     users: defineUserRepository(db),
     sessions: defineSessionRepository(db),
+    resets: definePasswordResetRepository(db),
     hasher: bunPasswordHasher,
     tokens: cryptoTokens,
     bus,

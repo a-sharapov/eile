@@ -134,6 +134,12 @@ CMS_DOWNLOAD_URL="file://$PWD/dist/release" CMS_INSTALL_DIR=/tmp/cms-bin bash di
 Бинарники для macOS, собранные на Linux, перед запуском на Mac нужно подписать (`codesign --sign -`);
 в CI их собирает и подписывает раннер macOS.
 
+## HTTPS на стенде
+
+Как включить HTTPS на сервере — в README. Для проверки без настоящего домена: `CMS_ACME_DIRECTORY=<адрес
+каталога ACME>`; учебный центр сертификации для тестов — `tests/fixtures/acme.ts`
+([ADR 0028](docs/adr/0028-https-without-proxy.md)).
+
 ## Claude Code
 
 Для работы с Claude Code в репозитории есть [CLAUDE.md](CLAUDE.md) и скиллы проекта в `.claude/skills/`:

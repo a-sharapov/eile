@@ -14,6 +14,11 @@ export type ServeSummary = {
   readonly trashed: number;
   /** Ссылка первичной настройки: пока пользователей нет. */
   readonly setupUrl: string | null;
+  /** HTTPS без прокси: срок сертификата (null — ещё выпускается) и тестовый ли центр. */
+  readonly https?: {
+    readonly notAfter: string | null;
+    readonly staging: boolean;
+  };
 };
 
 const _count = (n: number, one: string, few: string, many: string): string =>
@@ -37,6 +42,15 @@ const _mark = (paint: Paint, version: string): string[] => [
   `    ${paint.dim('└─')}${paint.dim('○')}  ${paint.dim('страницы, шаблоны, медиатека')}`,
 ];
 
+const _https = (
+  paint: Paint,
+  https: NonNullable<ServeSummary['https']>
+): string =>
+  (https.notAfter
+    ? `сертификат до ${https.notAfter.slice(0, 10)}`
+    : `${paint.warn('выпускается сертификат')} ${paint.dim('— пока сайт по HTTP')}`) +
+  (https.staging ? paint.dim(' · тестовый центр') : '');
+
 const _row = (paint: Paint, label: string, value: string): string =>
   `  ${padEnd(paint.dim(label), 11)}${value}`;
 
@@ -47,6 +61,9 @@ export var motd = (paint: Paint, summary: ServeSummary): string =>
     ..._mark(paint, summary.version),
     '',
     _row(paint, 'Сайт', paint.path(summary.url)),
+    ...(summary.https
+      ? [_row(paint, 'HTTPS', _https(paint, summary.https))]
+      : []),
     _row(paint, 'Менеджер', paint.path(new URL('manager', summary.url).href)),
     _row(paint, 'База', summary.db),
     _row(

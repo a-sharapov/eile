@@ -46,7 +46,8 @@ const submit = (event: SubmitEvent) => (
       .send('POST', '/setup', { token, name, email, password })
       .then(loadSession)
       .then(keepPickedScheme)
-      .then(() => goto(resolve('/(app)/pages')))
+      // Первый вход на сайт — сразу в настройки: название, адрес, уведомления.
+      .then(() => goto(resolve('/(app)/settings')))
       .then(undefined, (_) => void (error = describe(_)))
       .finally(() => (busy = false)))
 );

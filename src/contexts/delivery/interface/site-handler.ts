@@ -59,6 +59,17 @@ const _requestInfo = (
   };
 };
 
+// У цели может быть свой query: `/catalog?sort=new` и `?utm=x` → `/catalog?sort=new&utm=x`.
+const _withSearch = (location: string, search: string): string =>
+  search === ''
+    ? location
+    : ((hash) =>
+        ((base, anchor) =>
+          `${base}${base.includes('?') ? `&${search.slice(1)}` : search}${anchor}`)(
+          hash < 0 ? location : location.slice(0, hash),
+          hash < 0 ? '' : location.slice(hash)
+        ))(location.indexOf('#'));
+
 const _etag = (html: string): string => `"${Bun.hash(html).toString(36)}"`;
 
 const _ETAGS_LIMIT = 8192;
@@ -157,11 +168,12 @@ export var defineSiteHandler = (
 
   const redirectResponse = (redirect: Redirect, search: string): Response =>
     new Response(null, {
-      status: 301,
+      status: redirect.status,
       headers: {
-        location: redirect.external
-          ? redirect.location
-          : encodeURI(redirect.location) + search,
+        location: _withSearch(
+          redirect.external ? redirect.location : encodeURI(redirect.location),
+          redirect.query ? search : ''
+        ),
       },
     });
 

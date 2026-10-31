@@ -14,8 +14,10 @@ export type PageRepository = {
   readonly nextScheduledAt: () => Moment | null;
   readonly trashed: () => PageId[];
   readonly count: () => number;
+  /** Когда страница создана; null — её нет. */
+  readonly createdAt: (id: PageId) => Moment | null;
   readonly save: (page: Page) => void;
-  /** Удаляет страницу вместе с потомками и значениями полей. */
+  /** Удаляет страницу вместе с потомками, значениями полей и историей правок. */
   readonly remove: (id: PageId) => void;
   /** Страницы с этим шаблоном, включая корзину: без шаблона их не показать и не восстановить. */
   readonly withTemplate: (template: string) => PageId[];

@@ -212,7 +212,7 @@ export var SHOP: Scaffold = {
   summary: 'каталог, корзина и оформление заказа',
   siteName: 'Чайная лавка',
   description: 'Листовой чай от небольших хозяйств',
-  kit: ['Menu', 'Breadcrumbs', 'Pagination'],
+  kit: ['Menu', 'Breadcrumbs', 'Pagination', 'SearchForm', 'SearchResults'],
   components: {
     ...CATALOG_COMPONENTS,
     CartStore: _text(cartStore),
@@ -270,6 +270,7 @@ export var SHOP: Scaffold = {
     },
   },
   settings: {
+    searchPage: '@{search}',
     phone: '+7 900 000-00-00',
     email: 'shop@example.com',
     address: 'ул. Чайная, 12',
@@ -365,6 +366,15 @@ export var SHOP: Scaffold = {
       template: 'Page',
       content:
         '<p>Такой страницы нет — возможно, этот чай закончился. Загляните в <a href="[~@{catalog}~]">каталог</a> или вернитесь <a href="/">на главную</a>.</p>',
+      hiddenFromMenu: true,
+      searchable: false,
+    },
+    {
+      key: 'search',
+      title: 'Поиск',
+      alias: 'search',
+      template: 'Page',
+      content: '[[SearchResults]]',
       hiddenFromMenu: true,
       searchable: false,
     },

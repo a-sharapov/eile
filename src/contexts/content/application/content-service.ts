@@ -34,6 +34,22 @@ import {
   unpublishPage,
 } from '../domain/page.ts';
 import type { PageRepository } from '../domain/page-repository.ts';
+import {
+  type Author,
+  changesBetween,
+  type Edit,
+  planRevision,
+  type Revision,
+  type RevisionAction,
+  type RevisionPlan,
+  restoreChanges,
+  retained,
+  snapshotOf,
+} from '../domain/revision.ts';
+import type {
+  RevisionRepository,
+  RevisionSummary,
+} from '../domain/revision-repository.ts';
 import type { DraftContent, PublishedContent } from './published-content.ts';
 
 export type CreatePageInput = Omit<NewPage, 'parentId'> & {
@@ -43,6 +59,17 @@ export type CreatePageInput = Omit<NewPage, 'parentId'> & {
 };
 
 export type Clock = () => Date;
+
+/** Что вернуть из версии: поля страницы и значения полей; менеджер может их поправить (чистка HTML). */
+export type RestoreInput = {
+  readonly changes: PageChanges;
+  readonly fields: FieldValues;
+};
+
+export type RestoreOptions = {
+  readonly author?: Author | null;
+  readonly prepare?: (input: RestoreInput) => RestoreInput;
+};
 
 const _removed = (pageId: PageId, parentId: PageId | null): ContentEvent => ({
   type: 'content.page_removed',
@@ -73,6 +100,7 @@ export var defineContentService = ({
   pages,
   fields,
   oldPaths,
+  revisions,
   published,
   drafts,
   bus,
@@ -81,6 +109,7 @@ export var defineContentService = ({
   pages: PageRepository;
   fields: FieldRepository;
   oldPaths: OldPathRepository;
+  revisions: RevisionRepository;
   published: PublishedContent;
   drafts: DraftContent;
   bus: EventBus;
@@ -124,10 +153,63 @@ export var defineContentService = ({
     (_: Page) => _.id
   );
 
+  // План истории → запись; после добавления или слияния — только версии, что влезают в бюджет.
+  const _RECORD: {
+    readonly [K in RevisionPlan['kind']]: (
+      plan: Extract<RevisionPlan, { kind: K }>
+    ) => PageId | null;
+  } = {
+    none: () => null,
+    add: (_) => (revisions.add(_.revision), _.revision.pageId),
+    merge: (_) => (revisions.update(_.revision), _.revision.pageId),
+    drop: (_) => (revisions.remove(_.id), null),
+  };
+
+  const record = (plan: RevisionPlan): void =>
+    ((pageId) =>
+      void (
+        pageId !== null &&
+        revisions.keepOnly(pageId, retained(revisions.list(pageId)))
+      ))(_RECORD[plan.kind](plan as never));
+
+  // Публикация, перенос, порядок в меню историю не трогают — и не стоят ни одного запроса к ней.
+  const remember = (edit: Omit<Edit, 'createdAt'>): void =>
+    void (
+      changesBetween(snapshotOf(edit.before), snapshotOf(edit.after)).length >
+        0 &&
+      record(
+        planRevision(revisions.latest(edit.before.id), {
+          ...edit,
+          createdAt: pages.createdAt(edit.before.id),
+        })
+      )
+    );
+
+  /**
+   * Переход над страницей и запись: прежнее состояние уходит в историю, если изменилось то, что она
+   * помнит (текст, заголовки, адрес, шаблон, поля), — а не публикация, место в дереве или расписание.
+   */
   const apply =
-    (transition: (page: Page) => PageChange) =>
+    (
+      transition: (page: Page) => PageChange,
+      author: Author | null = null,
+      action: RevisionAction = 'edited',
+      restoredFrom: Moment | null = null
+    ) =>
     (id: number): PageId =>
-      pipe<number, PageId>(load, transition, store)(id);
+      ((before: Page) =>
+        ((change: PageChange) =>
+          ((saved: PageId) => (
+            remember({
+              before,
+              after: change.state,
+              action,
+              author,
+              at: now(),
+              restoredFrom,
+            }),
+            saved
+          ))(store(change)))(transition(before)))(load(id));
 
   const withFields = (values: FieldValues | undefined) =>
     values === undefined
@@ -285,6 +367,40 @@ export var defineContentService = ({
   const applyDue = (at: Moment): number =>
     pages.due(at).map((_) => apply(applySchedule(at))(_)).length;
 
+  const revisionOf = (pageId: number, revisionId: number): Revision =>
+    ((revision) =>
+      revision && revision.pageId === load(pageId).id
+        ? revision
+        : fail(
+            'content.revision_not_found',
+            `Page ${pageId} has no revision ${revisionId}`
+          ))(revisions.get(revisionId));
+
+  /**
+   * Возврат к версии одной правкой: нынешнее состояние уходит в историю новой версией (а не сливается с
+   * прежней), страница получает текст, адрес, шаблон и поля версии; события сбрасывают кэш как обычно.
+   */
+  const restoreRevision = (
+    pageId: number,
+    revisionId: number,
+    { author = null, prepare = (_) => _ }: RestoreOptions = {}
+  ): PageId =>
+    ((revision) =>
+      ((input) =>
+        keepingOldPaths(pageId, () =>
+          apply(
+            (page: Page) =>
+              chain(setFields(fields.all(), input.fields))(
+                editPage(input.changes)(page)
+              ),
+            author,
+            'restored',
+            revision.at
+          )(pageId)
+        ))(
+        prepare(restoreChanges(revision.snapshot, load(pageId), fields.all()))
+      ))(revisionOf(pageId, revisionId));
+
   const runDue = (): number => {
     const at = now();
     nextScheduled =
@@ -295,10 +411,15 @@ export var defineContentService = ({
   return {
     pages: {
       create,
-      edit: (id: number, changes: PageChanges): PageId =>
+      /** `author` — кто правит: его имя увидит история; без него правка — от сайта. */
+      edit: (
+        id: number,
+        changes: PageChanges,
+        author: Author | null = null
+      ): PageId =>
         changes.alias === undefined
-          ? apply(editPage(changes))(id)
-          : keepingOldPaths(id, () => apply(editPage(changes))(id)),
+          ? apply(editPage(changes), author)(id)
+          : keepingOldPaths(id, () => apply(editPage(changes), author)(id)),
       publish: (id: number): PageId => apply(publishPage(now()))(id),
       unpublish: apply(unpublishPage),
       move: (id: number, parentId: number | null): PageId =>
@@ -310,8 +431,11 @@ export var defineContentService = ({
             )
           )(id)
         ),
-      setFields: (id: number, values: FieldValues): PageId =>
-        apply(setFields(fields.all(), values))(id),
+      setFields: (
+        id: number,
+        values: FieldValues,
+        author: Author | null = null
+      ): PageId => apply(setFields(fields.all(), values), author)(id),
       trash: (id: number): PageId => apply(trashPage(now()))(id),
       restore: apply(restorePage),
       duplicate,
@@ -319,6 +443,8 @@ export var defineContentService = ({
       /** Прежние адреса страницы — для менеджера. */
       oldPaths: (id: number): string[] => oldPaths.of(parsePageId(id)),
       forgetOldPath: (path: string): void => oldPaths.remove(path),
+      /** Прежние адреса всех страниц: с них сайт сам отвечает 301 на новые. */
+      allOldPaths: () => oldPaths.all(),
       /** Страница, которая раньше жила по этому адресу; null — такого адреса не было. */
       movedFrom: (path: string): number | null => oldPaths.pageFor(path),
       import: importPage,
@@ -336,6 +462,13 @@ export var defineContentService = ({
     schedule: {
       /** Применяет наступившие публикации и снятия; без них стоит одно сравнение строк. */
       runDue,
+    },
+    revisions: {
+      /** История страницы без снимков, новые первыми. */
+      list: (pageId: number): RevisionSummary[] =>
+        revisions.list(load(pageId).id),
+      get: revisionOf,
+      restore: restoreRevision,
     },
     fields: {
       save: (input: NewField): FieldName =>

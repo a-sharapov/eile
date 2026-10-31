@@ -23,17 +23,26 @@ export var COMMANDS: readonly CommandHelp[] = [
   {
     name: 'serve',
     summary: 'Запустить сайт и менеджер (команда по умолчанию)',
-    usage: ['cms [serve] [--port <порт>] [--db <файл>] [--trust-proxy]'],
+    usage: [
+      'cms [serve] [--port <порт>] [--db <файл>] [--trust-proxy]',
+      'cms [serve] --domain <домены> [--email <почта>] [--https-port <порт>]',
+    ],
     details: [
       'Сайт и менеджер (/manager) отдаются одним процессом. На пустой базе создаются страница приветствия и пустой шаблон Minimal; готовый сайт — cms new.',
       'Пока пользователей нет, при запуске печатается ссылка первичной настройки — по ней создаётся администратор.',
       'Остановить — Ctrl+C или SIGTERM: база закрывается аккуратно.',
       'За nginx или Caddy с HTTPS — --trust-proxy: протокол и адрес посетителя берутся из X-Forwarded-*, cookie входа получает Secure. Без прокси этот флаг не включайте: заголовки подделает любой.',
+      "HTTPS без прокси — --domain: сервер сам получает сертификат Let's Encrypt и продлевает его за 30 дней до конца. HTTP (порт 80) отвечает на проверку домена и ведёт на HTTPS (443); пока сертификата нет, сайт открывается по HTTP. DNS доменов должен указывать на этот сервер.",
+      'Порты 80 и 443 — от root или с правом на них: sudo setcap cap_net_bind_service=+ep $(which cms), в systemd — AmbientCapabilities=CAP_NET_BIND_SERVICE.',
     ],
     options: [
       ['--port <порт>', 'Порт: 8080 или $PORT'],
       _DB,
       ['--trust-proxy', 'Доверять X-Forwarded-*: только за своим прокси'],
+      ['--domain <домены>', 'HTTPS без прокси: example.com,www.example.com'],
+      ['--email <почта>', "Почта для писем Let's Encrypt о сертификате"],
+      ['--https-port <порт>', 'Порт HTTPS: 443 или $CMS_HTTPS_PORT'],
+      ['--acme-staging', "Тестовый центр Let's Encrypt — для пробы"],
     ],
     examples: [
       ['Сайт на :8080 из site.db в текущем каталоге', 'cms'],
@@ -41,6 +50,10 @@ export var COMMANDS: readonly CommandHelp[] = [
       [
         'Через окружение — для systemd и Docker',
         'PORT=80 CMS_DB=/var/lib/cms/site.db cms',
+      ],
+      [
+        'HTTPS без nginx на своём сервере',
+        'cms --domain example.com --email you@example.com',
       ],
     ],
   },
@@ -165,6 +178,22 @@ export var COMMANDS: readonly CommandHelp[] = [
       ['Дамп старого сайта', 'mysqldump -u evo -p evo_db > evo.sql'],
       ['Перенос в новую базу', 'cms import-evo evo.sql --db site.db'],
       ['Посмотреть, что получилось', 'cms --db site.db'],
+    ],
+  },
+  {
+    name: 'update',
+    summary: 'Обновить cms до новой версии одной командой',
+    usage: ['cms update [--check]'],
+    details: [
+      'Берёт новую версию со страницы релизов: сборку под эту систему, сверяет её с SHA256SUMS, пробует запустить и атомарно заменяет бинарник. Прежний остаётся рядом: cms.old.',
+      'Работающий сервер продолжает на старой версии — перезапустите его. Сайт и база не меняются.',
+      'С альфы и беты обновление идёт и на следующие пре-релизы, со стабильной версии — только на стабильные.',
+      'В менеджере о новой версии говорит меню профиля; проверку выключают в настройках или CMS_NO_UPDATE_CHECK=1.',
+    ],
+    options: [['--check', 'Только проверить, есть ли новая версия']],
+    examples: [
+      ['Есть ли новая версия', 'cms update --check'],
+      ['Обновить cms в /usr/local/bin', 'sudo cms update'],
     ],
   },
   {

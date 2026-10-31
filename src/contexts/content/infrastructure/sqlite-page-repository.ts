@@ -156,6 +156,9 @@ export var definePageRepository = (db: Database): PageRepository => {
   const total = db.query<{ n: number }, []>(
     'SELECT count(*) AS n FROM content_pages'
   );
+  const created = db.query<{ created_at: string }, [number]>(
+    'SELECT created_at FROM content_pages WHERE id = ?'
+  );
   const valuesOf = db.query<FieldValueRow, [number]>(
     'SELECT field, value FROM content_field_values WHERE page_id = ?'
   );
@@ -171,6 +174,9 @@ export var definePageRepository = (db: Database): PageRepository => {
   );
   const removePages = db.query(
     `${_BRANCH} DELETE FROM content_pages WHERE id IN (SELECT id FROM branch)`
+  );
+  const removeRevisions = db.query(
+    `${_BRANCH} DELETE FROM content_revisions WHERE page_id IN (SELECT id FROM branch)`
   );
 
   const toPage = (row: PageRow | null): Page | null =>
@@ -216,6 +222,7 @@ export var definePageRepository = (db: Database): PageRepository => {
 
   const remove = db.transaction((id: PageId) => {
     removeValues.run(id);
+    removeRevisions.run(id);
     removePages.run(id);
   });
 
@@ -229,6 +236,7 @@ export var definePageRepository = (db: Database): PageRepository => {
     nextScheduledAt: () => next.get()?.at ?? null,
     trashed: () => ids(trashed.all()),
     count: () => total.get()?.n ?? 0,
+    createdAt: (id) => created.get(id)?.created_at ?? null,
     save: (page) => void save(page),
     remove: (id) => void remove(id),
     withTemplate: (template) => ids(withTemplate.all(template)),

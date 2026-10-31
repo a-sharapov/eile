@@ -20,6 +20,7 @@ import {
   uploadFolder,
 } from '#lib/upload.ts';
 import { resolve } from '$app/paths';
+import { page as route } from '$app/state';
 
 let files = $state<MediaFile[]>([]);
 let folder = $state(uploadFolder());
@@ -93,7 +94,8 @@ const family = (file: MediaFile): MediaFile[] =>
   );
 
 // Карточка файла: щелчок по плитке открывает панель — превью, сведения, описание, где используется.
-let selectedPath = $state<string | null>(null);
+// Ссылка `?file=…` из диагностики открывает карточку файла сразу.
+let selectedPath = $state<string | null>(route.url.searchParams.get('file'));
 let usage = $state<{ pages: PageRef[]; site: boolean } | null>(null);
 
 const selected = $derived(files.find((_) => _.path === selectedPath) ?? null);

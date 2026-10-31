@@ -4,3 +4,6 @@
  * остальные идентификаторы — `cms`. Сменить название: эта строка и `app.name` в manager/src/lib/i18n.ts.
  */
 export var PRODUCT = 'Eile';
+
+/** Репозиторий релизов: отсюда проверка обновлений и `cms update` берут новые версии. */
+export var REPOSITORY = 'a-sharapov/eile';

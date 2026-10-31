@@ -1,8 +1,14 @@
 import { Database } from 'bun:sqlite';
 import { type App, createApp } from '../app.ts';
+import { LETS_ENCRYPT, parseDomains } from '../contexts/certificates/index.ts';
+import {
+  defineReleases,
+  type UpdateResult,
+  updateProgram,
+} from '../contexts/upkeep/index.ts';
 import { importEvo } from '../evo-import/import.ts';
 import { parseDump } from '../evo-import/sql-dump.ts';
-import { PRODUCT } from '../product.ts';
+import { PRODUCT, REPOSITORY } from '../product.ts';
 import {
   applyScaffold,
   clearWelcome,
@@ -14,6 +20,7 @@ import {
 import { isDomainError } from '../shared/kernel/errors.ts';
 import type { Options } from './args.ts';
 import { COMMANDS, commandHelp, overview, suggest } from './help.ts';
+import { httpsUrl, type ServeBase, serveSecure } from './https.ts';
 import { motd, pages } from './motd.ts';
 import { type Paint, padEnd } from './paint.ts';
 import { promptHidden } from './prompt.ts';
@@ -51,6 +58,25 @@ const _DOMAIN: Readonly<Record<string, string>> = {
   'backup.invalid': 'Это не копия сайта: нужен файл .db или JSON из backup.',
   'backup.foreign': `Это база SQLite, но не сайта на ${PRODUCT}.`,
   'backup.newer': `Копия сделана более новой версией ${PRODUCT} — обновите программу.`,
+  'upkeep.not_binary':
+    'cms update заменяет установленный бинарник, а этот cms запущен из исходников: обновите репозиторий.',
+  'upkeep.unsupported_platform':
+    'Для этой системы сборок нет: нужны Linux или macOS на x64 или arm64.',
+  'upkeep.releases_unavailable':
+    'Страница релизов не ответила — проверьте сеть и попробуйте позже.',
+  'upkeep.download_failed':
+    'Новая версия не скачалась — проверьте сеть и попробуйте ещё раз.',
+  'upkeep.asset_missing':
+    'В новом выпуске нет сборки для этой системы — обновите позже или установщиком.',
+  'upkeep.checksum_mismatch':
+    'Контрольная сумма не совпала: файл повреждён или подменён. Установленный cms не тронут.',
+  'upkeep.binary_broken':
+    'Новая версия не запускается на этой системе — установленный cms не тронут.',
+  'upkeep.no_write':
+    'Нет прав на запись в каталог cms: запустите cms update через sudo.',
+  'certificates.invalid_domain':
+    'Это не домен для сертификата: нужно имя вроде example.com — без *, IP и localhost.',
+  'certificates.no_domain': 'Нужен домен: --domain example.com',
 };
 
 export var explain = (error: unknown): string =>
@@ -101,47 +127,109 @@ const _dot = (paint: Paint): string => paint.dim(' · ');
 
 // --- serve ---------------------------------------------------------------
 
+const _BASE: ServeBase = {
+  // Восстановление сайта из копии приходит одним телом: база с медиатекой бывает большой. Потолок
+  // каждого маршрута API строже и проверяется после входа (manager/interface/api.ts `_BODY_LIMIT`).
+  maxRequestBodySize: 2 * 1024 ** 3,
+  // Страница ошибки Bun в режиме разработки показывает исходник и пути — посетителю она не нужна.
+  development: false,
+  error: (error) => (
+    console.error(error), new Response('Internal Server Error', { status: 500 })
+  ),
+};
+
+// Каталог ACME: свой (стенд) → тестовый Let's Encrypt → боевой.
+const _directory = (options: Options): string =>
+  options.acmeDirectory ??
+  (options.acmeStaging ? LETS_ENCRYPT.staging : LETS_ENCRYPT.production);
+
+// С --domain сервер сам держит HTTPS: HTTP-порт — для проверки и переадресации, сертификат — от Let's Encrypt.
+const _listen = (
+  ctx: Context,
+  app: App,
+  domains: readonly string[] | null
+): { url: () => string; stop: () => void } =>
+  domains
+    ? ((httpsPort) =>
+        ((secure) => ({
+          url: () =>
+            secure.secured()
+              ? httpsUrl(domains, httpsPort)
+              : `http://${domains[0]}${secure.http.port === 80 ? '' : `:${secure.http.port}`}/`,
+          stop: secure.stop,
+        }))(
+          serveSecure({
+            app,
+            domains,
+            port: Number(ctx.options.port),
+            httpsPort,
+            base: _BASE,
+            issued: (certificate) =>
+              ctx.out(
+                `${ctx.paint.ok('✓')} Сертификат HTTPS до ${certificate.notAfter.slice(0, 10)}: ${ctx.paint.path(httpsUrl(domains, httpsPort))}`
+              ),
+            failed: (error) =>
+              ctx.out(
+                `${ctx.paint.error('✗')} Сертификат HTTPS не выпущен: ${error}\n  ${ctx.paint.dim('Следующая попытка — через час; подробности — в журнале сбоев менеджера.')}`
+              ),
+          })
+        ))(Number(ctx.options.httpsPort ?? '443'))
+    : ((server) => ({
+        url: () => server.url.href,
+        stop: () => void server.stop(),
+      }))(
+        Bun.serve({
+          ..._BASE,
+          port: Number(ctx.options.port),
+          fetch: app.fetch,
+        })
+      );
+
 const _serve = (ctx: Context): Promise<void> =>
   Bun.file(ctx.options.db)
     .exists()
     .then((existed) => {
+      const domains = ctx.options.domain
+        ? parseDomains(ctx.options.domain)
+        : null;
       const app = createApp({
         databasePath: ctx.options.db,
         scaffold: WELCOME,
         trustProxy: ctx.options.trustProxy,
         background: true,
+        ...(domains
+          ? {
+              https: {
+                domains,
+                email: ctx.options.email ?? '',
+                directory: _directory(ctx.options),
+              },
+            }
+          : {}),
       });
-      const server = Bun.serve({
-        // Восстановление сайта из копии приходит одним телом: база с медиатекой бывает большой. Потолок
-        // каждого маршрута API строже и проверяется после входа (manager/interface/api.ts `_BODY_LIMIT`).
-        maxRequestBodySize: 2 * 1024 ** 3,
-        port: Number(ctx.options.port),
-        fetch: app.fetch,
-        // Страница ошибки Bun в режиме разработки показывает исходник и пути — посетителю она не нужна.
-        development: false,
-        error: (error) => (
-          console.error(error),
-          new Response('Internal Server Error', { status: 500 })
-        ),
-      });
+      const server = _listen(ctx, app, domains);
       const shutdown = () => (server.stop(), app.close(), process.exit(0));
       ['SIGINT', 'SIGTERM'].forEach(
         (signal) => void process.on(signal, shutdown)
       );
       const tree = app.content.drafts.tree();
       const token = app.identity.setup.token();
+      const https = app.certificates.status();
       ctx.out(
         motd(ctx.paint, {
           version: VERSION,
-          url: server.url.href,
+          url: server.url(),
           db: ctx.options.db,
           fresh: !existed,
           pages: tree.length,
           published: tree.filter((_) => _.published && !_.trashed).length,
           trashed: tree.filter((_) => _.trashed).length,
           setupUrl: token
-            ? new URL(`/manager/setup?token=${token}`, server.url).href
+            ? new URL(`/manager/setup?token=${token}`, server.url()).href
             : null,
+          ...(https
+            ? { https: { notAfter: https.notAfter, staging: https.staging } }
+            : {}),
         })
       );
     });
@@ -548,6 +636,38 @@ export var helpFor = (
         COMMANDS.find((_) => _.name === name)
       );
 
+// --- update ----------------------------------------------------------------
+
+const _UPDATE: Readonly<
+  Record<UpdateResult['status'], (paint: Paint, result: UpdateResult) => string>
+> = {
+  current: (paint, _) =>
+    `${paint.ok('✓')} Установлена последняя версия: ${PRODUCT} ${_.current}`,
+  available: (paint, _) =>
+    _.status === 'available'
+      ? [
+          `Доступна ${paint.bold(`${PRODUCT} ${_.release.version}`)}${paint.dim(` · установлена ${_.current}`)}`,
+          `  ${paint.path(_.release.url)}`,
+          `  Обновить: ${paint.bold('cms')} ${paint.command('update')}`,
+        ].join('\n')
+      : '',
+  updated: (paint, _) =>
+    _.status === 'updated'
+      ? [
+          `${paint.ok('✓')} ${PRODUCT} обновлена: ${_.current} → ${paint.bold(_.release.version)}`,
+          `  ${padEnd(paint.dim('Прежняя'), 10)}${paint.path(_.previous)}`,
+          `  ${paint.warn('▸')} Перезапустите сервер: новая версия заработает после перезапуска.`,
+        ].join('\n')
+      : '',
+};
+
+const _update = (ctx: Context): Promise<void> =>
+  updateProgram({
+    releases: defineReleases({ repository: REPOSITORY, version: VERSION }),
+    current: VERSION,
+    check: ctx.options.check === true,
+  }).then((result) => ctx.out(_UPDATE[result.status](ctx.paint, result)));
+
 export var RUN: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
   serve: _serve,
   new: _new,
@@ -556,6 +676,7 @@ export var RUN: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
   backup: _backup,
   restore: _restore,
   'import-evo': _import,
+  update: _update,
   help: (ctx) => helpFor(ctx.paint, ctx.args[0]).then(ctx.out),
   version: (ctx) => Promise.resolve(ctx.out(`${PRODUCT} ${VERSION}`)),
 };

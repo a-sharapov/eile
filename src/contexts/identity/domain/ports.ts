@@ -26,6 +26,21 @@ export type SessionRepository = {
   readonly removeExpired: (at: string) => void;
 };
 
+/** Ссылка сброса пароля: как сеанс, хранится по хэшу токена и действует до срока. */
+export type PasswordReset = {
+  readonly tokenHash: string;
+  readonly userId: UserId;
+  readonly expiresAt: string;
+};
+
+export type PasswordResetRepository = {
+  readonly get: (tokenHash: string) => PasswordReset | null;
+  readonly save: (reset: PasswordReset) => void;
+  /** Все ссылки пользователя: новая отменяет прежние, использованная гасит остальные. */
+  readonly removeOf: (userId: UserId) => void;
+  readonly removeExpired: (at: string) => void;
+};
+
 export type PasswordHasher = {
   readonly hash: (password: string) => Promise<string>;
   readonly verify: (password: string, hash: string) => Promise<boolean>;

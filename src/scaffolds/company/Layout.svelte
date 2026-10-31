@@ -8,6 +8,7 @@ import type { Snippet } from 'svelte';
 import Menu from '$components/Menu';
 import Modal from '$components/Modal';
 import ModalButton from '$components/ModalButton';
+import SearchForm from '$components/SearchForm';
 import { link, site as settings } from '$core';
 
 let {
@@ -36,6 +37,7 @@ const phone = site.custom.phone;
 const tel = `tel:${phone.replace(/[^\d+]/g, '')}`;
 const callback = Number(site.custom.callbackPage);
 const policy = Number(site.custom.policyPage);
+const searchPage = Number(site.custom.searchPage);
 // Форма звонка уже в тексте страницы — окно с ней же не нужно: кнопка ведёт к форме на странице.
 const inline = $derived(page.content.includes('[#Form:callback]'));
 </script>
@@ -50,6 +52,7 @@ const inline = $derived(page.content.includes('[#Form:callback]'));
     <a class="name" href="/">{site.name}</a>
     <Menu depth={1} />
     <div class="reach">
+      <div class="find"><SearchForm page={searchPage} /></div>
       <a class="phone" href={tel}>{phone}</a>
       {#if inline}
         <a class="call" href="#form-callback">Заказать звонок</a>
@@ -83,6 +86,9 @@ const inline = $derived(page.content.includes('[#Form:callback]'));
   </div>
   <div class="legal">
     <p>© {year} {site.name}</p>
+    {#if Number.isInteger(searchPage) && link(searchPage)}
+      <a class="to-search" href={link(searchPage)}>Поиск по сайту</a>
+    {/if}
     {#if Number.isInteger(policy) && link(policy)}
       <a href={link(policy)}>Политика конфиденциальности</a>
     {/if}
@@ -245,6 +251,15 @@ const inline = $derived(page.content.includes('[#Form:callback]'));
     gap: 1.25rem;
   }
 
+  /* Шапка плотная: поле — на широком экране, иначе лупа; на телефоне поиск — ссылкой в подвале. */
+  .find {
+    width: 2.5rem;
+  }
+
+  .to-search {
+    margin-left: auto;
+  }
+
   .phone {
     color: var(--ink);
     font-weight: 650;
@@ -354,6 +369,18 @@ const inline = $derived(page.content.includes('[#Form:callback]'));
   }
 
   /* Тесно для строки меню — телефон уходит в подвал, кнопка звонка остаётся. */
+  @media (min-width: 100rem) {
+    .find {
+      width: 11rem;
+    }
+  }
+
+  @media (max-width: 30rem) {
+    .find {
+      display: none;
+    }
+  }
+
   @media (max-width: 64rem) {
     .phone {
       display: none;

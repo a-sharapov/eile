@@ -388,8 +388,8 @@ const closeAccount = (event: Event) =>
       <a class="button ghost icon site" href="/" target="_blank" rel="noopener" aria-label={t('nav.site')} title={t('nav.site')}>{@html icons.external}</a>
       <InboxBell />
       <div class="account">
-        <button type="button" class="user" bind:this={accountButton} aria-label={`${t('shell.account')}: ${session.user.name}`} aria-expanded={accountOpen} onclick={() => (accountOpen = !accountOpen)}>
-          <span class="avatar" aria-hidden="true">{initials}</span>
+        <button type="button" class="user" bind:this={accountButton} aria-label={`${t('shell.account')}: ${session.user.name}${session.update ? ` · ${t('app.updateAvailable')} ${session.update.latest}` : ''}`} aria-expanded={accountOpen} onclick={() => (accountOpen = !accountOpen)}>
+          <span class="avatar" aria-hidden="true">{initials}{#if session.update}<span class="update-dot"></span>{/if}</span>
           <span class="who"><strong>{session.user.name}</strong></span>
           {@html icons.chevronDown}
         </button>
@@ -400,6 +400,9 @@ const closeAccount = (event: Event) =>
             <button type="button" onclick={() => ((accountOpen = false), (passwordOpen = true))}>{@html icons.key}{t('password.title')}</button>
             <button type="button" onclick={leave}>{@html icons.logout}{t('nav.signOut')}</button>
             <p class="about">{t('app.name')} {session.version}</p>
+            {#if session.update}
+              <a class="update" href={session.update.url} target="_blank" rel="noopener noreferrer" title={t('app.updateHint')}>{t('app.updateAvailable')} {session.update.latest}</a>
+            {/if}
           </div>
         {/if}
       </div>
@@ -661,6 +664,7 @@ const closeAccount = (event: Event) =>
   }
 
   .avatar {
+    position: relative;
     display: grid;
     flex: none;
     place-items: center;
@@ -721,6 +725,18 @@ const closeAccount = (event: Event) =>
     color: var(--muted);
   }
 
+  /* Новая версия: точка акцентом на аватаре — тихо, но видно с любой страницы. */
+  .update-dot {
+    position: absolute;
+    top: -0.0625rem;
+    right: -0.0625rem;
+    width: 0.625rem;
+    height: 0.625rem;
+    border: 0.125rem solid var(--bg);
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
   /* Что за программа и какая версия — внизу меню, тихо. */
   .account-menu .about {
     margin: 0.25rem 0 0;
@@ -729,6 +745,31 @@ const closeAccount = (event: Event) =>
     border-bottom: 0;
     color: var(--muted);
     font-size: 0.75rem;
+  }
+
+  .account-menu .update {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    padding: 0 0.6rem 0.35rem;
+    color: var(--accent);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .account-menu .update::before {
+    content: '';
+    flex: none;
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .account-menu .update:hover {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
   }
 
   /* Панель дерева: под шапкой, закреплена, со своими вкладками. */
@@ -1070,6 +1111,21 @@ const closeAccount = (event: Event) =>
     }
 
     .topbar :is(.brand, .site) {
+      display: none;
+    }
+
+    /* Значки разделов не помещаются рядом с поиском и учётной записью: строка прокручивается вбок,
+       край затухает — видно, что дальше есть ещё. */
+    /* Скрытые подписи разделов спозиционированы абсолютно: строка держит их у себя, иначе они раздвинут страницу. */
+    .main-nav {
+      position: relative;
+      overflow-x: auto;
+      overscroll-behavior-x: contain;
+      scrollbar-width: none;
+      mask-image: linear-gradient(to right, #000 calc(100% - 1.25rem), transparent);
+    }
+
+    .main-nav::-webkit-scrollbar {
       display: none;
     }
 

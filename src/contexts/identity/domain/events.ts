@@ -5,6 +5,7 @@ export type IdentityEvent = {
     | 'identity.user_created'
     | 'identity.user_removed'
     | 'identity.password_changed'
+    | 'identity.password_reset'
     | 'identity.role_changed';
   readonly userId: UserId;
 };

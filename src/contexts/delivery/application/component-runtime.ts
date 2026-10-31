@@ -10,7 +10,7 @@ import type { SiteSettings } from '../../site/index.ts';
 import { type PagerItem, pagerWindow, pagingPath } from '../domain/paging.ts';
 import { type SiteKeys, withSiteKeys } from '../domain/site-keys.ts';
 import { defineLinks } from './links.ts';
-import type { Dictionary, RequestInfo } from './ports.ts';
+import type { Dictionary, RequestInfo, SiteSearch } from './ports.ts';
 import { REQUEST_TAG, type RenderScope } from './render-scope.ts';
 
 export type ListingOptions = {
@@ -36,6 +36,39 @@ export type Listing = {
   /** Первая, последняя и `around` номеров вокруг текущей, разрывы — `{ kind: 'gap' }`. */
   readonly pager: (around?: number) => PagerItem[];
 };
+
+export type SearchOptions = {
+  /** Найденных на странице выдачи, 1–50; по умолчанию 10. */
+  readonly limit?: number;
+  /** Искать только в разделе: id страницы; по умолчанию — по всему сайту. */
+  readonly parent?: number | null;
+  /** Номер страницы выдачи, с 1. */
+  readonly page?: number;
+};
+
+/** Найденная страница: адрес, заголовок и отрывок HTML с найденными словами в <mark>. */
+export type SearchItem = {
+  readonly id: number;
+  readonly title: string;
+  readonly url: string;
+  readonly snippet: string;
+};
+
+/** Выдача поиска порциями — как у списка: номер, всего страниц и адреса пейджера. */
+export type SearchResults = {
+  /** Запрос после обрезки: его и показывать в поле. */
+  readonly query: string;
+  readonly items: SearchItem[];
+  readonly total: number;
+  readonly number: number;
+  readonly pages: number;
+  /** Адрес страницы выдачи: путь текущего запроса с `?q=` и `&page=`; null — вне запроса. */
+  readonly url: (number: number) => string | null;
+  readonly pager: (around?: number) => PagerItem[];
+};
+
+/** Тег выдачи поиска: страница с ней сбрасывается из кэша при любой правке страниц. */
+export var SEARCH_TAG = 'search';
 
 /** Модуль `$core` для шаблонов и компонентов: каждый экспорт — публичный API разработчиков сайтов. */
 export type ComponentRuntime = {
@@ -67,6 +100,8 @@ export type ComponentRuntime = {
   readonly t: (key: string) => string;
   /** Своя настройка сайта; нет такой — `[@key]`. */
   readonly setting: (key: string) => string;
+  /** Поиск по опубликованным страницам на языке текущей; выдача — порциями. */
+  readonly search: (query: string, options?: SearchOptions) => SearchResults;
 };
 
 export type MediaCatalog = {
@@ -79,7 +114,13 @@ export var defineComponentRuntime = (
   settings: () => SiteSettings,
   scope: RenderScope,
   media: MediaCatalog,
-  dictionary: Dictionary
+  dictionary: Dictionary,
+  // Без поиска (тесты рантайма) выдача всегда пуста.
+  siteSearch: SiteSearch = (query) => ({
+    query: query.trim(),
+    hits: [],
+    total: 0,
+  })
 ): ComponentRuntime => {
   // Неверный путь в шаблоне — пустое место, а не ошибка всей страницы.
   const lookup =
@@ -142,6 +183,49 @@ export var defineComponentRuntime = (
         pagerWindow(number, pages, around, (_) => urlOf(_) ?? '#'),
     };
   };
+  // Адрес порции выдачи — от пути текущего запроса: выдача рисуется регионом, у которого свой запрос.
+  const searchUrl =
+    (query: string) =>
+    (number: number): string | null =>
+      ((request) =>
+        request &&
+        `${request.path}?q=${encodeURIComponent(query)}${number > 1 ? `&page=${number}` : ''}`)(
+        scope.request()
+      );
+  const search = (
+    query: string,
+    options: SearchOptions = {}
+  ): SearchResults => {
+    const limit = Math.min(
+      50,
+      Math.max(1, Math.trunc(options.limit ?? 10) || 10)
+    );
+    const number = Math.max(1, Math.trunc(options.page ?? 1) || 1);
+    scope.record(SEARCH_TAG);
+    const found = siteSearch(query, {
+      language: scope.language() ?? settings().language,
+      parent: options.parent ?? null,
+      limit,
+      offset: (number - 1) * limit,
+    });
+    const pages = Math.max(1, Math.ceil(found.total / limit));
+    const url = searchUrl(found.query);
+    return {
+      query: found.query,
+      items: found.hits.flatMap((hit) =>
+        ((target) =>
+          target ? [{ ...hit, url: links.urlOf(target) ?? '#' }] : [])(
+          content.page(hit.id)
+        )
+      ),
+      total: found.total,
+      number,
+      pages,
+      url,
+      pager: (around = 1) =>
+        pagerWindow(number, pages, around, (_) => url(_) ?? '#'),
+    };
+  };
   return {
     link: (id) => {
       const found = page(id);
@@ -169,5 +253,6 @@ export var defineComponentRuntime = (
       dictionary.text(key, scope.language() ?? settings().language) ??
       `{i18n.${key}}`,
     setting: (key) => dictionary.value(key) ?? `[@${key}]`,
+    search,
   };
 };

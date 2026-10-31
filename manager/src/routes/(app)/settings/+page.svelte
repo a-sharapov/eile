@@ -18,8 +18,11 @@ import PasswordInput from '#lib/ui/PasswordInput.svelte';
 import Tabs from '#lib/ui/Tabs.svelte';
 import { firstInvalid, freshForm } from '#lib/validity.ts';
 import { page } from '$app/state';
+import HttpsSettings from './HttpsSettings.svelte';
 import NotifySettings from './NotifySettings.svelte';
 import PageCacheSettings from './PageCacheSettings.svelte';
+import RedirectsSettings from './RedirectsSettings.svelte';
+import UpkeepSettings from './UpkeepSettings.svelte';
 
 let settings = $state<Settings | null>(null);
 let saved = $state('');
@@ -429,8 +432,16 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
   {/if}
 {/snippet}
 
+{#snippet redirectsTab()}
+  <RedirectsSettings />
+{/snippet}
+
 {#snippet notifyTab()}
   <NotifySettings />
+{/snippet}
+
+{#snippet upkeepTab()}
+  <UpkeepSettings />
 {/snippet}
 
 {#snippet aiTab()}
@@ -539,6 +550,7 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
       </div>
     </section>
     <PageCacheSettings bind:size={settings.pageCacheMb} applied={savedCacheMb} />
+    <HttpsSettings />
   {/if}
 {/snippet}
 
@@ -735,6 +747,8 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
     { id: 'custom', label: t('settings.tabCustom'), content: customTab },
     { id: 'ai', label: t('settings.tabAi'), content: aiTab },
     { id: 'notify', label: t('settings.tabNotify'), content: notifyTab },
+    { id: 'upkeep', label: t('settings.tabUpkeep'), content: upkeepTab },
+    { id: 'redirects', label: t('settings.tabRedirects'), content: redirectsTab },
   ]}
 />
 </LoadState>

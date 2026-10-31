@@ -4,6 +4,8 @@ import { pipe } from '../../../shared/kernel/pipe.ts';
 import type { IdentityEvent } from '../domain/events.ts';
 import type {
   PasswordHasher,
+  PasswordReset,
+  PasswordResetRepository,
   SessionRepository,
   Tokens,
   UserRepository,
@@ -19,6 +21,7 @@ import {
   parseEmail,
   parseUserId,
   type Role,
+  resetPassword,
   type User,
   type UserChange,
   type UserId,
@@ -34,6 +37,9 @@ export type UserView = {
 
 export type Login = { readonly token: string; readonly user: UserView };
 
+/** Ссылка сброса пароля для письма: токен — только здесь, в базе его хэш. */
+export type ResetLink = { readonly token: string; readonly user: UserView };
+
 const _SESSION_DAYS = 30;
 // Неудачи считаются на почту с одного адреса: чужой адрес не запрёт владельца. Общий потолок на почту
 // со всех адресов — против перебора с многих машин.
@@ -44,6 +50,14 @@ const _MINUTE = 60_000;
 const _TRACKED = 10_000;
 // Проверок пароля одновременно: каждая — argon2 на 64 МБ памяти.
 const _IN_FLIGHT = 16;
+// Ссылка сброса живёт полчаса. Запросов письма за окно: на почту с одного адреса, на почту вообще и с
+// одного адреса на любые почты — иначе чужой ящик можно завалить письмами.
+const _RESET_MINUTES = 30;
+const _RESET_REQUESTS: Readonly<Record<'pair' | 'email' | 'client', number>> = {
+  pair: 3,
+  email: 10,
+  client: 20,
+};
 
 const _removed = (userId: UserId): IdentityEvent => ({
   type: 'identity.user_removed',
@@ -60,6 +74,7 @@ const _view = (user: User): UserView => ({
 export var defineIdentityService = ({
   users,
   sessions,
+  resets,
   hasher,
   tokens,
   bus,
@@ -67,6 +82,7 @@ export var defineIdentityService = ({
 }: {
   users: UserRepository;
   sessions: SessionRepository;
+  resets: PasswordResetRepository;
   hasher: PasswordHasher;
   tokens: Tokens;
   bus: EventBus;
@@ -75,6 +91,7 @@ export var defineIdentityService = ({
   // Пока пользователей нет, менеджер открывает только настройку по этому токену из журнала сервера.
   let setupToken: string | null = users.count() === 0 ? tokens.issue() : null;
   const attempts = new Map<string, { count: number; since: number }>();
+  const resetRequests = new Map<string, { count: number; since: number }>();
   let inFlight = 0;
 
   // Проверка хэша и для несуществующего адреса: время ответа не выдаёт, есть ли пользователь.
@@ -90,9 +107,9 @@ export var defineIdentityService = ({
 
   const _window = _LOCK_MINUTES * _MINUTE;
 
-  const fresh = (key: string, now: number) =>
+  const fresh = (key: string, now: number, table = attempts) =>
     ((entry) => (entry && now - entry.since < _window ? entry : null))(
-      attempts.get(key)
+      table.get(key)
     );
 
   const keysOf = (email: Email, client: string) => ({
@@ -101,25 +118,25 @@ export var defineIdentityService = ({
   });
 
   // Таблица не растёт без конца: сначала уходят устаревшие записи, потом самые старые.
-  const prune = (now: number): void =>
+  const prune = (now: number, table = attempts): void =>
     void (
-      attempts.size > _TRACKED &&
-      ([...attempts].forEach(
+      table.size > _TRACKED &&
+      ([...table].forEach(
         ({ 0: key, 1: entry }) =>
-          void (now - entry.since >= _window && attempts.delete(key))
+          void (now - entry.since >= _window && table.delete(key))
       ),
-      [...attempts.keys()]
-        .slice(0, Math.max(0, attempts.size - _TRACKED))
-        .forEach((key) => void attempts.delete(key)))
+      [...table.keys()]
+        .slice(0, Math.max(0, table.size - _TRACKED))
+        .forEach((key) => void table.delete(key)))
     );
 
-  const bump = (key: string, now: number): void =>
-    void attempts.set(
+  const bump = (key: string, now: number, table = attempts): void =>
+    void table.set(
       key,
       ((entry) =>
         entry
           ? { ...entry, count: entry.count + 1 }
-          : { count: 1, since: now })(fresh(key, now))
+          : { count: 1, since: now })(fresh(key, now, table))
     );
 
   /**
@@ -167,6 +184,48 @@ export var defineIdentityService = ({
     });
     return { token, user: _view(user) };
   };
+
+  // Запрос письма считается до поиска пользователя: есть адрес или нет, лимит один и тот же.
+  const reserveReset = (email: Email, client: string): Email => {
+    const now = clock().getTime();
+    const keys = { ...keysOf(email, client), client: `* ${client}` };
+    const over = (Object.keys(_RESET_REQUESTS) as (keyof typeof keys)[]).some(
+      (_) =>
+        (fresh(keys[_], now, resetRequests)?.count ?? 0) >= _RESET_REQUESTS[_]
+    );
+    return over
+      ? fail('identity.too_many_requests', 'Too many reset requests, try later')
+      : (Object.values(keys).forEach((_) => void bump(_, now, resetRequests)),
+        prune(now, resetRequests),
+        email);
+  };
+
+  // Новая ссылка отменяет прежние ссылки пользователя; просроченные чужие тоже убираются.
+  const issueReset = (user: User): ResetLink => {
+    const now = clock();
+    resets.removeExpired(now.toISOString());
+    resets.removeOf(user.id);
+    const token = tokens.issue();
+    resets.save({
+      tokenHash: tokens.hash(token),
+      userId: user.id,
+      expiresAt: new Date(
+        now.getTime() + _RESET_MINUTES * _MINUTE
+      ).toISOString(),
+    });
+    return { token, user: _view(user) };
+  };
+
+  const resetOf = (token: string): PasswordReset | null =>
+    ((reset) =>
+      reset &&
+      reset.expiresAt > clock().toISOString() &&
+      users.get(reset.userId)
+        ? reset
+        : null)(token ? resets.get(tokens.hash(token)) : null);
+
+  const _invalidReset = (): never =>
+    fail('identity.reset_invalid', 'The reset link is invalid or expired');
 
   const _wrong = (): never =>
     fail('identity.invalid_credentials', 'Wrong email or password');
@@ -240,6 +299,37 @@ export var defineIdentityService = ({
         .then(verify(String(password), client))
         .then(openSession),
     logout: (token: string): void => sessions.remove(tokens.hash(token)),
+    /** Сброс пароля по ссылке из письма; само письмо отправляет тот, кто знает почту сайта. */
+    recovery: {
+      /** Ссылка для письма или null, если такой почты нет: отвечать на запрос надо одинаково. */
+      request: (email: string, client = ''): ResetLink | null =>
+        pipe<string, ResetLink | null>(
+          parseEmail,
+          (_: Email) => reserveReset(_, client),
+          (_: Email) =>
+            ((user) => (user ? issueReset(user) : null))(users.byEmail(_))
+        )(email),
+      /** Ссылка ещё действует: страница сброса сразу говорит, что она устарела. */
+      check: (token: string): boolean => resetOf(token) !== null,
+      /**
+       * Новый пароль: проверяется до того, как ссылка погаснет, — короткий пароль её не тратит. Ссылка
+       * гасится до хеширования: второй такой же запрос её уже не найдёт. Все сеансы закрываются.
+       */
+      reset: (token: string, password: string): Promise<UserView> =>
+        Promise.resolve(password)
+          .then(checkPassword)
+          .then((valid) =>
+            ((reset) => (resets.removeOf(reset.userId), { reset, valid }))(
+              resetOf(token) ?? _invalidReset()
+            )
+          )
+          .then(({ reset, valid }) =>
+            hasher
+              .hash(valid)
+              .then((hash) => store(resetPassword(hash)(load(reset.userId))))
+          )
+          .then((user) => (sessions.removeOf(user.id), _view(user))),
+    },
     account: {
       /**
        * Свой пароль: сначала текущий (неудачи считаются, как при входе).
@@ -280,7 +370,11 @@ export var defineIdentityService = ({
       ): void =>
         before
           .filter((_) => users.get(_.id as UserId)?.email !== _.email)
-          .forEach((_) => void sessions.removeOf(_.id as UserId)),
+          .forEach(
+            (_) =>
+              void (sessions.removeOf(_.id as UserId),
+              resets.removeOf(_.id as UserId))
+          ),
     },
     users: {
       list: (): UserView[] => users.all().map(_view),

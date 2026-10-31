@@ -10,8 +10,20 @@ export type Options = {
   readonly help: boolean;
   readonly version: boolean;
   readonly passwordStdin: boolean;
+  /** `cms update --check`: только сказать, есть ли новая версия. */
+  readonly check?: boolean;
   /** За обратным прокси: протокол, адрес сайта и посетителя — из X-Forwarded-*. */
   readonly trustProxy: boolean;
+  /** HTTPS без прокси: домены через запятую — сервер сам получает сертификат Let's Encrypt. */
+  readonly domain?: string;
+  /** Почта для писем Let's Encrypt о сертификате. */
+  readonly email?: string;
+  /** Порт HTTPS; по умолчанию 443. */
+  readonly httpsPort?: string;
+  /** Тестовый центр Let's Encrypt — проба без лимитов боевого. */
+  readonly acmeStaging?: boolean;
+  /** Свой каталог ACME — для проверки на стенде. */
+  readonly acmeDirectory?: string;
 };
 
 /** Разобранная строка вызова: команда, её аргументы и параметры; или ошибка для человека. */
@@ -32,7 +44,12 @@ const _OPTIONS = {
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
   'password-stdin': { type: 'boolean' },
+  check: { type: 'boolean' },
   'trust-proxy': { type: 'boolean' },
+  domain: { type: 'string' },
+  email: { type: 'string' },
+  'https-port': { type: 'string' },
+  'acme-staging': { type: 'boolean' },
 } as const;
 
 // parseArgs говорит по-английски: «Unknown option '--prot'» — переводим самое частое.
@@ -47,31 +64,46 @@ const _message = (error: unknown): string =>
     error instanceof Error ? error.message : String(error)
   );
 
+const _parse = (argv: readonly string[]) =>
+  parseArgs({
+    args: [...argv],
+    allowPositionals: true,
+    strict: true,
+    options: _OPTIONS,
+  });
+
 /** `cms [команда] [аргументы] [--параметры]`. */
 export var parseInvocation = (argv: readonly string[], env: Env): Invocation =>
   attempt<Invocation>(
     () =>
-      ((parsed) => ({
-        command: parsed.positionals[0] ?? null,
-        args: parsed.positionals.slice(1),
-        options: {
-          port: parsed.values.port ?? env.PORT ?? '8080',
-          db: parsed.values.db ?? env.CMS_DB ?? 'site.db',
-          name: parsed.values.name,
-          role: parsed.values.role,
-          help: parsed.values.help ?? false,
-          version: parsed.values.version ?? false,
-          passwordStdin: parsed.values['password-stdin'] ?? false,
-          trustProxy:
-            parsed.values['trust-proxy'] ?? env.CMS_TRUST_PROXY === '1',
-        },
-      }))(
-        parseArgs({
-          args: [...argv],
-          allowPositionals: true,
-          strict: true,
-          options: _OPTIONS,
-        })
-      ),
+      ((parsed) =>
+        ((domain, email, httpsPort) => ({
+          command: parsed.positionals[0] ?? null,
+          args: parsed.positionals.slice(1),
+          options: {
+            // С доменом сайт живёт на своём сервере: HTTP — на 80, рядом с HTTPS.
+            port: parsed.values.port ?? env.PORT ?? (domain ? '80' : '8080'),
+            db: parsed.values.db ?? env.CMS_DB ?? 'site.db',
+            name: parsed.values.name,
+            role: parsed.values.role,
+            help: parsed.values.help ?? false,
+            version: parsed.values.version ?? false,
+            passwordStdin: parsed.values['password-stdin'] ?? false,
+            ...(parsed.values.check ? { check: true } : {}),
+            trustProxy:
+              parsed.values['trust-proxy'] ?? env.CMS_TRUST_PROXY === '1',
+            ...(domain ? { domain } : {}),
+            ...(email ? { email } : {}),
+            ...(httpsPort ? { httpsPort } : {}),
+            ...(parsed.values['acme-staging'] ? { acmeStaging: true } : {}),
+            ...(env.CMS_ACME_DIRECTORY
+              ? { acmeDirectory: env.CMS_ACME_DIRECTORY }
+              : {}),
+          },
+        }))(
+          parsed.values.domain ?? env.CMS_DOMAIN,
+          parsed.values.email ?? env.CMS_ACME_EMAIL,
+          parsed.values['https-port'] ?? env.CMS_HTTPS_PORT
+        ))(_parse(argv)),
     (error) => ({ error: _message(error) })
   );

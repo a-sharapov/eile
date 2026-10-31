@@ -7,6 +7,8 @@ import modalLinks from './ModalLinks.svelte' with { type: 'text' };
 import pagination from './Pagination.svelte' with { type: 'text' };
 import postList from './PostList.svelte' with { type: 'text' };
 import postMeta from './PostMeta.svelte' with { type: 'text' };
+import searchForm from './SearchForm.svelte' with { type: 'text' };
+import searchResults from './SearchResults.svelte' with { type: 'text' };
 
 /** Компонент набора: исходник и что ставится вместе с ним. */
 export type KitEntry = {
@@ -27,6 +29,12 @@ export var KIT: readonly KitEntry[] = [
   { name: 'Pagination', source: _text(pagination), requires: [] },
   { name: 'PostList', source: _text(postList), requires: ['Pagination'] },
   { name: 'PostMeta', source: _text(postMeta), requires: [] },
+  { name: 'SearchForm', source: _text(searchForm), requires: [] },
+  {
+    name: 'SearchResults',
+    source: _text(searchResults),
+    requires: ['Pagination'],
+  },
   { name: 'ModalLinks', source: _text(modalLinks), requires: [] },
   { name: 'Modal', source: _text(modal), requires: ['ModalLinks'] },
   { name: 'ModalButton', source: _text(modalButton), requires: ['ModalLinks'] },

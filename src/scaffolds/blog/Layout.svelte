@@ -5,6 +5,7 @@
 <script lang="ts">
 import type { Snippet } from 'svelte';
 import Menu from '$components/Menu';
+import SearchForm from '$components/SearchForm';
 import { site as settings } from '$core';
 
 let {
@@ -33,7 +34,10 @@ const title = $derived(
 <a class="skip" href="#text">К тексту</a>
 <header class="masthead">
   <a class="name" href="/">{site.name}</a>
-  <Menu depth={1} />
+  <div class="tools">
+    <Menu depth={1} />
+    <div class="find"><SearchForm page={site.custom.searchPage} /></div>
+  </div>
 </header>
 <main id="text">
   {@render children()}
@@ -192,6 +196,17 @@ const title = $derived(
     font: 0.9375rem var(--sans);
   }
 
+  .tools {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem 1.25rem;
+  }
+
+  .find {
+    --search-height: 2.25rem;
+    width: 9.5rem;
+  }
+
   .name {
     color: var(--ink);
     font: 700 1.25rem/1.2 var(--serif);
@@ -222,6 +237,14 @@ const title = $derived(
 
     .masthead {
       padding-block: 1.25rem 2.5rem;
+    }
+
+    .tools {
+      gap: 0.25rem;
+    }
+
+    .find {
+      width: 2.25rem;
     }
   }
 </style>

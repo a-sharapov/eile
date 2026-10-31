@@ -102,4 +102,23 @@ export var contentMigrations: readonly Migration[] = [
       );
     `,
   },
+  {
+    // История правок (ADR 0026): прежние состояния страницы снимком JSON; уходит вместе со страницей.
+    id: 'content/008_revisions',
+    sql: `
+      CREATE TABLE content_revisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        page_id INTEGER NOT NULL,
+        action TEXT NOT NULL,
+        author_id INTEGER,
+        author_name TEXT NOT NULL DEFAULT '',
+        at TEXT NOT NULL,
+        changed TEXT NOT NULL,
+        restored_from TEXT,
+        snapshot TEXT NOT NULL,
+        size INTEGER NOT NULL
+      );
+      CREATE INDEX content_revisions_page ON content_revisions (page_id, id);
+    `,
+  },
 ];

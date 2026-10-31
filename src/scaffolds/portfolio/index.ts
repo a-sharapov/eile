@@ -151,7 +151,7 @@ export var PORTFOLIO: Scaffold = {
   summary: 'работы с обложками, страница проекта, обо мне и форма брифа',
   siteName: 'Своя линия',
   description: 'Дизайн, фотография и иллюстрация',
-  kit: ['Menu'],
+  kit: ['Menu', 'SearchForm', 'SearchResults'],
   components: {
     Layout: _text(layout),
     Cover: _text(cover),
@@ -212,6 +212,7 @@ export var PORTFOLIO: Scaffold = {
     },
   },
   settings: {
+    searchPage: '@{search}',
     email: 'hello@example.com',
     telegram: 'my_portfolio',
   },
@@ -254,6 +255,15 @@ export var PORTFOLIO: Scaffold = {
       template: 'Page',
       content:
         '<p>Такой страницы здесь нет — возможно, работу переименовали. Загляните во <a href="[~@{work}~]">все работы</a> или вернитесь <a href="/">на главную</a>.</p>',
+      hiddenFromMenu: true,
+      searchable: false,
+    },
+    {
+      key: 'search',
+      title: 'Поиск',
+      alias: 'search',
+      template: 'Page',
+      content: '[[SearchResults]]',
       hiddenFromMenu: true,
       searchable: false,
     },

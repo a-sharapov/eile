@@ -18,6 +18,43 @@ export type Session = {
   ai: boolean;
   /** Версия программы — в меню профиля. */
   version: string;
+  /** Почта уведомлений настроена: на входе есть «Забыли пароль?». */
+  passwordReset: boolean;
+  /** Новая версия программы — только администратору; null — новее нет или проверка выключена. */
+  update: UpdateInfo | null;
+};
+
+/** Есть версия новее установленной. */
+export type UpdateInfo = { current: string; latest: string; url: string };
+
+/** Расписание автокопий: каждые `every` часов от `at`, хранить `keep` последних. */
+export type BackupSchedule = {
+  enabled: boolean;
+  every: 1 | 6 | 12 | 24;
+  at: string;
+  keep: number;
+  folder: string;
+};
+
+/** Автокопии и обновления: GET /upkeep. */
+export type UpkeepStatus = {
+  backups: {
+    schedule: BackupSchedule;
+    folder: string;
+    last: { at: string; file: string; size: number; manual: boolean } | null;
+    failure: { at: string; message: string } | null;
+    next: string | null;
+    running: boolean;
+  };
+  updates: UpdateStatus;
+};
+
+export type UpdateStatus = {
+  enabled: boolean;
+  locked: boolean;
+  current: string;
+  latest: UpdateInfo | null;
+  checkedAt: string | null;
 };
 
 /** Что сделали со страницей — строка журнала правок. */
@@ -119,6 +156,39 @@ export type PageDetails = {
     string,
     { value: FieldValue; from: { id: number; title: string } }
   >;
+};
+
+/** Что помнит история страницы (content/domain/revision.ts REVISION_KEYS). */
+export type RevisionKey =
+  | 'kind'
+  | 'title'
+  | 'longTitle'
+  | 'menuTitle'
+  | 'description'
+  | 'introText'
+  | 'alias'
+  | 'template'
+  | 'contentType'
+  | 'content'
+  | 'linkTo'
+  | 'socialImage'
+  | 'language';
+
+/** Версия страницы: какой она была до правки `at`; `changed` — ключи и `fields.имя`. */
+export type RevisionSummary = {
+  id: number;
+  pageId: number;
+  action: 'edited' | 'restored';
+  /** null — правка сайта: каркас, импорт, плагин. */
+  author: { id: number; name: string } | null;
+  at: string;
+  changed: string[];
+  restoredFrom: string | null;
+  size: number;
+};
+
+export type Revision = RevisionSummary & {
+  snapshot: Pick<Page, RevisionKey | 'fields'>;
 };
 
 export type ElementKind = 'template' | 'component';
@@ -296,6 +366,16 @@ export type FieldSpec = {
 };
 
 /** Кэш страниц сайта: заполненность и ответы с запуска сервера или с ручного сброса. */
+/** Сертификат HTTPS, который выпускает сам сервер (`--domain`); null — HTTPS не его забота. */
+export type HttpsStatus = {
+  domains: string[];
+  notAfter: string | null;
+  issuedAt: string | null;
+  lastAttemptAt: string | null;
+  lastError: string;
+  staging: boolean;
+};
+
 export type PageCacheStats = {
   pages: number;
   bytes: number;
@@ -305,6 +385,64 @@ export type PageCacheStats = {
   bypass: number;
   since: string;
   manual: boolean;
+};
+
+/** Правило переадресации: откуда, куда, код, заметка и сколько раз сработало. */
+export type RedirectRule = {
+  id: number;
+  from: string;
+  to: string;
+  status: 301 | 302;
+  note: string;
+  hits: number;
+  lastHitAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Прежний адрес страницы: с него сайт сам отвечает 301 на новый. */
+export type MovedAddress = {
+  path: string;
+  pageId: number;
+  title: string;
+  movedAt: string;
+};
+
+export type RuleWarning = { code: string; detail: string };
+
+export type SavedRule = { rule: RedirectRule; warnings: RuleWarning[] };
+
+export type RedirectsImport = {
+  added: number;
+  updated: number;
+  skipped: { line: number; code: string; message: string }[];
+};
+
+export type FindingSeverity = 'error' | 'warning' | 'info';
+export type DiagnosticsGroup =
+  | 'links'
+  | 'pages'
+  | 'media'
+  | 'settings'
+  | 'server';
+
+/** Находка диагностики: что не так, почему важно и где это править. */
+export type Finding = {
+  id: string;
+  group: DiagnosticsGroup;
+  severity: FindingSeverity;
+  title: string;
+  hint: string;
+  items: { label: string; detail?: string; fix?: { href: string } }[];
+  count: number;
+  fix?: { href: string };
+};
+
+export type DiagnosticsReport = {
+  generatedAt: string;
+  problems: number;
+  tookMs: number;
+  findings: Finding[];
 };
 
 export type FormSummary = {

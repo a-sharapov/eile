@@ -1,6 +1,7 @@
 import type { Database, Migration } from '../../../platform/database.ts';
 import type {
   PasswordHasher,
+  PasswordResetRepository,
   SessionRepository,
   Tokens,
   UserRepository,
@@ -32,7 +33,24 @@ export var identityMigrations: readonly Migration[] = [
       CREATE INDEX identity_sessions_user ON identity_sessions (user_id);
     `,
   },
+  {
+    id: 'identity/002_password_resets',
+    sql: `
+      CREATE TABLE identity_password_resets (
+        token_hash TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES identity_users (id) ON DELETE CASCADE,
+        expires_at TEXT NOT NULL
+      ) WITHOUT ROWID;
+      CREATE INDEX identity_password_resets_user ON identity_password_resets (user_id);
+    `,
+  },
 ];
+
+/** Таблицы этого сервера, а не сайта: в копию не попадают, при восстановлении остаются свои. */
+export var IDENTITY_SERVER_TABLES = [
+  'identity_sessions',
+  'identity_password_resets',
+] as const;
 
 type UserRow = {
   id: number;
@@ -121,6 +139,39 @@ export var defineSessionRepository = (db: Database): SessionRepository => {
     save: (session) =>
       void insert.run(session.tokenHash, session.userId, session.expiresAt),
     remove: (tokenHash) => void remove.run(tokenHash),
+    removeOf: (userId) => void removeOf.run(userId),
+    removeExpired: (at) => void removeExpired.run(at),
+  };
+};
+
+type ResetRow = { token_hash: string; user_id: number; expires_at: string };
+
+export var definePasswordResetRepository = (
+  db: Database
+): PasswordResetRepository => {
+  const get = db.query<ResetRow, [string]>(
+    'SELECT * FROM identity_password_resets WHERE token_hash = ?'
+  );
+  const insert = db.query(
+    'INSERT INTO identity_password_resets (token_hash, user_id, expires_at) VALUES (?, ?, ?)'
+  );
+  const removeOf = db.query(
+    'DELETE FROM identity_password_resets WHERE user_id = ?'
+  );
+  const removeExpired = db.query(
+    'DELETE FROM identity_password_resets WHERE expires_at <= ?'
+  );
+
+  return {
+    get: (tokenHash) =>
+      ((row) =>
+        row && {
+          tokenHash: row.token_hash,
+          userId: parseUserId(row.user_id),
+          expiresAt: row.expires_at,
+        })(get.get(tokenHash)),
+    save: (reset) =>
+      void insert.run(reset.tokenHash, reset.userId, reset.expiresAt),
     removeOf: (userId) => void removeOf.run(userId),
     removeExpired: (at) => void removeExpired.run(at),
   };

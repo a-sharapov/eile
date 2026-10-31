@@ -213,7 +213,15 @@ export var SHOWCASE: Scaffold = {
   summary: 'каталог с разделами и запрос цены у товара',
   siteName: 'Гончарная мастерская',
   description: 'Посуда и вещи для дома ручной работы',
-  kit: ['Menu', 'Breadcrumbs', 'Pagination', 'Modal', 'ModalButton'],
+  kit: [
+    'Menu',
+    'Breadcrumbs',
+    'Pagination',
+    'Modal',
+    'ModalButton',
+    'SearchForm',
+    'SearchResults',
+  ],
   components: { ...CATALOG_COMPONENTS, Layout: _text(layout) },
   templates: {
     Home: _text(home),
@@ -253,6 +261,7 @@ export var SHOWCASE: Scaffold = {
     },
   },
   settings: {
+    searchPage: '@{search}',
     phone: '+7 900 000-00-00',
     email: 'hello@example.com',
     address: 'ул. Глиняная, 7, вход со двора',
@@ -357,6 +366,15 @@ export var SHOWCASE: Scaffold = {
       template: 'Page',
       content:
         '<p>Такой страницы нет — возможно, вещь уже продана. Загляните в <a href="[~@{catalog}~]">каталог</a> или вернитесь <a href="/">на главную</a>.</p>',
+      hiddenFromMenu: true,
+      searchable: false,
+    },
+    {
+      key: 'search',
+      title: 'Поиск',
+      alias: 'search',
+      template: 'Page',
+      content: '[[SearchResults]]',
       hiddenFromMenu: true,
       searchable: false,
     },

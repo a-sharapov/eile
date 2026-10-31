@@ -1,3 +1,8 @@
+<script module lang="ts">
+// Знак входит один раз: переход между входом, сбросом пароля и настройкой его не повторяет.
+let swept = $state(false);
+</script>
+
 <script lang="ts">
 import type { Snippet } from 'svelte';
 import { MediaQuery } from 'svelte/reactivity';
@@ -26,7 +31,7 @@ const site = $derived(
     {@html dark ? icons.sun : icons.moon}
   </button>
   <main>
-    <span class="logo" role="img" aria-label={t('app.name')}>{@html logo}</span>
+    <span class="logo" class:still={swept} role="img" aria-label={t('app.name')} onanimationend={() => (swept = true)}>{@html logo}</span>
     <section class="panel" aria-labelledby="auth-title">
       <header>
         <h1 id="auth-title">{title}</h1>
@@ -183,6 +188,10 @@ const site = $derived(
       padding: 1.5rem 1.25rem;
       border-radius: 1rem;
     }
+  }
+
+  .logo.still {
+    animation: none;
   }
 
   @media (prefers-reduced-motion: reduce) {

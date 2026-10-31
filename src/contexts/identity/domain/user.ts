@@ -123,6 +123,15 @@ export var changePassword =
       { type: 'identity.password_changed', userId: user.id }
     );
 
+/** Новый пароль по ссылке из письма: старый неизвестен, поэтому событие своё — его видит аудит. */
+export var resetPassword =
+  (passwordHash: string) =>
+  (user: User): UserChange =>
+    changed<User, IdentityEvent>(
+      { ...user, passwordHash },
+      { type: 'identity.password_reset', userId: user.id }
+    );
+
 export var changeRole =
   (role: string) =>
   (user: User): UserChange =>

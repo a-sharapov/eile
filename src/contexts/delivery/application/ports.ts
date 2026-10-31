@@ -80,6 +80,18 @@ export type PageCacheStats = ReturnType<PageCache['size']> & {
   readonly manual: boolean;
 };
 
+/** Правила переадресации владельца сайта: адрес без страницы → цель и код ответа. */
+export type RedirectRules = {
+  readonly match: (path: string) => {
+    readonly id: number;
+    /** Адрес, полный URL или страница `[~id~]`. */
+    readonly to: string;
+    readonly status: 301 | 302;
+  } | null;
+  /** Правило сработало: счётчик и время. */
+  readonly hit: (id: number) => void;
+};
+
 /** Хуки расширений: последнее слово о HTML и редирект вместо 404. */
 export type Hooks = {
   readonly render: (
@@ -97,6 +109,28 @@ export type RequestInfo = {
   readonly query: Readonly<Record<string, string>>;
   readonly header: (name: string) => string | null;
   readonly cookie: (name: string) => string | null;
+};
+
+/** Найденная страница: заголовок и отрывок HTML, где найденные слова — в <mark>. */
+export type SearchHit = {
+  readonly id: number;
+  readonly title: string;
+  readonly snippet: string;
+};
+
+/** Поиск по сайту для `$core.search`; сам индекс — в контексте search. */
+export type SiteSearch = (
+  query: string,
+  options: {
+    readonly language: string;
+    readonly parent: number | null;
+    readonly limit: number;
+    readonly offset: number;
+  }
+) => {
+  readonly query: string;
+  readonly hits: readonly SearchHit[];
+  readonly total: number;
 };
 
 /** Переводы и свои настройки сайта — для `{i18n.key}`, `[@key]`, `t()` и `setting()`. */

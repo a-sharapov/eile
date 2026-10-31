@@ -48,6 +48,7 @@ import { firstInvalid } from '#lib/validity.ts';
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import { page as route } from '$app/state';
+import PageHistory from './PageHistory.svelte';
 
 const _EDITABLE = [
   'kind',
@@ -649,6 +650,11 @@ const shownPrefix = $derived(
   parentPath.length > 24 ? `…/${parentPath.split('/').at(-1)}` : parentPath
 );
 
+// Вернули версию: форма — как на сервере, несохранённое (о нём спросили) уходит.
+const restored = (next: PageDetails): Promise<unknown> => (
+  accept(next), loadTree()
+);
+
 const forgetPath = (path: string) =>
   api
     .send<PageDetails>('DELETE', `/pages/${pageId}/old-paths`, { path })
@@ -1092,6 +1098,12 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
   {/if}
 {/snippet}
 
+{#snippet historyTab()}
+  {#if details}
+    <PageHistory page={details.page} fields={details.fields} active={tab === 'history'} {dirty} onrestored={restored} />
+  {/if}
+{/snippet}
+
 {#if missing}
   <EdgeState kind="missing" title={t('edge.missingTitle')} text={t('edge.missingText')}>
     {#snippet actions()}
@@ -1125,6 +1137,7 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
           ...(fields.length > 0 && !asFile ? [{ id: 'fields', label: t('page.tabFields'), flag: changed.fields, content: fieldsTab }] : []),
           ...(draft.kind === 'page' && !asFile ? [{ id: 'seo', label: t('page.tabSeo'), flag: changed.seo, content: seoTab }] : []),
           { id: 'settings', label: t('page.tabSettings'), flag: changed.settings, content: settingsTab },
+          ...(creating ? [] : [{ id: 'history', label: t('page.tabHistory'), content: historyTab }]),
         ]}
       />
     </div>

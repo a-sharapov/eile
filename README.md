@@ -55,6 +55,14 @@ cms new blog --db site.db && cms --db site.db
   в Telegram и на почту. Туда же приходят сообщения о сбоях сайта.
 - **Находимость.** canonical, sitemap.xml, robots.txt, llms.txt, Markdown-версии страниц, постраничные
   списки с ЧПУ (`/blog/page-2`), старые адреса ведут на новые.
+- **Поиск по сайту.** Из коробки: поле в шапке готовых сайтов, страница выдачи с отрывками, русские
+  окончания учитываются («книги» находят «книгу»).
+- **Спокойствие владельца.** История правок страниц с возвратом версии, автокопии сайта по расписанию,
+  «Забыли пароль?» письмом, диагностика сайта (битые ссылки, страницы без описания, картинки без `alt`) и
+  редиректы — всё в менеджере.
+- **HTTPS без прокси.** `cms --domain example.com` сам получает сертификат Let's Encrypt и продлевает его.
+- **Обновления.** Менеджер сообщает о новой версии, `cms update` ставит её одной командой со сверкой
+  контрольной суммы.
 - **Готовые сайты.** `cms new` разворачивает блог, портфолио, сайт компании, витрину или магазин.
 - **Переезд с Evo.** `cms import-evo` переносит сайт из дампа MySQL вместе с шаблонами.
 
@@ -123,12 +131,9 @@ cms help                               # все команды с примера
 
 ## На сервере
 
-Запускайте за nginx или Caddy с HTTPS и флагом `--trust-proxy`: протокол, адрес сайта и посетителя
-берутся из `X-Forwarded-*`, cookie входа получает `Secure`. Без своего прокси флаг не включайте —
-эти заголовки подделает любой. В «Настройках» задайте адрес сайта: по нему строятся canonical, sitemap и
-проверка Origin.
-
-Служба systemd:
+Проще всего — без прокси: с `--domain` сервер сам получает сертификат Let's Encrypt, продлевает его и
+переводит HTTP на HTTPS ([ADR 0028](docs/adr/0028-https-without-proxy.md)). DNS домена должен указывать
+на сервер, порты 80 и 443 — быть открыты.
 
 ```ini
 # /etc/systemd/system/cms.service
@@ -137,15 +142,27 @@ Description=Eile CMS
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/cms --trust-proxy
-Environment=PORT=8080 CMS_DB=/var/lib/cms/site.db
+ExecStart=/usr/local/bin/cms --domain example.com,www.example.com --email you@example.com
+Environment=CMS_DB=/var/lib/cms/site.db
 DynamicUser=yes
 StateDirectory=cms
+# Порты 80 и 443 без root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+Без systemd право на порты даёт `sudo setcap cap_net_bind_service=+ep "$(command -v cms)"` — заново после
+каждого обновления бинарника. Попробовать без лимитов боевого центра — `--acme-staging`: сертификат
+выпустится, но браузеры ему не поверят.
+
+За своим nginx или Caddy запускайте с `--trust-proxy` вместо `--domain`: протокол, адрес сайта и
+посетителя берутся из `X-Forwarded-*`, cookie входа получает `Secure`. Без прокси этот флаг не включайте —
+эти заголовки подделает любой. В «Настройках» задайте адрес сайта: по нему строятся canonical, sitemap и
+проверка Origin.
 
 ```sh
 sudo systemctl enable --now cms
@@ -163,7 +180,13 @@ sudo systemctl enable --now cms
   [формы и заявки](docs/adr/0021-forms.md) ·
   [уведомления в Telegram и на почту](docs/adr/0020-notify.md) ·
   [готовые сайты](docs/adr/0022-scaffolds.md) ·
-  [установка и обновления](docs/adr/0023-releases-and-installer.md).
+  [установка](docs/adr/0023-releases-and-installer.md) ·
+  [автокопии](docs/adr/0024-scheduled-backups.md) ·
+  [обновления](docs/adr/0025-updates.md) ·
+  [история правок](docs/adr/0026-page-revisions.md) ·
+  [сброс пароля](docs/adr/0027-password-reset.md) ·
+  [HTTPS без прокси](docs/adr/0028-https-without-proxy.md) ·
+  [поиск по сайту](docs/adr/0030-site-search.md).
 
 **Разработчикам шаблонов**
 
