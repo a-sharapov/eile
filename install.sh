@@ -150,7 +150,8 @@ main() {
   local base
   if [ -n "${CMS_DOWNLOAD_URL:-}" ]; then
     base=${CMS_DOWNLOAD_URL%/}
-  elif [ "$REPO" = '__REPO__' ]; then
+  elif [[ "$REPO" != */* ]]; then
+    # Релиз вписывает сюда owner/name вместо метки; сравнивать с самой меткой нельзя — её заменит и здесь.
     fail 'установщик взят не из релиза: укажите репозиторий, например CMS_REPO=owner/name'
   elif [ "$version" = latest ]; then
     base="https://github.com/$REPO/releases/latest/download"

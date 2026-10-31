@@ -130,3 +130,10 @@ jobs:
           gh release create "$TAG" \
             dist/release/*.gz dist/release/SHA256SUMS dist/release/install.sh \
             --title "Eile $TAG" --generate-notes --verify-tag "${prerelease[@]}"
+      # Проверка выше шла через CMS_DOWNLOAD_URL и не трогала ветку с адресом репозитория; здесь — ровно то, что
+      # запустит пользователь: установщик и файлы с опубликованного релиза.
+      - name: Установка одной строкой из релиза
+        run: |
+          curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install.sh" \
+            | CMS_NO_MODIFY_PATH=1 CMS_INSTALL_DIR="$RUNNER_TEMP/bin" bash -s -- "$TAG"
+          "$RUNNER_TEMP/bin/cms" version
