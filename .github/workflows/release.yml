@@ -123,9 +123,10 @@ jobs:
         run: |
           # Тег с дефисом (v0.2.0-rc.1) — пре-релиз, если стабильный уже есть: releases/latest указывает только
           # на стабильные. Пока их нет, альфы и беты — обычные релизы, иначе установка одной строкой вела бы
-          # в пустоту.
+          # в пустоту. Стабильный — тег без дефиса: прошлая альфа без пометки пре-релиза им не считается.
           prerelease=()
-          stable=$(gh release list --exclude-pre-releases --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName // ""')
+          stable=$(gh release list --exclude-pre-releases --exclude-drafts --limit 100 --json tagName \
+            --jq '[.[].tagName | select(contains("-") | not)][0] // ""')
           if [[ "$TAG" == *-* && -n "$stable" ]]; then prerelease=(--prerelease); fi
           gh release create "$TAG" \
             dist/release/*.gz dist/release/SHA256SUMS dist/release/install.sh \
