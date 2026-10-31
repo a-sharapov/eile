@@ -13,13 +13,15 @@ description: Как устроены шаблоны и компоненты CMS 
 ```svelte
 <!-- шаблон: получает page и site -->
 <script>
+  import Content from '$core/Content';
   import Menu from '$components/Menu';
   let { page, site } = $props();
 </script>
 
 <svelte:head><title>{page.title} — {site.name}</title></svelte:head>
 <Menu />
-<main>{@html page.content}</main>
+<!-- Content рисует компоненты, формы и ссылки в тексте; {@html page.content} показал бы их тегами. -->
+<main><Content of={page} /></main>
 ```
 
 ```svelte
@@ -50,6 +52,9 @@ description: Как устроены шаблоны и компоненты CMS 
   - `current()` — страница первой фазы; в `Uncached` и острове — `null`. Компоненты набора берут текущую
     страницу отсюда, а не из параметра `page`;
   - `ancestors(id)` — предки от корня до родителя (крошки, активная ветка меню);
+  - `translations(id?)` — переводы страницы (по умолчанию текущей) для переключателя языка:
+    `{ language, url, title, current }`, исходная первой, по одному на язык; без переводов — `[]`
+    (ADR 0033);
   - `listing(parent, { perPage, sort, depth, includeHidden, paged })` → `{ items, number, pages, total,
     url(n), pager(around) }`. Скрытые из меню — в списке по умолчанию. Номер порции берётся из хвоста
     адреса `/blog/page-2` (ADR 0019); первый постраничный список на странице — главный, порция за
@@ -64,7 +69,9 @@ description: Как устроены шаблоны и компоненты CMS 
   - `search(query, { limit, parent, page })` → `{ query, items: [{ id, title, url, snippet }], total,
     number, pages, url(n), pager(around) }` — поиск по опубликованным страницам на языке текущей (ADR 0030).
     `snippet` — HTML с `<mark>`, уже экранирован: выводить через `{@html}`. Вызов в первой фазе вешает
-    на страницу тег `search` — её сбрасывает любая правка страниц.
+    на страницу тег `search` — её сбрасывает любая правка страниц. Фраза в кавычках ищется целиком,
+    синонимы — из настроек сайта; если ничего не нашлось и запрос исправлен, `corrected` — его текст
+    (иначе `null`): выдача тогда по исправленному.
 
   Шаблон получает `{ page, site }`, и в `site` уже есть переводы и свои настройки: `{site.i18n.key}`,
   `{site.custom.key}` — обычные выражения Svelte (`delivery/domain/site-keys.ts`); нет ключа — сам
@@ -164,7 +171,8 @@ description: Как устроены шаблоны и компоненты CMS 
 2. `defineViewLoader(…).template(name)` (`design/infrastructure/bun-view-loader.ts`):
    - `compileForServer` (`generate: "server"`, `css: "injected"`, `runes: true`);
    - `Bun.Transpiler.scanImports` и белый список;
-   - импорты переписываются на `@cms/views-N/<kind>/<Name>-<hash>` и `@cms/views-N/host/<module>`;
+   - пути импортов по дереву разбора (`platform/module-imports.ts`) переписываются на
+     `@cms/views-N/<kind>/<Name>-<hash>` и `@cms/views-N/host/<module>`; текст в строках не трогается;
    - модули регистрируются через `build.module()`;
    - шаблон загружается через `import(вычисляемый спецификатор)`.
 3. Разрешённые спецификаторы кэшируются в `#resolved` и сбрасываются на любое событие `design.*`.
@@ -206,5 +214,4 @@ description: Как устроены шаблоны и компоненты CMS 
 ## Известные ограничения
 
 - Модули не выгружаются: каждая правка добавляет модуль в память, перезапуск освобождает её.
-- Импорты переписываются регуляркой по скомпилированному коду.
 - `views.template/component` отдают `{ view, elements }`, где `elements` — ключи графа импортов для тегов кэша.

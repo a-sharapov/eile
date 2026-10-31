@@ -41,3 +41,31 @@ export var WELCOME: Scaffold = {
   ],
   home: 'home',
 };
+
+const _GREETING_EN = `<h1>Welcome</h1>
+<p>The site is up. This page uses the Minimal template, which shows nothing but the page text.</p>
+<p>Fill the site in the manager: <a href="/manager">/manager</a>. Templates and components live there too, under Elements, and you edit them right in the browser.</p>
+<p>While the site has only this welcome page, one command turns it into a ready-made site:</p>
+<pre><code>cms new blog        # blog
+cms new portfolio   # portfolio
+cms new company     # company site
+cms new showcase    # showcase
+cms new shop        # online shop</code></pre>
+`;
+
+/** То же приветствие по-английски: новая база на системе не с русской локалью. */
+export var WELCOME_EN: Scaffold = {
+  ...WELCOME,
+  name: 'welcome-en',
+  title: 'Welcome',
+  summary: 'A welcome page and a blank Minimal template',
+  language: 'en',
+  pages: [
+    {
+      key: 'home',
+      title: 'Welcome',
+      template: 'Minimal',
+      content: _GREETING_EN,
+    },
+  ],
+};

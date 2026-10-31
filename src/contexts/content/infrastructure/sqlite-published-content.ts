@@ -5,6 +5,7 @@ import type {
   PageNode,
   PageView,
   PublishedContent,
+  TranslationNode,
 } from '../application/published-content.ts';
 import { type Field, type FieldValue, fitsField } from '../domain/field.ts';
 import type { PageKind } from '../domain/page.ts';
@@ -94,29 +95,34 @@ type NodeRow = Pick<
   | 'hidden_from_menu'
   | 'publish_at'
   | 'unpublish_at'
+  | 'language'
 >;
 
 const _NODES = `
   SELECT id, parent_id, kind, title, menu_title, alias, template, content_type,
-         published, trashed_at, menu_index, hidden_from_menu, publish_at, unpublish_at
+         published, trashed_at, menu_index, hidden_from_menu, publish_at, unpublish_at, language
   FROM content_pages ORDER BY coalesce(parent_id, 0), menu_index, id`;
 
-const _toNode = (row: NodeRow): PageNode => ({
-  id: row.id,
-  parentId: row.parent_id,
-  kind: row.kind as PageKind,
-  title: row.title,
-  menuTitle: row.menu_title,
-  alias: row.alias,
-  template: row.template,
-  contentType: row.content_type,
-  published: row.published === 1,
-  trashed: row.trashed_at !== null,
-  menuIndex: row.menu_index,
-  hiddenFromMenu: row.hidden_from_menu === 1,
-  publishAt: row.publish_at,
-  unpublishAt: row.unpublish_at,
-});
+// Язык узла — с учётом ветки по индексу дерева; у страницы в корзине — свой.
+const _toNode =
+  (languageOf: ReadonlyMap<number, string>) =>
+  (row: NodeRow): PageNode => ({
+    id: row.id,
+    parentId: row.parent_id,
+    kind: row.kind as PageKind,
+    title: row.title,
+    menuTitle: row.menu_title,
+    alias: row.alias,
+    template: row.template,
+    contentType: row.content_type,
+    published: row.published === 1,
+    trashed: row.trashed_at !== null,
+    menuIndex: row.menu_index,
+    hiddenFromMenu: row.hidden_from_menu === 1,
+    publishAt: row.publish_at,
+    unpublishAt: row.unpublish_at,
+    language: languageOf.get(row.id) ?? row.language,
+  });
 
 const _index = (rows: TreeRow[]): TreeIndex => ({
   pathOf: new Map(rows.map((_) => [_.id, _.path])),
@@ -148,6 +154,11 @@ export var definePublishedContent = (
     'SELECT page_id FROM content_old_paths WHERE path = ?'
   );
   const tree = db.query<TreeRow, []>(_TREE);
+  // Набор переводов по исходной странице: она первой, затем переводы по id.
+  const members = db.query<PageRow, [number]>(
+    `SELECT * FROM content_pages WHERE id = ?1 OR translation_of = ?1
+     ORDER BY translation_of IS NOT NULL, id`
+  );
   // Порция по дате или меню: номера отбирает и сортирует индекс, строки поднимаются только для них.
   const listed = (order: string) =>
     db.query<PageRow, [string, number, number, number, number]>(
@@ -263,6 +274,7 @@ export var definePublishedContent = (
     searchable: row.searchable === 1,
     socialImage: row.social_image,
     language: indexed().languageOf.get(row.id) ?? row.language,
+    translationOf: row.translation_of,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     publishedAt: row.published_at,
@@ -293,6 +305,23 @@ export var definePublishedContent = (
     return reachable(row) ? view(row) : null;
   };
 
+  const hubOf = (id: number): number | null =>
+    ((row) => (row ? (row.translation_of ?? row.id) : null))(anyById.get(id));
+
+  const setOf = (id: number): PageRow[] =>
+    ((hub) => (hub === null ? [] : members.all(hub)))(hubOf(id));
+
+  const translationNode =
+    (hub: number) =>
+    (row: PageRow): TranslationNode => ({
+      id: row.id,
+      title: row.title,
+      language: indexed().languageOf.get(row.id) ?? row.language,
+      published: row.published === 1,
+      trashed: !indexed().pathOf.has(row.id),
+      original: row.id === hub,
+    });
+
   return {
     page,
     byPath: (path) => {
@@ -305,6 +334,12 @@ export var definePublishedContent = (
         .filter(reachable)
         .map(view),
     lineage,
+    translations: (id) =>
+      setOf(id)
+        .filter((_) => _.published === 1)
+        .filter(reachable)
+        .map(view),
+    translationHub: hubOf,
     list: (parentId, options = {}) => {
       const depth = _clamp(options.depth ?? 1, 1, _MAX_DEPTH);
       // Родители: сама страница, если она не в корзине, и её потомки всех уровней, кроме нижнего.
@@ -342,11 +377,16 @@ export var definePublishedContent = (
     movedFrom: (path) =>
       ((row) => (row ? page(row.page_id) : null))(movedFrom.get(path)),
     drafts: {
-      tree: () => nodes.all().map(_toNode),
+      tree: () => nodes.all().map(_toNode(indexed().languageOf)),
       view: (id) => {
         const row = anyById.get(id);
         return row && view(row);
       },
+      translations: (id) =>
+        ((rows) =>
+          rows.length < 2 ? [] : rows.map(translationNode(hubOf(id)!)))(
+          setOf(id)
+        ),
     },
     invalidate: () => void ((index = null), (fields = null)),
   };

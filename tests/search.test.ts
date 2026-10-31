@@ -176,6 +176,52 @@ describe('выдача на сайте', () => {
   });
 });
 
+describe('фразы, синонимы и опечатки', () => {
+  it('фраза в кавычках — слова подряд, в любых формах', () => {
+    page('Белая кухня', '<p>Белая кухня из дуба для маленькой квартиры.</p>');
+    page('Кухня и белая плитка', '<p>Кухня с плиткой: белая, глянцевая.</p>');
+    expect(titles('белая кухня').toSorted()).toEqual([
+      'Белая кухня',
+      'Кухня и белая плитка',
+    ]);
+    expect(titles('"белой кухни"')).toEqual(['Белая кухня']);
+    expect(titles('«белая кух')).toEqual(['Белая кухня']);
+  });
+
+  it('синоним из настроек находит страницу без этого слова; в отрывке — найденное слово', () => {
+    page('Мягкая мебель', '<p>Диваны и кресла на заказ.</p>');
+    expect(titles('софа')).toEqual([]);
+    app.site.settings.update({ searchSynonyms: 'диван, софа\nкресло, стул' });
+    const found = find('софу');
+    expect(found.map((_) => _.title)).toEqual(['Мягкая мебель']);
+    expect(found[0]!.snippet).toContain('<mark>Диваны</mark>');
+  });
+
+  it('опечатка: ничего не нашлось — выдача по исправленному запросу, слово — как на странице', () => {
+    page('Каталог кухонь', '<p>Весь каталог фасадов и столешниц.</p>');
+    const result = app.search.search('ктаалог фасадв', { language: 'ru' });
+    expect(result.hits.map((_) => _.title)).toEqual(['Каталог кухонь']);
+    expect(result.corrected).toBe('каталог фасадов');
+    expect(result.hits[0]!.snippet).toContain('<mark>');
+    // Нашлось без исправлений — исправления нет; нет и похожих слов — пусто.
+    expect(
+      app.search.search('каталог', { language: 'ru' }).corrected
+    ).toBeNull();
+    expect(app.search.search('зебра', { language: 'ru' })).toMatchObject({
+      total: 0,
+      corrected: null,
+    });
+  });
+
+  it('новые слова индекса — в исправлениях сразу', () => {
+    expect(app.search.search('терракота', { language: 'ru' }).total).toBe(0);
+    page('Цвета', '<p>Терракотовый и оливковый.</p>');
+    expect(app.search.search('теракотовый', { language: 'ru' }).corrected).toBe(
+      'терракотовый'
+    );
+  });
+});
+
 describe('GET /_cms/search', () => {
   it('JSON: адреса, заголовки, отрывки; не кэшируется', async () => {
     page('Глиняная ваза', '<p>Ваза из красной глины.</p>', { alias: 'vaza' });

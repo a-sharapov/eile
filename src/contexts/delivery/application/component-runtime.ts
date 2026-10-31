@@ -7,8 +7,10 @@ import type {
 } from '../../content/index.ts';
 import { type ImageSet, stemOf } from '../../media/index.ts';
 import type { SiteSettings } from '../../site/index.ts';
+import { isHtml } from '../domain/content-type.ts';
 import { type PagerItem, pagerWindow, pagingPath } from '../domain/paging.ts';
 import { type SiteKeys, withSiteKeys } from '../domain/site-keys.ts';
+import { oneByLanguage, translationsTag } from '../domain/translations.ts';
 import { defineLinks } from './links.ts';
 import type { Dictionary, RequestInfo, SiteSearch } from './ports.ts';
 import { REQUEST_TAG, type RenderScope } from './render-scope.ts';
@@ -23,6 +25,16 @@ export type ListingOptions = {
   readonly includeHidden?: boolean;
   /** Номер порции из адреса (`/blog/page-2`); false — всегда первая. */
   readonly paged?: boolean;
+};
+
+/** Перевод страницы для переключателя языка. */
+export type Translation = {
+  readonly language: string;
+  readonly url: string;
+  /** Подпись в меню, иначе заголовок — на языке перевода. */
+  readonly title: string;
+  /** Это та страница, для которой спросили. */
+  readonly current: boolean;
 };
 
 /** Порция списка: страницы, номер, всего страниц и адреса для пейджера. */
@@ -58,6 +70,8 @@ export type SearchItem = {
 export type SearchResults = {
   /** Запрос после обрезки: его и показывать в поле. */
   readonly query: string;
+  /** Ничего не нашлось, и выдача — по запросу с исправленными опечатками: его текст; иначе null. */
+  readonly corrected: string | null;
   readonly items: SearchItem[];
   readonly total: number;
   readonly number: number;
@@ -84,6 +98,11 @@ export type ComponentRuntime = {
   readonly current: () => PageView | null;
   /** Предки от корня до родителя: для хлебных крошек и активной ветки меню. */
   readonly ancestors: (id: number) => PageView[];
+  /**
+   * Переводы страницы (по умолчанию — текущей) для переключателя языка: исходная первой, по одному на
+   * язык, включая саму страницу. Без переводов — пусто.
+   */
+  readonly translations: (id?: number) => Translation[];
   /** Дети или потомки страницы порциями; первый постраничный список берёт номер из адреса. */
   readonly listing: (
     parentId: number | null,
@@ -146,6 +165,36 @@ export var defineComponentRuntime = (
       .map(page)
       .filter((_) => _ !== null);
   };
+  // Набор и пути переводов — в тегах кэша: переключатель обновится, когда набор или адрес перевода сменится.
+  const translations = (id?: number): Translation[] =>
+    ((target) =>
+      target === undefined
+        ? []
+        : ((hub) => {
+            void (hub !== null && scope.record(translationsTag(hub)));
+            const items = oneByLanguage(
+              content
+                .translations(target)
+                .filter((_) => _.kind === 'page' && isHtml(_.contentType))
+                .flatMap((_) => {
+                  content
+                    .lineage(_.id)
+                    .forEach((branch) => void scope.record(`branch:${branch}`));
+                  const url = links.urlOf(_);
+                  return url === null
+                    ? []
+                    : [
+                        {
+                          language: _.language || settings().language,
+                          url,
+                          title: _.menuTitle || _.title,
+                          current: _.id === target,
+                        },
+                      ];
+                })
+            );
+            return items.length < 2 ? [] : items;
+          })(content.translationHub(target)))(id ?? scope.page()?.id);
   const urlOf = (number: number): string | null =>
     ((paging) => paging && pagingPath(paging.base, paging.segment, number))(
       scope.paging()
@@ -212,6 +261,7 @@ export var defineComponentRuntime = (
     const url = searchUrl(found.query);
     return {
       query: found.query,
+      corrected: found.corrected ?? null,
       items: found.hits.flatMap((hit) =>
         ((target) =>
           target ? [{ ...hit, url: links.urlOf(target) ?? '#' }] : [])(
@@ -238,6 +288,7 @@ export var defineComponentRuntime = (
     ),
     current: scope.page,
     ancestors,
+    translations,
     listing,
     site: () =>
       ((site) =>

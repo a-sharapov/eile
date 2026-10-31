@@ -1,5 +1,6 @@
 import {
   type CompressionCache,
+  compressBody,
   negotiate,
 } from '../../../platform/compression.ts';
 import { attempt } from '../../../shared/kernel/errors.ts';
@@ -11,7 +12,7 @@ import {
 } from '../../../shared/kernel/report.ts';
 import type { Discovered, Discovery } from '../application/discovery.ts';
 import type { Delivery, PageDelivery } from '../application/page-delivery.ts';
-import type { RequestInfo } from '../application/ports.ts';
+import type { EditBar, RequestInfo } from '../application/ports.ts';
 import { isHtml, responseType } from '../domain/content-type.ts';
 
 const _METHODS = ['GET', 'HEAD'];
@@ -74,6 +75,14 @@ const _etag = (html: string): string => `"${Bun.hash(html).toString(36)}"`;
 
 const _ETAGS_LIMIT = 8192;
 
+// Полоса — перед последним </body>; нет его — в конец документа.
+const _withBar = (html: string, bar: string): string =>
+  ((at) => (at < 0 ? html + bar : html.slice(0, at) + bar + html.slice(at)))(
+    html.toLowerCase().lastIndexOf('</body>')
+  );
+
+const _NO_BAR: EditBar = () => null;
+
 // 500 посетителю — и сообщение владельцу: одинаковые ошибки склеиваются, а не адреса.
 const _serverError =
   (report: Report, path: string) =>
@@ -82,7 +91,11 @@ const _serverError =
     report({
       kind: 'site.error',
       severity: 'critical',
-      title: `Сайт ответил 500 на ${path}`,
+      title: {
+        en: `The site answered 500 on ${path}`,
+        de: `Die Website antwortete 500 auf ${path}`,
+        ru: `Сайт ответил 500 на ${path}`,
+      },
       detail: errorDetail(error),
       key: errorKey('site.error', error),
     }),
@@ -93,6 +106,14 @@ const _badRequest = (): Response =>
   new Response('Bad Request', { status: 400 });
 
 // Страница-файл (SVG, XML, лента), открытая в браузере, скриптов не выполняет — как SVG медиатеки.
+// HTML сайта: адрес страницы уходит чужим сайтам только доменом, встроить страницу во фрейм может
+// только сам сайт — кликджекинг форм на чужой странице не выйдет.
+const _PAGE_POLICY = {
+  'referrer-policy': 'strict-origin-when-cross-origin',
+  'x-frame-options': 'SAMEORIGIN',
+  'content-security-policy': "frame-ancestors 'self'",
+};
+
 const _FILE_POLICY = {
   'content-security-policy':
     "default-src 'none'; style-src 'unsafe-inline'; sandbox",
@@ -123,7 +144,8 @@ export var defineSiteHandler = (
   delivery: PageDelivery,
   compression: CompressionCache,
   discovery: Discovery,
-  report: Report = NO_REPORT
+  report: Report = NO_REPORT,
+  editBar: EditBar = _NO_BAR
 ) => {
   // У страницы из кэша HTML — одна и та же строка: её хэш для ETag считаем один раз, а не на каждый запрос.
   const etags = new Map<string, string>();
@@ -139,7 +161,47 @@ export var defineSiteHandler = (
           etag
         ))(_etag(page.html)));
 
-  const pageResponse = (request: Request, page: Page): Response => {
+  // Страница с полосой правки — только тому, кто вошёл в менеджер: без ETag, общего кэша и сжатия впрок.
+  const personalResponse = (
+    request: Request,
+    page: Page,
+    bar: string
+  ): Response => {
+    const encoding = negotiate(request.headers.get('accept-encoding'));
+    const html = _withBar(page.html, bar);
+    return new Response(
+      request.method === 'HEAD'
+        ? null
+        : encoding
+          ? compressBody(encoding, html)
+          : html,
+      {
+        status: page.status,
+        headers: {
+          'content-type': responseType(page.contentType),
+          'x-content-type-options': 'nosniff',
+          'cache-control': 'private, no-store',
+          vary: 'accept-encoding, cookie',
+          'x-cache': page.cache,
+          ...(encoding && { 'content-encoding': encoding }),
+          ..._PAGE_POLICY,
+        },
+      }
+    );
+  };
+
+  const barOf = (request: Request, page: Page): string | null =>
+    page.pageId !== null && isHtml(page.contentType)
+      ? editBar(request, { id: page.pageId, status: page.status })
+      : null;
+
+  const pageResponse = (request: Request, page: Page): Response =>
+    ((bar) =>
+      bar === null
+        ? sharedResponse(request, page)
+        : personalResponse(request, page, bar))(barOf(request, page));
+
+  const sharedResponse = (request: Request, page: Page): Response => {
     const etag = etagOf(page);
     const encoding = negotiate(request.headers.get('accept-encoding'));
     const headers = {
@@ -150,7 +212,7 @@ export var defineSiteHandler = (
       etag,
       'x-cache': page.cache,
       ...(encoding && { 'content-encoding': encoding }),
-      ...(!isHtml(page.contentType) && _FILE_POLICY),
+      ...(isHtml(page.contentType) ? _PAGE_POLICY : _FILE_POLICY),
     };
     const fresh =
       page.status === 200 && request.headers.get('if-none-match') === etag;

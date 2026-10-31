@@ -1,3 +1,5 @@
+import { currentLanguage } from './i18n.ts';
+
 /** Место ошибки в исходнике шаблона, компонента или плагина: строка и столбец с единицы. */
 export type SourcePoint = { readonly line: number; readonly column: number };
 
@@ -34,6 +36,9 @@ const _parse = (response: Response): Promise<any> =>
 
 const _JSON = { 'content-type': 'application/json' };
 
+// Свой язык — первым: на нём сервер собирает тексты для менеджера (диагностику, письмо сброса пароля).
+const _language = () => ({ 'accept-language': currentLanguage() });
+
 /** «Только создать»: сервер откажет кодом *_exists, если имя уже занято. */
 export var CREATE_ONLY = { 'if-none-match': '*' };
 
@@ -41,7 +46,8 @@ export var isApiError = (error: unknown): error is ApiError =>
   error instanceof Error && 'status' in error;
 
 export var api = {
-  get: <T>(path: string): Promise<T> => fetch(`${_base()}${path}`).then(_parse),
+  get: <T>(path: string): Promise<T> =>
+    fetch(`${_base()}${path}`, { headers: _language() }).then(_parse),
   send: <T>(
     method: string,
     path: string,
@@ -50,14 +56,17 @@ export var api = {
   ): Promise<T> =>
     fetch(`${_base()}${path}`, {
       method,
-      headers: { ..._JSON, ...headers },
+      headers: { ..._JSON, ..._language(), ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     }).then(_parse),
   /** Тело как есть — файл копии сайта при восстановлении. */
   upload: <T>(path: string, body: Blob): Promise<T> =>
     fetch(`${_base()}${path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/octet-stream' },
+      headers: {
+        'content-type': 'application/octet-stream',
+        ..._language(),
+      },
       body,
     }).then(_parse),
   previewUrl: (id: number): string => `${_base()}/pages/${id}/preview`,

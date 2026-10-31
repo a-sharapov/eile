@@ -42,7 +42,11 @@ export var defineExtensionsService = ({
       report({
         kind: 'extensions.plugin_failed',
         severity: 'error',
-        title: `Плагин ${name} упал`,
+        title: {
+          en: `Plugin ${name} crashed`,
+          de: `Plugin ${name} ist abgestürzt`,
+          ru: `Плагин ${name} упал`,
+        },
         detail: errorDetail(error),
         key: errorKey(`extensions.plugin_failed:${name}`, error),
       })
@@ -141,7 +145,7 @@ export var defineExtensionsService = ({
       list: (): Plugin[] => plugins.all(),
       get: (name: string): Plugin => load(name),
       save: (name: string, source: string): Plugin =>
-        pipe<string, Plugin>(
+        pipe(
           parsePluginName,
           (_: PluginName) => {
             const existing = plugins.get(_);
@@ -152,9 +156,9 @@ export var defineExtensionsService = ({
           store
         )(name),
       setEnabled: (name: string, enabled: boolean): Plugin =>
-        pipe<string, Plugin>(load, setPluginEnabled(enabled), store)(name),
+        pipe(load, setPluginEnabled(enabled), store)(name),
       remove: (name: string): void =>
-        pipe<string, void>(
+        pipe(
           load,
           removePlugin,
           (_: PluginChange) => (

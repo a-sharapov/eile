@@ -1,5 +1,5 @@
 import { api } from './api.ts';
-import { applyAppearance } from './appearance.svelte.ts';
+import { adoptLanguage, applyAppearance } from './appearance.svelte.ts';
 import type { Session } from './types.ts';
 
 export var session = $state<Session & { loaded: boolean }>({
@@ -17,12 +17,11 @@ export var session = $state<Session & { loaded: boolean }>({
 export var loadSession = (): Promise<Session> =>
   api
     .get<Session>('/session')
-    .then(
-      (_) => (
-        Object.assign(session, _, { loaded: true }),
-        void (_.appearance && applyAppearance(_.appearance)),
-        _
-      )
+    .then((_) =>
+      (_.appearance
+        ? (applyAppearance(_.appearance), adoptLanguage(_.appearance.language))
+        : Promise.resolve()
+      ).then(() => (Object.assign(session, _, { loaded: true }), _))
     );
 
 export var signOut = (): Promise<void> =>

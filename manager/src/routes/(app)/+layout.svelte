@@ -1,6 +1,8 @@
 <script lang="ts">
 import { tick } from 'svelte';
 import { aiWands } from '#lib/ai-wands.ts';
+import { chooseLanguage } from '#lib/appearance.svelte.ts';
+import { embedded } from '#lib/embed.ts';
 import { type MessageKey, t } from '#lib/i18n.ts';
 import { icons, logo } from '#lib/icons.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
@@ -13,6 +15,7 @@ import AppearanceDialog from '#lib/ui/AppearanceDialog.svelte';
 import CommandPalette from '#lib/ui/CommandPalette.svelte';
 import EdgeState from '#lib/ui/EdgeState.svelte';
 import InboxBell from '#lib/ui/InboxBell.svelte';
+import LanguageSelect from '#lib/ui/LanguageSelect.svelte';
 import LoadState from '#lib/ui/LoadState.svelte';
 import PasswordDialog from '#lib/ui/PasswordDialog.svelte';
 import { afterNavigate, goto } from '$app/navigation';
@@ -305,7 +308,9 @@ $effect(() =>
     : undefined
 );
 
-const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K';
+const shortcut = /Mac|iPhone|iPad/.test(navigator.platform)
+  ? '⌘K'
+  : `${t('common.ctrl')} K`;
 
 // Ctrl+K (⌘K) — быстрый переход; в тексте страницы то же сочетание вставляет ссылку, и редактор
 // отменяет событие раньше — тогда окно не открывается.
@@ -363,7 +368,25 @@ const closeAccount = (event: Event) =>
 
 <svelte:window onpointerdown={closeAccount} onkeydown={(e) => (closeAccount(e), drawerKey(e), paletteKey(e))} />
 
-{#if session.user}
+{#snippet content()}
+  {#if allowed}
+    {@render children()}
+  {:else}
+    <EdgeState kind="forbidden" title={t('edge.forbiddenTitle')} text={t('edge.forbiddenText')}>
+      {#snippet actions()}
+        <a class="button primary" href={resolve('/(app)/pages')}>{t('overview.title')}</a>
+        <a class="button" href={resolve('/(app)/media')}>{t('nav.media')}</a>
+      {/snippet}
+    </EdgeState>
+  {/if}
+{/snippet}
+
+{#if session.user && embedded}
+  <!-- В окне полосы правки на сайте — только холстина: шапка и дерево там лишние. -->
+  <main id="main" class="canvas embedded" tabindex="-1">{@render content()}</main>
+  <CommandPalette />
+  <AiPrompt />
+{:else if session.user}
   <a class="skip" href="#main">{t('common.skip')}</a>
   <div class="shell" style:--tree-width={open ? `${width}px` : '0px'} data-tree={open ? 'open' : 'closed'} data-drawer={drawer || undefined}>
     <!-- Шапка во всю ширину, как в Evo: разделы слева, сайт и учётная запись справа. -->
@@ -388,7 +411,7 @@ const closeAccount = (event: Event) =>
       <a class="button ghost icon site" href="/" target="_blank" rel="noopener" aria-label={t('nav.site')} title={t('nav.site')}>{@html icons.external}</a>
       <InboxBell />
       <div class="account">
-        <button type="button" class="user" bind:this={accountButton} aria-label={`${t('shell.account')}: ${session.user.name}${session.update ? ` · ${t('app.updateAvailable')} ${session.update.latest}` : ''}`} aria-expanded={accountOpen} onclick={() => (accountOpen = !accountOpen)}>
+        <button type="button" class="user" bind:this={accountButton} aria-label={`${t('shell.account')}: ${session.user.name}${session.update ? ` · ${t('app.updateAvailable', { version: session.update.latest })}` : ''}`} aria-expanded={accountOpen} onclick={() => (accountOpen = !accountOpen)}>
           <span class="avatar" aria-hidden="true">{initials}{#if session.update}<span class="update-dot"></span>{/if}</span>
           <span class="who"><strong>{session.user.name}</strong></span>
           {@html icons.chevronDown}
@@ -398,10 +421,11 @@ const closeAccount = (event: Event) =>
             <p><strong>{session.user.name}</strong><span>{session.user.email}</span></p>
             <button type="button" onclick={() => ((accountOpen = false), (appearanceOpen = true))}>{@html icons.palette}{t('appearance.title')}</button>
             <button type="button" onclick={() => ((accountOpen = false), (passwordOpen = true))}>{@html icons.key}{t('password.title')}</button>
+            <LanguageSelect labelled onpick={(_) => chooseLanguage(_).then(undefined, failed)} />
             <button type="button" onclick={leave}>{@html icons.logout}{t('nav.signOut')}</button>
             <p class="about">{t('app.name')} {session.version}</p>
             {#if session.update}
-              <a class="update" href={session.update.url} target="_blank" rel="noopener noreferrer" title={t('app.updateHint')}>{t('app.updateAvailable')} {session.update.latest}</a>
+              <a class="update" href={session.update.url} target="_blank" rel="noopener noreferrer" title={t('app.updateHint')}>{t('app.updateAvailable', { version: session.update.latest })}</a>
             {/if}
           </div>
         {/if}
@@ -442,18 +466,7 @@ const closeAccount = (event: Event) =>
     <div class="resizer" role="separator" aria-orientation="vertical" aria-label={t('shell.resize')} aria-valuenow={width} aria-valuetext={`${width} px`} aria-valuemin={_MIN} aria-valuemax={_MAX} tabindex="0" onpointerdown={resize} onkeydown={resizeKey}></div>
     <div class="workspace" inert={drawer || undefined}>
       <button type="button" class="ghost icon show" aria-label={t('shell.treeShow')} title={t('shell.treeShow')} onclick={toggleTree}>{@html icons.panelOpen}</button>
-      <main id="main" class="canvas" tabindex="-1">
-        {#if allowed}
-          {@render children()}
-        {:else}
-          <EdgeState kind="forbidden" title={t('edge.forbiddenTitle')} text={t('edge.forbiddenText')}>
-            {#snippet actions()}
-              <a class="button primary" href={resolve('/(app)/pages')}>{t('overview.title')}</a>
-              <a class="button" href={resolve('/(app)/media')}>{t('nav.media')}</a>
-            {/snippet}
-          </EdgeState>
-        {/if}
-      </main>
+      <main id="main" class="canvas" tabindex="-1">{@render content()}</main>
     </div>
     <div class="scrim" aria-hidden="true" onclick={() => openDrawer(false)}></div>
   </div>
@@ -912,6 +925,15 @@ const closeAccount = (event: Event) =>
 
   .canvas:focus {
     outline: none;
+  }
+
+  /* В окне полосы правки холстина — всё окно: рамка и тень там дала бы второй край. */
+  .canvas.embedded {
+    min-height: 100dvh;
+    padding: 0 1.5rem 2rem;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
   }
 
   [data-tree='closed'] .canvas {

@@ -1,0 +1,141 @@
+/* Текст помощи — общий для всех языков: компоненты глав подставляются в article.help-text. */
+
+.help-text h2 {
+  margin: 3rem 0 0.25rem;
+  padding-top: 1.5rem;
+  border-top: 0.0625rem solid var(--line);
+  font-size: 1.375rem;
+  letter-spacing: -0.02em;
+  scroll-margin-top: calc(var(--topbar, 0) + 5rem);
+}
+
+.help-text h3 {
+  margin: 1.75rem 0 0.5rem;
+  font-size: 1.0625rem;
+}
+
+.help-text dl {
+  display: grid;
+  gap: 0.25rem 1.25rem;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+}
+
+.help-text dt {
+  font-weight: 600;
+}
+
+.help-text dd {
+  margin: 0;
+}
+
+.help-text section p,
+.help-text section ul,
+.help-text section ol,
+.help-text section dl {
+  margin: 0 0 0.75rem;
+}
+
+.help-text section ul,
+.help-text section ol {
+  padding-left: 1.25rem;
+}
+
+.help-text li + li {
+  margin-top: 0.35rem;
+}
+
+@container help (width < 36rem) {
+  .help-text dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .help-text dd {
+    margin-bottom: 0.5rem;
+  }
+}
+
+.help-text .legend {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.help-text .legend li {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: baseline;
+  margin: 0;
+}
+
+.help-text .legend .status-node {
+  justify-self: center;
+}
+
+.help-text .glyph,
+.help-text section svg {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  color: var(--muted);
+  vertical-align: -0.15em;
+}
+
+.help-text section button svg {
+  color: inherit;
+}
+
+.help-text code {
+  padding: 0 0.3em;
+  border-radius: var(--radius-s);
+  background: var(--sunken);
+  font-family: var(--mono);
+  font-size: 0.875em;
+}
+
+.help-text table {
+  width: 100%;
+  max-width: 36rem;
+  background: transparent;
+}
+
+.help-text td {
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  border-bottom: 0.0625rem solid var(--line);
+  vertical-align: top;
+}
+
+.help-text td:first-child {
+  width: 40%;
+  white-space: nowrap;
+}
+
+/* Тихий блок над текстом: не глава и не предупреждение — слово благодарности. */
+.help-text .thanks {
+  margin: 0 0 1.5rem;
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius-l);
+  background: var(--sunken);
+}
+
+.help-text .thanks h2 {
+  margin: 0 0 0.35rem;
+  padding: 0;
+  border: 0;
+  font-size: 1rem;
+  letter-spacing: 0;
+}
+
+.help-text .thanks p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.help-text .lead {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 1.0625rem;
+}

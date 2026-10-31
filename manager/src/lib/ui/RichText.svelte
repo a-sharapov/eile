@@ -13,7 +13,7 @@ import { type Command, EditorState, Plugin } from 'prosemirror-state';
 import { Decoration, DecorationSet, EditorView } from 'prosemirror-view';
 import { aiReady, askAi } from '#lib/ai.svelte.ts';
 import { askValue } from '#lib/dialog.svelte.ts';
-import { type MessageKey, t } from '#lib/i18n.ts';
+import { type MessageKey, quoted, t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { mediaUrl } from '#lib/media.ts';
 import { pickMedia } from '#lib/media-picker.svelte.ts';
@@ -154,7 +154,7 @@ const explainLink = (input: string): string =>
           match
             ? ((node) =>
                 node
-                  ? `${t('editor.linkToPage')} «${node.title}»`
+                  ? `${t('editor.linkToPage')} ${quoted(node.title)}`
                   : t('editor.linkNoPage'))(
                 tree.nodes.find((_) => _.id === Number(match[1]))
               )

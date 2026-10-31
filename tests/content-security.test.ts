@@ -214,9 +214,13 @@ describe('песочница', () => {
     expect(
       (await site('/logo.svg')).headers.get('content-security-policy')
     ).toContain('sandbox');
+    // HTML-страница — без песочницы; от чужих фреймов её закрывает только frame-ancestors.
     expect(
       (await site('/kontakty')).headers.get('content-security-policy')
-    ).toBeNull();
+    ).toBe("frame-ancestors 'self'");
+    expect((await site('/kontakty')).headers.get('referrer-policy')).toBe(
+      'strict-origin-when-cross-origin'
+    );
   });
 
   it('service worker со страниц сайта не регистрируется', async () => {

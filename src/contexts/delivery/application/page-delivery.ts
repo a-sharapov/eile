@@ -16,7 +16,7 @@ import {
   resolvePageLinks,
 } from '../domain/content-tags.ts';
 import { HTML_TYPE, isHtml, isMarkup } from '../domain/content-type.ts';
-import { seoHead } from '../domain/discovery.ts';
+import { type Alternate, seoHead } from '../domain/discovery.ts';
 import {
   fillRegions,
   htmlDocument,
@@ -33,6 +33,7 @@ import {
   withTitleSuffix,
 } from '../domain/paging.ts';
 import { withSiteKeys } from '../domain/site-keys.ts';
+import { oneByLanguage, translationsTag } from '../domain/translations.ts';
 import type { Links } from './links.ts';
 import type {
   CachedPage,
@@ -63,6 +64,8 @@ export type Delivery =
       /** MIME-тип ответа без параметров. */
       readonly contentType: string;
       readonly cache: CacheStatus;
+      /** Страница дерева, которую показали; null — голый 404 без своей страницы. */
+      readonly pageId: number | null;
     }
   | {
       readonly kind: 'redirect';
@@ -122,13 +125,19 @@ const _redirect = (
 });
 
 const _page =
-  (status: number, cache: CacheStatus, contentType = HTML_TYPE) =>
+  (
+    status: number,
+    cache: CacheStatus,
+    pageId: number | null,
+    contentType = HTML_TYPE
+  ) =>
   (html: string): Delivery => ({
     kind: 'page',
     status,
     html,
     contentType,
     cache,
+    pageId,
   });
 
 // Props региона хранятся в кэше: снимок через JSON отвязывает их от объектов рендера.
@@ -136,6 +145,9 @@ const _frozen = (props: unknown): Readonly<Record<string, unknown>> =>
   JSON.parse(JSON.stringify(props ?? {}));
 
 /** Ответ посетителю: канонический адрес, кэш страниц, поиск в дереве, двухфазный рендер. */
+/** Сколько хостов без адреса сайта получают свой кэш страниц. */
+const _CACHED_HOSTS = 4;
+
 export var definePageDelivery = ({
   content,
   settings,
@@ -157,7 +169,18 @@ export var definePageDelivery = ({
       report({
         kind: 'site.region_failed',
         severity: 'error',
-        title: `Не отрисовался ${region.kind === 'island' ? 'остров' : 'регион'} ${region.name} на ${request.path}`,
+        title:
+          region.kind === 'island'
+            ? {
+                en: `Island ${region.name} failed to render on ${request.path}`,
+                de: `Insel ${region.name} auf ${request.path} wurde nicht gerendert`,
+                ru: `Не отрисовался остров ${region.name} на ${request.path}`,
+              }
+            : {
+                en: `Region ${region.name} failed to render on ${request.path}`,
+                de: `Bereich ${region.name} auf ${request.path} wurde nicht gerendert`,
+                ru: `Не отрисовался регион ${region.name} на ${request.path}`,
+              },
         detail: errorDetail(error),
         key: errorKey(`site.region_failed:${region.name}`, error),
       }),
@@ -226,6 +249,45 @@ export var definePageDelivery = ({
   const urlOf = (page: PageView, site: SiteSettings, origin: string) =>
     `${origin}${pageUrl(page, site.homePageId)}`;
 
+  /** Переводы для hreflang: опубликованные HTML-страницы набора, открытые поиску, по одной на язык. */
+  const alternatesOf = (
+    page: PageView,
+    site: SiteSettings,
+    origin: string
+  ): Alternate[] =>
+    ((alternates) => (alternates.length < 2 ? [] : alternates))(
+      oneByLanguage(
+        content
+          .translations(page.id)
+          .filter(
+            (_) =>
+              _.kind === 'page' &&
+              isHtml(_.contentType) &&
+              _.searchable &&
+              _.id !== site.notFoundPageId
+          )
+          .map((_) => ({
+            language: languageOf(_, site),
+            url: urlOf(_, site, origin),
+          }))
+      )
+    );
+
+  // Шапка собирается после рендера, поэтому её зависимости — явными тегами: набор переводов и ветки
+  // переводов, от которых зависят их адреса.
+  const translationTags = (page: PageView): string[] =>
+    ((hub) =>
+      hub === null
+        ? []
+        : [
+            translationsTag(hub),
+            ...content
+              .translations(page.id)
+              .flatMap((_) =>
+                content.lineage(_.id).map((id) => `branch:${id}`)
+              ),
+          ])(content.translationHub(page.id));
+
   /** Номер порции и сколько их всего у постраничного списка; pages null — списка нет. */
   type PageNumber = { readonly number: number; readonly pages: number | null };
 
@@ -254,6 +316,7 @@ export var definePageDelivery = ({
       {
         title: (page.longTitle || page.title) + suffix,
         description: description && description + suffix,
+        language: languageOf(page, site),
         url: site.pagingCanonical === 'first' ? at(1) : at(number),
         pagination:
           pages === null || pages < 2
@@ -264,6 +327,11 @@ export var definePageDelivery = ({
                 next: number < pages ? at(number + 1) : null,
               },
         searchable: page.searchable && status === 200,
+        // У порций 2, 3… переводов нет: переводы — у первой.
+        alternates:
+          status === 200 && number === 1
+            ? alternatesOf(page, site, origin)
+            : [],
         image: image ? `${origin}/media/${image}` : null,
         publishedAt: page.publishedAt,
         updatedAt: page.updatedAt,
@@ -286,7 +354,7 @@ export var definePageDelivery = ({
       {
         name: site.name,
         description: site.description,
-        language: languageOf(page, site),
+        language: site.language,
         origin,
       },
       existing
@@ -417,6 +485,7 @@ export var definePageDelivery = ({
             ].map((_) => `element:${_}`),
             `page:${page.id}`,
             ...content.lineage(page.id).map((_) => `branch:${_}`),
+            ...translationTags(page),
           ],
         };
       }))(
@@ -486,7 +555,7 @@ export var definePageDelivery = ({
       loader(snapshot),
     ]).then(({ 0: regions, 1: script }) =>
       isHtml(snapshot.contentType)
-        ? pipe<Rendered, string>(
+        ? pipe(
             (_: Rendered) => ({ ..._, body: _.body + script }),
             (_: Rendered) => htmlDocument(snapshot.language || site.language, _)
           )(fillRegions(snapshot, regions))
@@ -498,6 +567,14 @@ export var definePageDelivery = ({
   const cacheKey = (request: RequestInfo, path: string): string =>
     settings().siteUrl ? path : `${request.origin} ${path}`;
 
+  // Без адреса сайта кэш делится по Host, но только для первых нескольких: подменный Host в каждом
+  // запросе иначе вытеснял бы из кэша настоящие страницы. Остальные хосты рисуются без кэша.
+  const hosts = new Set<string>();
+  const cacheable = (request: RequestInfo): boolean =>
+    settings().siteUrl !== '' ||
+    hosts.has(request.origin) ||
+    (hosts.size < _CACHED_HOSTS && (hosts.add(request.origin), true));
+
   const store = (
     request: RequestInfo,
     path: string,
@@ -506,10 +583,11 @@ export var definePageDelivery = ({
     tags: readonly string[],
     html: string
   ): CacheStatus =>
-    page.cacheable && !tags.includes(REQUEST_TAG)
+    page.cacheable && !tags.includes(REQUEST_TAG) && cacheable(request)
       ? (cache.set(cacheKey(request, path), {
           content: snapshot.regions.length === 0 ? { html } : { snapshot },
           contentType: page.contentType,
+          pageId: page.id,
           tags: new Set(tags),
         }),
         'miss')
@@ -533,6 +611,7 @@ export var definePageDelivery = ({
                 status === 200
                   ? store(request, request.path, page, snapshot, tags, html)
                   : 'bypass',
+                page.id,
                 page.contentType
               )(html)
             )
@@ -546,7 +625,7 @@ export var definePageDelivery = ({
       site.notFoundPageId === null ? null : content.page(site.notFoundPageId);
     return page
       ? render(request, page, site, 404)
-      : Promise.resolve(_page(404, 'bypass')(_BARE_NOT_FOUND));
+      : Promise.resolve(_page(404, 'bypass', null)(_BARE_NOT_FOUND));
   };
 
   // Старый адрес страницы (до смены алиаса или переноса) ведёт на новый — поисковики не теряют её.
@@ -660,19 +739,19 @@ export var definePageDelivery = ({
 
   const fromCache = (
     request: RequestInfo,
-    { content, contentType }: CachedPage
+    { content, contentType, pageId }: CachedPage
   ) =>
     'html' in content
-      ? Promise.resolve(_page(200, 'hit', contentType)(content.html))
+      ? Promise.resolve(_page(200, 'hit', pageId, contentType)(content.html))
       : secondPhase(request, content.snapshot, settings()).then(
-          _page(200, 'hit', contentType)
+          _page(200, 'hit', pageId, contentType)
         );
 
   const route =
     (request: RequestInfo) =>
     (canonical: string | null): Promise<Delivery> => {
       const cached =
-        canonical === null
+        canonical === null || !cacheable(request)
           ? undefined
           : cache.get(cacheKey(request, canonical));
       return canonical === null
@@ -697,17 +776,19 @@ export var definePageDelivery = ({
         }))
       ),
     deliver: (request: RequestInfo): Promise<Delivery> =>
-      Promise.resolve(request.path)
-        .then(canonicalPath)
-        .then(route(request))
-        // Плагины правят HTML: CSS или ленту им не отдаём.
-        .then((_) =>
-          _.kind === 'page' && isHtml(_.contentType)
-            ? hooks
-                .render(_.html, { path: request.path, status: _.status })
-                .then((html) => ({ ..._, html }))
-            : _
-        ),
+      Promise.resolve(request.path).then(
+        pipe(
+          canonicalPath,
+          route(request),
+          // Плагины правят HTML: CSS или ленту им не отдаём.
+          (_): Delivery | Promise<Delivery> =>
+            _.kind === 'page' && isHtml(_.contentType)
+              ? hooks
+                  .render(_.html, { path: request.path, status: _.status })
+                  .then((html) => ({ ..._, html }))
+              : _
+        )
+      ),
   };
 };
 

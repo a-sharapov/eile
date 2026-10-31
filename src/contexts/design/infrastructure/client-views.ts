@@ -1,4 +1,5 @@
 import { compile } from 'svelte/compiler';
+import { rewriteImports } from '../../../platform/module-imports.ts';
 import { attempt, fail } from '../../../shared/kernel/errors.ts';
 import { pipe } from '../../../shared/kernel/pipe.ts';
 import {
@@ -18,8 +19,6 @@ const _OPTIONS = {
   runes: true,
   discloseVersion: false,
 } as const;
-
-const _IMPORT_SPECIFIER = /(\bfrom\s*|\bimport\s*\(?\s*)(['"])([^'"\n]+)\2/g;
 
 const _transpiler = new Bun.Transpiler({ loader: 'js' });
 
@@ -91,18 +90,12 @@ export var defineClientViews = ({
       return url;
     };
 
-  const rewrite =
-    (live: ClientRuntime, trail: readonly string[]) =>
-    (code: string): string =>
-      code.replace(
-        _IMPORT_SPECIFIER,
-        (_match, keyword: string, quote: string, path: string) =>
-          `${keyword}${quote}${
-            path.startsWith(COMPONENT_IMPORT_PREFIX)
-              ? urlOf(live, path.slice(COMPONENT_IMPORT_PREFIX.length), trail)
-              : live.url(_RUNTIME_FILES[path as keyof typeof _RUNTIME_FILES])
-          }${quote}`
-      );
+  const rewrite = (live: ClientRuntime, trail: readonly string[]) =>
+    rewriteImports((path) =>
+      path.startsWith(COMPONENT_IMPORT_PREFIX)
+        ? urlOf(live, path.slice(COMPONENT_IMPORT_PREFIX.length), trail)
+        : live.url(_RUNTIME_FILES[path as keyof typeof _RUNTIME_FILES])
+    );
 
   const urlOf = (
     live: ClientRuntime,
@@ -115,7 +108,7 @@ export var defineClientViews = ({
           'design.import_cycle',
           `Import cycle: ${[...trail, name].join(' → ')}`
         )
-      : pipe<void, string>(
+      : pipe(
           () => load(name),
           _compile,
           _checkImports(name),

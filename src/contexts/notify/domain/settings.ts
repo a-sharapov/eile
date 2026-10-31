@@ -1,5 +1,9 @@
 import { fail } from '../../../shared/kernel/errors.ts';
 import {
+  isManagerLanguage,
+  type ManagerLanguage,
+} from '../../../shared/kernel/manager-language.ts';
+import {
   CHANNELS,
   type ChannelKind,
   SEVERITIES,
@@ -38,6 +42,8 @@ export type NotifySettings = {
   readonly incidents: readonly ChannelKind[];
   /** Сбои ниже этой важности — только в журнал. */
   readonly level: Severity;
+  /** Язык уведомлений; null — язык сайта, если менеджер его знает, иначе английский. */
+  readonly language: ManagerLanguage | null;
 };
 
 export var EMPTY_SETTINGS: NotifySettings = {
@@ -46,6 +52,7 @@ export var EMPTY_SETTINGS: NotifySettings = {
   forms: CHANNELS,
   incidents: CHANNELS,
   level: 'error',
+  language: null,
 };
 
 /** Настройки для менеджера: без токена и пароля — их он не показывает и не отдаёт. */
@@ -59,6 +66,7 @@ export type NotifyStatus = {
   readonly forms: readonly ChannelKind[];
   readonly incidents: readonly ChannelKind[];
   readonly level: Severity;
+  readonly language: ManagerLanguage | null;
 };
 
 export var statusOf = (settings: NotifySettings): NotifyStatus => ({
@@ -79,6 +87,7 @@ export var statusOf = (settings: NotifySettings): NotifyStatus => ({
   forms: settings.forms,
   incidents: settings.incidents,
   level: settings.level,
+  language: settings.language,
 });
 
 /** Каналы, которые настроены: маршрут к ненастроенному каналу ничего не отправляет. */
@@ -222,4 +231,12 @@ export var parseSettings = (
             'notify.invalid_level',
             'Level is critical, error, warning or info'
           ),
+  language:
+    input.language === undefined
+      ? previous.language
+      : input.language === null || input.language === ''
+        ? null
+        : isManagerLanguage(input.language)
+          ? input.language
+          : fail('notify.invalid_language', 'Language is en, de or ru'),
 });

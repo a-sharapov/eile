@@ -8,7 +8,7 @@ import { elements, loadElements } from '#lib/elements.svelte.ts';
 import { fields } from '#lib/fields.svelte.ts';
 import { pageRef, places } from '#lib/format.ts';
 import { guardUnsaved } from '#lib/guard.svelte.ts';
-import { t } from '#lib/i18n.ts';
+import { t, tn } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { describeSource, failed, notify } from '#lib/notices.svelte.ts';
 import type { Element, Usage } from '#lib/types.ts';
@@ -67,7 +67,7 @@ const save = () =>
           (_) => (
             (element = _),
             (error = null),
-            notify(`${t('elements.saved')} ${_.revision}`),
+            notify(t('elements.saved', { n: _.revision })),
             loadElements(),
             void (_.kind === 'component' && loadCatalog(true))
           )
@@ -135,15 +135,30 @@ $effect(() => void loadCatalog().then(undefined, () => undefined));
 
 $effect(() =>
   aiScope({
-    area: `${page.params.kind === 'template' ? 'шаблон' : 'компонент'} «${page.params.name}»`,
+    area: t(
+      page.params.kind === 'template'
+        ? 'aiFacts.templateArea'
+        : 'aiFacts.componentArea',
+      { name: page.params.name ?? '' }
+    ),
     facts: facts([
       componentFacts(
         (catalog.items ?? []).filter((_) => _.name !== page.params.name)
       ),
       page.params.kind === 'template' &&
-        `Поля шаблона: ${templateFields.map((_) => `page.fields.${_.name} (${_.label}, ${_.type})`).join(', ') || 'нет'}`,
+        t('aiFacts.fields', {
+          list:
+            templateFields
+              .map((_) => `page.fields.${_.name} (${_.label}, ${_.type})`)
+              .join(', ') || t('aiFacts.none'),
+        }),
       usage &&
-        `Страниц на сайте с этим ${page.params.kind === 'template' ? 'шаблоном' : 'компонентом'}: ${livePages}`,
+        t(
+          page.params.kind === 'template'
+            ? 'aiFacts.templatePages'
+            : 'aiFacts.componentPages',
+          { n: livePages }
+        ),
     ]),
   })
 );
@@ -212,7 +227,7 @@ const remove = () =>
     {#if usage}
       <p>
         <span class="muted">{t('elements.usedOn')}:</span>
-        <span>{livePages} {t('elements.pagesShort')}</span>
+        <span>{tn('elements.pagesShort', livePages)}</span>
         {#if usage.elements.length > 0}<span class="muted">·</span> {#each usage.elements as name (name)}<a class="code" href={resolve('/(app)/elements/[kind]/[name]', { kind: kindOf(name), name })}>{name}</a>{/each}{/if}
       </p>
     {/if}
@@ -222,8 +237,8 @@ const remove = () =>
         <dl>
           <dt><code>{'{page.title}'}</code>, <code>{'{page.longTitle}'}</code>, <code>{'{page.menuTitle}'}</code></dt><dd>{t('elements.cheatTitles')}</dd>
           <dt><code>{'{@html page.content}'}</code>, <code>{'{page.introText}'}</code>, <code>{'{page.description}'}</code></dt><dd>{t('elements.cheatContent')}</dd>
-          <dt><code>{'{page.fields.имя}'}</code></dt><dd>{t('elements.cheatFields')}</dd>
-          <dt><code>{'{site.name}'}</code>, <code>{'{site.custom.ключ}'}</code>, <code>{'{site.i18n.ключ}'}</code></dt><dd>{t('elements.cheatSite')}</dd>
+          <dt><code>{t('elements.cheatFieldsCode')}</code></dt><dd>{t('elements.cheatFields')}</dd>
+          <dt><code>{'{site.name}'}</code>, <code>{t('elements.cheatCustomCode')}</code>, <code>{t('elements.cheatI18nCode')}</code></dt><dd>{t('elements.cheatSite')}</dd>
           <dt><code>import Menu from '$components/Menu'</code></dt><dd>{t('elements.cheatComponents')}</dd>
         </dl>
       </details>

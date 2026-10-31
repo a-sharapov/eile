@@ -31,6 +31,8 @@ export type Scaffold = {
   readonly summary: string;
   /** Название сайта, если в команде не задано своё. */
   readonly siteName: string;
+  /** Язык сайта; по умолчанию ru. */
+  readonly language?: string;
   readonly description?: string;
   /** Компоненты из набора; их зависимости ставятся сами. */
   readonly kit?: readonly string[];
@@ -100,9 +102,12 @@ export var applyScaffold = (
   { content, design, site, forms }: ScaffoldServices,
   siteName?: string
 ): ScaffoldReport => {
+  // Набор — на языке каркаса: английский сайт получает английские подписи компонентов.
   const kit = [
     ...new Map(
-      (scaffold.kit ?? []).flatMap(kitClosure).map((_) => [_.name, _])
+      (scaffold.kit ?? [])
+        .flatMap((_) => kitClosure(_, scaffold.language ?? 'ru'))
+        .map((_) => [_.name, _])
     ).values(),
   ];
   kit.forEach((_) => void design.components.save(_.name, _.source));
@@ -139,7 +144,7 @@ export var applyScaffold = (
   );
   site.settings.update({
     name: siteName?.trim() || scaffold.siteName,
-    language: 'ru',
+    language: scaffold.language ?? 'ru',
     description: scaffold.description ?? '',
     homePageId: Number(resolve(`@{${scaffold.home}}`)),
     notFoundPageId: scaffold.notFound

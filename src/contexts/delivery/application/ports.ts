@@ -51,6 +51,8 @@ export type CachedPage = {
   /** Страница без регионов хранится готовым документом, с регионами — снимком для второй фазы. */
   readonly content: { readonly html: string } | { readonly snapshot: Snapshot };
   readonly contentType: string;
+  /** Чья это страница: полоса правки на сайте открывает её в менеджере. */
+  readonly pageId: number;
   readonly tags: ReadonlySet<string>;
 };
 
@@ -101,6 +103,15 @@ export type Hooks = {
   readonly notFound: (path: string) => Promise<string | null>;
 };
 
+/**
+ * Полоса правки на сайте: HTML перед `</body>` для того, кто вошёл в менеджер; null — обычный посетитель.
+ * Страница с полосой отдаётся только ему и в общий кэш не попадает.
+ */
+export type EditBar = (
+  request: Request,
+  page: { readonly id: number; readonly status: number }
+) => string | null;
+
 /** Запрос посетителя глазами компонентов. */
 export type RequestInfo = {
   readonly path: string;
@@ -131,6 +142,8 @@ export type SiteSearch = (
   readonly query: string;
   readonly hits: readonly SearchHit[];
   readonly total: number;
+  /** Выдача — по исправленному запросу: его текст; null — по тому, что ввели. */
+  readonly corrected?: string | null;
 };
 
 /** Переводы и свои настройки сайта — для `{i18n.key}`, `[@key]`, `t()` и `setting()`. */

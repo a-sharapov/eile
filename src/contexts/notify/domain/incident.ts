@@ -1,21 +1,14 @@
-import type { ChannelKind, Severity } from './message.ts';
+import type { Alert } from '../../../shared/kernel/report.ts';
+import type { ChannelKind } from './message.ts';
 
 /** Сбой сайта или критическое событие: что случилось и насколько это важно. */
-export type Incident = {
-  /** Источник: `site.error`, `extensions.plugin_failed`. */
-  readonly kind: string;
-  readonly severity: Severity;
-  readonly title: string;
-  /** Подробности: стек, адрес запроса. */
-  readonly detail: string;
-  /** Что считать одним и тем же сбоем; по умолчанию — источник и заголовок. */
-  readonly key?: string;
+export type Incident = Alert & {
   /** Каналы, которыми о сбое не сообщать: о сбое Telegram — не через Telegram. */
   readonly avoid?: readonly ChannelKind[];
 };
 
 export var fingerprintOf = (incident: Incident): string =>
-  (incident.key ?? `${incident.kind}:${incident.title}`).slice(0, 300);
+  (incident.key ?? `${incident.kind}:${incident.title.en}`).slice(0, 300);
 
 /** Одинаковые сбои за окно склеиваются: первый уходит сразу, повторы — счётчиком в следующем. */
 export var REPEAT_WINDOW_MS = 15 * 60 * 1000;

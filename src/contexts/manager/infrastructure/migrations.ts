@@ -25,4 +25,8 @@ export var managerMigrations: readonly Migration[] = [
       CREATE INDEX manager_activity_at ON manager_activity (at);
     `,
   },
+  {
+    id: 'manager/003_appearance_language',
+    sql: 'ALTER TABLE manager_appearance ADD COLUMN language TEXT;',
+  },
 ];

@@ -22,6 +22,23 @@ export type Secure = {
   readonly stop: () => void;
 };
 
+// По HTTPS браузер запоминает на год: этот сайт — только по HTTPS, даже если набрали http://.
+const _HSTS = 'max-age=31536000';
+
+/** Ответ по HTTPS — с HSTS; у ответа с неизменяемыми заголовками он просто без него. */
+export var withHsts =
+  (fetch: App['fetch']) =>
+  (...args: Parameters<App['fetch']>): Promise<Response> =>
+    Promise.resolve(fetch(...args)).then(
+      (response) => (
+        attempt(
+          () => response.headers.set('strict-transport-security', _HSTS),
+          () => undefined
+        ),
+        response
+      )
+    );
+
 /**
  * HTTPS без прокси: HTTP-порт отвечает на проверку HTTP-01 и ведёт на HTTPS, HTTPS встаёт, как только
  * есть действующий сертификат. Пока его нет (и если он истёк), сайт открывается по HTTP.
@@ -54,7 +71,7 @@ export var serveSecure = ({
       port: httpsPort,
       reusePort: true,
       tls: { cert: certificate.chain, key: certificate.key },
-      fetch: app.fetch,
+      fetch: withHsts(app.fetch),
     });
 
   // Где порт делить нельзя, старый слушатель уходит раньше, чем встаёт новый.

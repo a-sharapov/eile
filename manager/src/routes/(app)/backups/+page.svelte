@@ -4,6 +4,7 @@ import { ask } from '#lib/dialog.svelte.ts';
 import { ago, moment } from '#lib/format.ts';
 import { type MessageKey, t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
+import { fileSize } from '#lib/media.ts';
 import { failed } from '#lib/notices.svelte.ts';
 import type { UpkeepStatus } from '#lib/types.ts';
 import PageHeader from '#lib/ui/PageHeader.svelte';
@@ -30,10 +31,7 @@ const _EVERY: Readonly<Record<number, MessageKey>> = {
   1: 'upkeep.every1',
 };
 
-const _size = (bytes: number): string =>
-  bytes < 1024 ** 2
-    ? `${Math.max(1, Math.round(bytes / 1024))} КБ`
-    : `${(bytes / 1024 ** 2).toFixed(1)} МБ`;
+const _size = fileSize;
 
 const restoreFrom = (input: HTMLInputElement) =>
   ((file) =>

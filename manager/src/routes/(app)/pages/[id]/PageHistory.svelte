@@ -186,7 +186,7 @@ const restore = (revision: Revision) =>
             <button type="button" class="version" aria-current={selected?.id === item.id ? 'true' : undefined} onclick={() => open(item).then(undefined, failed)}>
               <time datetime={item.at} title={moment(item.at)}>{ago(item.at)}</time>
               <span class="who">{item.author?.name ?? t('history.site')}</span>
-              <span class="what">{item.action === 'restored' && item.restoredFrom ? `${t('history.restoredFrom')} ${moment(item.restoredFrom)}` : item.changed.map(labelOf).join(', ')}</span>
+              <span class="what">{item.action === 'restored' && item.restoredFrom ? t('history.restoredFrom', { when: moment(item.restoredFrom) }) : item.changed.map(labelOf).join(', ')}</span>
             </button>
           </li>
         {/each}
@@ -196,7 +196,7 @@ const restore = (revision: Revision) =>
         <section class="detail" aria-labelledby="history-title">
           <header>
             <div>
-              <h3 id="history-title">{t('history.before')} {moment(selected.at)}</h3>
+              <h3 id="history-title">{t('history.before', { when: moment(selected.at) })}</h3>
               <p class="muted">{selected.author?.name ?? t('history.site')}</p>
             </div>
             <button type="button" disabled={busy || same} onclick={() => restore(selected!)}>{@html icons.restore}{t('history.restore')}</button>

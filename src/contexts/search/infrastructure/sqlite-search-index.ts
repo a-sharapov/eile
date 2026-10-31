@@ -53,6 +53,16 @@ export var defineSearchIndex = (db: Database): SearchIndex => {
      FROM search_terms JOIN search_pages p ON p.page_id = search_terms.rowid
      WHERE ${_WHERE}`
   );
+  const vocabulary = db.query<{ term: string; docs: number }, []>(
+    'SELECT term, doc AS docs FROM search_vocab'
+  );
+  const exact = db.query<{ found: number }, [string]>(
+    'SELECT 1 AS found FROM search_vocab WHERE term = ? LIMIT 1'
+  );
+  // Начало основы — диапазон: всё, что сортируется от неё до неё же с последним символом Unicode.
+  const startsWith = db.query<{ found: number }, [string, string]>(
+    'SELECT 1 AS found FROM search_vocab WHERE term >= ? AND term < ? LIMIT 1'
+  );
   const format = db.query<{ value: string }, []>(
     "SELECT value FROM search_meta WHERE key = 'format'"
   );
@@ -97,6 +107,10 @@ export var defineSearchIndex = (db: Database): SearchIndex => {
         branch: filter.parent === null ? '/' : `/${filter.parent}/`,
         parent: filter.parent ?? -1,
       }),
+    vocabulary: () => vocabulary.all(),
+    known: (stem, prefix) =>
+      (prefix ? startsWith.get(stem, `${stem}\u{10FFFF}`) : exact.get(stem)) !==
+      null,
     format: () => ((row) => (row ? Number(row.value) : null))(format.get()),
     setFormat: (value) => void setFormat.run(String(value)),
     transaction: (run) => db.transaction(run)(),

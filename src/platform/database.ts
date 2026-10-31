@@ -15,7 +15,7 @@ const _PRAGMAS = [
 ];
 
 export var openDatabase = (path: string): Database =>
-  pipe<string, Database>(
+  pipe(
     (_: string) => new Database(_, { create: true, strict: true }),
     (db: Database) => (_PRAGMAS.forEach((pragma) => void db.run(pragma)), db)
   )(path);
@@ -29,7 +29,7 @@ const _apply = (db: Database) => (migration: Migration) => {
 };
 
 export var migrate = (db: Database, migrations: readonly Migration[]): void =>
-  pipe<void, void>(
+  pipe(
     () =>
       db.run(
         'CREATE TABLE IF NOT EXISTS _migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)'

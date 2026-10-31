@@ -66,8 +66,8 @@ type Editable = 'title' | 'alias' | 'menuTitle' | 'template' | 'hiddenFromMenu';
 const _changes = (node: PageNode, field: Editable, value: string | boolean) =>
   field === 'title' &&
   typeof value === 'string' &&
-  followsTitle(node.alias, node.title)
-    ? { title: value, alias: aliasFromTitle(value) }
+  followsTitle(node.alias, node.title, node.language)
+    ? { title: value, alias: aliasFromTitle(value, node.language) }
     : { [field]: value };
 
 // Правка поля — PATCH страницы; не вышло — поле возвращается к сохранённому значению.

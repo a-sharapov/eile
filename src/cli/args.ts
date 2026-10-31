@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util';
 import { attempt } from '../shared/kernel/errors.ts';
+import { cliLanguage, type Language } from './language.ts';
 import type { Env } from './paint.ts';
 
 export type Options = {
@@ -52,14 +53,25 @@ const _OPTIONS = {
   'acme-staging': { type: 'boolean' },
 } as const;
 
-// parseArgs говорит по-английски: «Unknown option '--prot'» — переводим самое частое.
-const _message = (error: unknown): string =>
+// parseArgs говорит длинно: «Unknown option '--prot'…» — самое частое говорим коротко и на языке CLI.
+const _SAY = {
+  ru: {
+    unknown: (option: string) => `Нет параметра ${option}. Список — cms help`,
+    missing: (option: string) => `У параметра нет значения: ${option}`,
+  },
+  en: {
+    unknown: (option: string) => `No option ${option}. List them: cms help`,
+    missing: (option: string) => `The option has no value: ${option}`,
+  },
+} satisfies Record<Language, unknown>;
+
+const _message = (error: unknown, language: Language): string =>
   ((text) =>
     ((unknown) =>
       unknown
-        ? `Нет параметра ${unknown[1]}. Список — cms help`
+        ? _SAY[language].unknown(unknown[1]!)
         : /argument missing/i.test(text)
-          ? `У параметра нет значения: ${text.match(/'(-[^']+)'/)?.[1] ?? ''}`
+          ? _SAY[language].missing(text.match(/'(-[^']+)'/)?.[1] ?? '')
           : text)(text.match(/Unknown option '([^']+)'/)))(
     error instanceof Error ? error.message : String(error)
   );
@@ -105,5 +117,5 @@ export var parseInvocation = (argv: readonly string[], env: Env): Invocation =>
           parsed.values.email ?? env.CMS_ACME_EMAIL,
           parsed.values['https-port'] ?? env.CMS_HTTPS_PORT
         ))(_parse(argv)),
-    (error) => ({ error: _message(error) })
+    (error) => ({ error: _message(error, cliLanguage(env)) })
   );

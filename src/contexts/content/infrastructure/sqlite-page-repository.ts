@@ -34,6 +34,7 @@ export type PageRow = {
   searchable: number;
   social_image: string;
   language: string;
+  translation_of: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -65,6 +66,7 @@ const _COLUMNS = {
   searchable: 'searchable',
   social_image: 'socialImage',
   language: 'language',
+  translation_of: 'translationOf',
 } as const;
 
 const _column = Object.keys(_COLUMNS);
@@ -178,6 +180,13 @@ export var definePageRepository = (db: Database): PageRepository => {
   const removeRevisions = db.query(
     `${_BRANCH} DELETE FROM content_revisions WHERE page_id IN (SELECT id FROM branch)`
   );
+  // Переводы удалённой страницы остаются страницами, но без исходной.
+  const unlinkTranslations = db.query(
+    `${_BRANCH} UPDATE content_pages SET translation_of = NULL WHERE translation_of IN (SELECT id FROM branch)`
+  );
+  const translations = db.query<{ id: number }, [number]>(
+    'SELECT id FROM content_pages WHERE translation_of = ? ORDER BY id'
+  );
 
   const toPage = (row: PageRow | null): Page | null =>
     row && {
@@ -205,6 +214,8 @@ export var definePageRepository = (db: Database): PageRepository => {
       searchable: row.searchable === 1,
       socialImage: row.social_image,
       language: row.language,
+      translationOf:
+        row.translation_of === null ? null : parsePageId(row.translation_of),
       fields: toFieldValues(valuesOf.all(row.id)),
     };
 
@@ -223,6 +234,7 @@ export var definePageRepository = (db: Database): PageRepository => {
   const remove = db.transaction((id: PageId) => {
     removeValues.run(id);
     removeRevisions.run(id);
+    unlinkTranslations.run(id);
     removePages.run(id);
   });
 
@@ -243,5 +255,6 @@ export var definePageRepository = (db: Database): PageRepository => {
     mentioning: (text) => ids(mentioning.all(text)),
     referencingMedia: (path) =>
       ids(referencingMedia.all({ url: `/media/${path}`, path })),
+    translationsOf: (id) => ids(translations.all(id)),
   };
 };

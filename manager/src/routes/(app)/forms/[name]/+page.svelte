@@ -11,7 +11,7 @@ import {
 import { parseForm } from '#lib/form-parse.ts';
 import { loadForms, removeForm } from '#lib/forms.svelte.ts';
 import { guardUnsaved } from '#lib/guard.svelte.ts';
-import { t } from '#lib/i18n.ts';
+import { t, tn } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
 import { failed, notify } from '#lib/notices.svelte.ts';
@@ -91,6 +91,14 @@ const names = (except: FormBlock) =>
     .filter((_) => _ !== except && _.kind === 'field')
     .map((_) => (_.kind === 'field' ? _.field.name : ''));
 
+// Поля, от которых может зависеть показ этого: видимые посетителю, кроме него самого.
+const others = (except: FormBlock) =>
+  blocks.flatMap((_) =>
+    _ !== except && _.kind === 'field' && _.field.kind !== 'hidden'
+      ? [{ name: _.field.name, label: _.field.label.replace(/[{}]/g, '') }]
+      : []
+  );
+
 // Предпросмотр — то же, что увидит посетитель: сервер рисует несохранённый HTML формы.
 let timer = 0;
 $effect(() => {
@@ -135,6 +143,24 @@ const addField = (kind: FieldKind) => {
 
 const addText = () => {
   blocks = [...blocks, { id: formBlockId(), kind: 'text', html: '' }];
+};
+
+// Шаг: всё, что ниже, до следующего шага, посетитель увидит отдельным экраном с «Далее».
+const addStep = () => {
+  const block: FormBlock = {
+    id: formBlockId(),
+    kind: 'step',
+    title: tn(
+      'formEditor.stepNumber',
+      blocks.filter((_) => _.kind === 'step').length + 1
+    ),
+  };
+  blocks = [...blocks, block];
+  return tick().then(() =>
+    document
+      .querySelector<HTMLInputElement>(`[data-block="${block.id}"] input`)
+      ?.select()
+  );
 };
 
 const move = (index: number, by: -1 | 1) =>
@@ -232,6 +258,17 @@ crumbs={[{ label: t('nav.forms'), href: resolve('/(app)/forms') }]}
             {/snippet}
             {#if block.kind === 'text'}
               <TextBlock bind:value={block.html} label={t('formEditor.textBlock')} placeholder={t('formEditor.textHint')} actions={controls} />
+            {:else if block.kind === 'step'}
+              <div class="step-card">
+                <div class="head">
+                  <label class="step-title">
+                    <span class="kind muted">{t('formEditor.stepBlock')}</span>
+                    <input bind:value={block.title} maxlength="120" aria-label={t('formEditor.stepTitle')} />
+                  </label>
+                  {@render controls()}
+                </div>
+                <small class="muted">{t('formEditor.stepHint')}</small>
+              </div>
             {:else}
               <div class="field-card" class:open={open === block.id}>
                 <div class="head">
@@ -246,7 +283,7 @@ crumbs={[{ label: t('nav.forms'), href: resolve('/(app)/forms') }]}
                 </div>
                 {#if open === block.id}
                   <div oninput={() => touch(block)} onchange={() => touch(block)} role="group">
-                    <FieldEditor bind:field={block.field} {sources} {pageFields} {pages} taken={names(block)} />
+                    <FieldEditor bind:field={block.field} {sources} {pageFields} {pages} taken={names(block)} others={others(block)} />
                   </div>
                 {/if}
               </div>
@@ -258,6 +295,7 @@ crumbs={[{ label: t('nav.forms'), href: resolve('/(app)/forms') }]}
         <span class="muted">{t('formEditor.add')}</span>
         <div class="kinds">
           <button type="button" onclick={addText}>{@html icons.text}{t('formEditor.textBlock')}</button>
+          <button type="button" onclick={addStep}>{t('formEditor.stepBlock')}</button>
           {#each FIELD_KINDS as kind (kind.id)}
             <button type="button" onclick={() => addField(kind.id)}>{t(kind.label)}</button>
           {/each}
@@ -366,6 +404,33 @@ crumbs={[{ label: t('nav.forms'), href: resolve('/(app)/forms') }]}
 </LoadState>
 
 <style>
+  .step-card {
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.6rem 0.75rem;
+    border: 0.0625rem dashed var(--line);
+    border-radius: var(--radius);
+    background: var(--sunken);
+  }
+
+  .step-card .head {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .step-title {
+    display: flex;
+    flex: 1;
+    gap: 0.6rem;
+    align-items: center;
+  }
+
+  .step-title input {
+    flex: 1;
+    font-weight: 600;
+  }
+
   .blocks {
     min-width: 0;
   }

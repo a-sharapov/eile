@@ -1,3 +1,4 @@
+import type { Localized } from '../../../shared/kernel/manager-language.ts';
 import type { Delivery, DeliveryStatus } from './delivery.ts';
 import type { ChannelKind, Message, Severity } from './message.ts';
 import type {
@@ -46,8 +47,9 @@ export type IncidentRecord = {
   readonly fingerprint: string;
   readonly kind: string;
   readonly severity: Severity;
-  readonly title: string;
-  readonly detail: string;
+  /** На каждом языке; строка — запись со старой версии или одна на все языки. */
+  readonly title: Localized | string;
+  readonly detail: Localized | string;
   readonly count: number;
   readonly firstAt: string;
   readonly lastAt: string;

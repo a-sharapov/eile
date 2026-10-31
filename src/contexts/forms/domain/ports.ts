@@ -1,5 +1,5 @@
 import type { Form, FormName } from './form.ts';
-import type { FieldSpec, Posted } from './schema.ts';
+import type { FieldSpec, FormTexts, Posted, Upload } from './schema.ts';
 import type {
   NewSubmission,
   Submission,
@@ -56,6 +56,33 @@ export type SubmissionRepository = {
   ) => number;
 };
 
+/** Файл заявки: что прислали в поле формы. Содержимое отдаётся только менеджеру и только скачиванием. */
+export type SubmissionFile = {
+  readonly id: number;
+  readonly submissionId: number;
+  readonly field: string;
+  readonly name: string;
+  readonly type: string;
+  readonly size: number;
+};
+
+/** Присланный файл с содержимым. */
+export type UploadedFile = Upload & { readonly bytes: Uint8Array };
+
+export type FileRepository = {
+  readonly add: (
+    submissionId: number,
+    field: string,
+    file: UploadedFile
+  ) => number;
+  readonly list: (submissionId: number) => SubmissionFile[];
+  readonly get: (
+    id: number
+  ) => (SubmissionFile & { readonly bytes: Uint8Array }) | null;
+  /** Удаляет файлы заявок, которых больше нет. */
+  readonly removeOrphans: () => number;
+};
+
 /** Разметка формы: описание полей по её HTML и HTML для посетителя с подставленным состоянием. */
 export type FormMarkup = {
   readonly fields: (source: string) => FieldSpec[];
@@ -85,6 +112,8 @@ export type FormView = {
   readonly errors: Readonly<Record<string, string>>;
   /** Значения скрытых полей по их `data-source`. */
   readonly hidden: Readonly<Record<string, string>>;
+  /** Тексты формы на языке страницы; скрипт берёт свои из атрибутов формы. */
+  readonly texts: FormTexts;
 };
 
 /** Печать формы: когда её показали — подписано; одноразовая. */

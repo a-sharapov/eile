@@ -78,8 +78,9 @@ curl -fsSL https://github.com/a-sharapov/eile/releases/latest/download/install.s
 ```
 
 Установщик выбирает сборку под систему — Linux x64 и arm64 (glibc и musl) или macOS (Intel и Apple
-Silicon), — проверяет SHA256 и кладёт `cms` в `~/.local/bin` (под root — в `/usr/local/bin`). Если
-каталога нет в `PATH`, дописывает его в файл оболочки.
+Silicon), — проверяет SHA256 и кладёт `cms` в `~/.local/bin` (под root — в `/usr/local/bin`). Рядом
+появляется `eile` — второе имя той же команды: `eile help` и `cms help` одно и то же. Если каталога нет в
+`PATH`, установщик дописывает его в файл оболочки.
 
 ```sh
 curl -fsSL …/install.sh | bash -s -- v0.2.0    # конкретная версия
@@ -89,7 +90,8 @@ CMS_NO_MODIFY_PATH=1 bash install.sh           # не трогать файлы 
 
 На Alpine сначала `apk add bash curl libgcc libstdc++`. Без установщика — скачайте
 `cms-<система>-<процессор>.gz` со [страницы релизов](https://github.com/a-sharapov/eile/releases), сверьте
-с `SHA256SUMS`, распакуйте `gunzip` и сделайте файл исполняемым.
+с `SHA256SUMS`, распакуйте `gunzip` и сделайте файл исполняемым. Второе имя — `ln -s cms eile` в том же
+каталоге.
 
 Обновление — тот же установщик ещё раз; работающий сервер перезапустите.
 
@@ -102,6 +104,9 @@ cms --db site.db            # сайт и менеджер на http://localhost
 
 При первом запуске сервер печатает ссылку, по которой создаётся администратор. Менеджер — `/manager`.
 Пустая база начинается со страницы приветствия и пустого шаблона `Minimal`, как в Evo.
+
+`cms` и установщик говорят на языке системы: при русской локали (`LANG=ru_RU.UTF-8`) по-русски, при
+любой другой по-английски. На том же языке новая база получает страницу приветствия и язык сайта.
 
 ```sh
 cms backup copy.db --db site.db        # копия всего сайта одним файлом
@@ -186,7 +191,10 @@ sudo systemctl enable --now cms
   [история правок](docs/adr/0026-page-revisions.md) ·
   [сброс пароля](docs/adr/0027-password-reset.md) ·
   [HTTPS без прокси](docs/adr/0028-https-without-proxy.md) ·
-  [поиск по сайту](docs/adr/0030-site-search.md).
+  [поиск по сайту](docs/adr/0030-site-search.md) ·
+  [языки менеджера](docs/adr/0031-manager-languages.md) ·
+  [правка прямо на сайте](docs/adr/0032-edit-bar.md) ·
+  [переводы страниц и hreflang](docs/adr/0033-page-translations.md).
 
 **Разработчикам шаблонов**
 

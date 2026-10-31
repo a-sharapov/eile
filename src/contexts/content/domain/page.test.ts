@@ -45,6 +45,31 @@ describe('Page', () => {
     expect(unpublishPage(draft).events).toEqual([]);
   });
 
+  it('перевод: не сам себя; событие несёт исходную и прежнюю исходную', () => {
+    expect(() => editPage({ translationOf: 1 })(draft)).toThrow(
+      'translation of itself'
+    );
+    const linked = editPage({ translationOf: 7 })(draft);
+    expect(linked.state.translationOf).toBe(parsePageId(7));
+    expect(linked.events).toEqual([
+      {
+        type: 'content.page_edited',
+        pageId: id,
+        parentId: null,
+        translationOf: parsePageId(7),
+        previousTranslationOf: null,
+      },
+    ]);
+    expect(editPage({ translationOf: null })(linked.state).events).toEqual([
+      {
+        type: 'content.page_edited',
+        pageId: id,
+        parentId: null,
+        previousTranslationOf: parsePageId(7),
+      },
+    ]);
+  });
+
   it('chain копит события переходов', () => {
     const created = createPage(id, { title: 'News', template: 'Base' });
     expect(chain(publishPage(_AT))(created).events.map((_) => _.type)).toEqual([

@@ -42,6 +42,7 @@ import images from 'lucide-static/icons/images.svg?raw';
 import inbox from 'lucide-static/icons/inbox.svg?raw';
 import italic from 'lucide-static/icons/italic.svg?raw';
 import keyRound from 'lucide-static/icons/key-round.svg?raw';
+import languages from 'lucide-static/icons/languages.svg?raw';
 import layoutTemplate from 'lucide-static/icons/layout-template.svg?raw';
 import link from 'lucide-static/icons/link.svg?raw';
 import list from 'lucide-static/icons/list.svg?raw';
@@ -133,6 +134,7 @@ export var icons = {
   images: _icon(images),
   italic: _icon(italic),
   key: _icon(keyRound),
+  languages: _icon(languages),
   link: _icon(link),
   list: _icon(list),
   listOrdered: _icon(listOrdered),

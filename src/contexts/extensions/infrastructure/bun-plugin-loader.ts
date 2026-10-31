@@ -1,4 +1,5 @@
 import { plugin as bunPlugin, type PluginBuilder } from 'bun';
+import { rewriteImports } from '../../../platform/module-imports.ts';
 import { attempt, fail } from '../../../shared/kernel/errors.ts';
 import type { Plugin } from '../domain/plugin.ts';
 import type { PluginHooks, PluginLoader } from '../domain/ports.ts';
@@ -17,8 +18,6 @@ const _modules = (): PluginBuilder =>
   _current()!);
 
 const _transpiler = new Bun.Transpiler({ loader: 'ts' });
-
-const _IMPORT_SPECIFIER = /(\bfrom\s*|\bimport\s*\(?\s*)(['"])([^'"\n]+)\2/g;
 
 /** Плагину доступен только `$core`: остального внутри бинарника нет. */
 export var PLUGIN_IMPORTS: readonly string[] = ['$core'];
@@ -81,10 +80,8 @@ export var defineBunPluginLoader = (runtime: object): PluginLoader => {
   }));
 
   const code = (plugin: Plugin): string =>
-    _checkImports(plugin.name)(_transpile(plugin)).replace(
-      _IMPORT_SPECIFIER,
-      (_match, keyword: string, quote: string, path: string) =>
-        `${keyword}${quote}${scope}/${path}${quote}`
+    rewriteImports((path) => `${scope}/${path}`)(
+      _checkImports(plugin.name)(_transpile(plugin))
     );
 
   const load = (plugin: Plugin): Promise<PluginHooks> => {

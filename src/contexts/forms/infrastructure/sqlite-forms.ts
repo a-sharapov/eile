@@ -1,8 +1,10 @@
 import type { Database } from '../../../platform/database.ts';
 import type { Form, FormName } from '../domain/form.ts';
 import type {
+  FileRepository,
   FormRepository,
   InboxStats,
+  SubmissionFile,
   SubmissionRepository,
 } from '../domain/ports.ts';
 import type { Value } from '../domain/schema.ts';
@@ -228,6 +230,66 @@ export var defineSubmissionRepository = (
       form === null
         ? purgeOrphans.run(JSON.stringify(keep), before).changes
         : purgeForm.run(form, before).changes,
+  };
+};
+
+type FileRow = {
+  id: number;
+  submission_id: number;
+  field: string;
+  name: string;
+  type: string;
+  size: number;
+};
+
+const _file = (row: FileRow): SubmissionFile => ({
+  id: row.id,
+  submissionId: row.submission_id,
+  field: row.field,
+  name: row.name,
+  type: row.type,
+  size: row.size,
+});
+
+// Имя файла — для подписи и скачивания: без путей и управляющих символов, разумной длины.
+const _fileName = (name: string): string =>
+  name
+    .replace(/^.*[\\/]/, '')
+    .replace(/[\p{Cc}]/gu, '')
+    .trim()
+    .slice(0, 200) || 'file';
+
+export var defineFileRepository = (db: Database): FileRepository => {
+  const insert = db.query<
+    { id: number },
+    Record<string, string | number | Uint8Array>
+  >(
+    `INSERT INTO forms_files (submission_id, field, name, type, size, data)
+     VALUES ($submission, $field, $name, $type, $size, $data) RETURNING id`
+  );
+  const list = db.query<FileRow, [number]>(
+    'SELECT id, submission_id, field, name, type, size FROM forms_files WHERE submission_id = ? ORDER BY id'
+  );
+  const get = db.query<FileRow & { data: Uint8Array }, [number]>(
+    'SELECT * FROM forms_files WHERE id = ?'
+  );
+  const orphans = db.query(
+    'DELETE FROM forms_files WHERE submission_id NOT IN (SELECT id FROM forms_submissions)'
+  );
+  return {
+    add: (submission, field, file) =>
+      insert.get({
+        submission,
+        field,
+        name: _fileName(file.name),
+        type: file.type.slice(0, 100),
+        size: file.bytes.byteLength,
+        data: file.bytes,
+      })!.id,
+    list: (submission) => list.all(submission).map(_file),
+    get: (id) =>
+      ((row) => (row ? { ..._file(row), bytes: row.data } : null))(get.get(id)),
+    removeOrphans: () => orphans.run().changes,
   };
 };
 

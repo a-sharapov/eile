@@ -1,3 +1,4 @@
+import { t } from './i18n.ts';
 import { session } from './session.svelte.ts';
 
 /** Что генерируем — так же, как на сервере (`assistant/domain/prompt.ts`). */
@@ -63,14 +64,15 @@ export var componentFacts = (
     readonly props: readonly { readonly name: string }[];
   }[]
 ): string =>
-  `Компоненты сайта: ${
-    items
-      .map(
-        (_) =>
-          `${_.name}(${_.props.map((prop) => prop.name).join(', ')})${_.description ? ` — ${_.description}` : ''}`
-      )
-      .join('; ') || 'нет'
-  }`;
+  t('aiFacts.components', {
+    list:
+      items
+        .map(
+          (_) =>
+            `${_.name}(${_.props.map((prop) => prop.name).join(', ')})${_.description ? ` — ${_.description}` : ''}`
+        )
+        .join('; ') || t('aiFacts.none'),
+  });
 
 /** Факты места без пустых строк: `[cond && 'текст', …]`. */
 export var facts = (

@@ -28,6 +28,19 @@ describe('заголовок Host', () => {
     expect(canonical(await again.text())).toBe('https://site.test/kontakty');
   });
 
+  it('без адреса сайта перебор Host не вытесняет кэш: свой кэш — только у первых хостов', async () => {
+    await get('https://site.test/kontakty');
+    for (const n of [1, 2, 3, 4, 5, 6]) {
+      await get(`https://h${n}.example/kontakty`);
+    }
+    expect(
+      (await get('https://h6.example/kontakty')).headers.get('x-cache')
+    ).toBe('bypass');
+    expect(
+      (await get('https://site.test/kontakty')).headers.get('x-cache')
+    ).toBe('hit');
+  });
+
   it('с адресом сайта Host ни на что не влияет', async () => {
     app.site.settings.update({ siteUrl: 'https://example.com/' });
     expect(

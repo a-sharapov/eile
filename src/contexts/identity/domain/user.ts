@@ -21,7 +21,9 @@ export type Permission =
   /** Собирать формы сайта: их HTML и куда уходят заявки. */
   | 'forms.edit'
   /** Видеть и разбирать заявки с форм — всем менеджерам. */
-  | 'inbox.read';
+  | 'inbox.read'
+  /** Удалить заявку навсегда — вместе с файлами: необратимо, только администратору. */
+  | 'inbox.delete';
 
 export type User = {
   readonly id: UserId;
@@ -52,6 +54,7 @@ const _PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     'users.manage',
     'forms.edit',
     'inbox.read',
+    'inbox.delete',
   ],
   editor: ['content.edit', 'inbox.read'],
 };
@@ -62,7 +65,7 @@ export var parseUserId = (raw: number): UserId =>
     : fail('identity.invalid_user_id', `Invalid user id ${raw}`);
 
 export var parseEmail = (raw: string): Email =>
-  pipe<string, Email>(
+  pipe(
     (_: string) => _.trim().toLowerCase(),
     (_: string) =>
       _.length <= 254 && _EMAIL.test(_)
@@ -102,7 +105,7 @@ export var createUser = (
   input: NewUser,
   passwordHash: string
 ): UserChange =>
-  pipe<string, UserChange>(parseEmail, (email: Email) =>
+  pipe(parseEmail, (email: Email) =>
     changed<User, IdentityEvent>(
       {
         id,
@@ -135,9 +138,9 @@ export var resetPassword =
 export var changeRole =
   (role: string) =>
   (user: User): UserChange =>
-    pipe<string, UserChange>(parseRole, (_: Role) =>
+    pipe(parseRole, (_: Role) =>
       _ === user.role
-        ? changed(user)
+        ? changed<User, IdentityEvent>(user)
         : changed<User, IdentityEvent>(
             { ...user, role: _ },
             { type: 'identity.role_changed', userId: user.id }

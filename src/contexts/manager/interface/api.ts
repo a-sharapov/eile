@@ -7,6 +7,12 @@ import {
   type SourcePoint,
 } from '../../../shared/kernel/errors.ts';
 import {
+  type ManagerLanguage,
+  managerLanguageOf,
+  textIn,
+} from '../../../shared/kernel/manager-language.ts';
+import { pipe } from '../../../shared/kernel/pipe.ts';
+import {
   errorDetail,
   errorKey,
   type Report,
@@ -81,8 +87,8 @@ export type ManagerServices = {
   ) => Promise<{ body: string; contentType: string }>;
   readonly backup: SiteBackup;
   readonly assistant: AssistantService;
-  /** Набор компонентов из бинарника; зависимости — раньше зависящих. */
-  readonly kit: readonly KitComponent[];
+  /** Набор компонентов из бинарника на языке сайта; зависимости — раньше зависящих. */
+  readonly kit: () => readonly KitComponent[];
   /** Сообщить о сбое владельцу сайта. */
   readonly report: Report;
   /** Версия программы: менеджер показывает её в меню профиля. */
@@ -100,9 +106,12 @@ export type ManagerServices = {
   readonly https: () => HttpsStatus | null;
   /** Правила переадресации сайта. */
   readonly redirects: RedirectsService;
-  /** Диагностика сайта; `again` — посчитать заново. */
+  /** Диагностика сайта на языке менеджера; `again` — посчитать заново. */
   readonly diagnostics: {
-    readonly report: (again?: boolean) => DiagnosticsReport;
+    readonly report: (
+      again: boolean,
+      language: ManagerLanguage
+    ) => DiagnosticsReport;
   };
 };
 
@@ -111,6 +120,8 @@ export type KitComponent = {
   readonly name: string;
   readonly source: string;
   readonly requires: readonly string[];
+  /** Тот же компонент на других языках набора: после смены языка сайта он не «изменён». */
+  readonly translations?: readonly string[];
 };
 
 /** missing — не установлен, installed — как в наборе, changed — исходник на сайте другой. */
@@ -268,8 +279,16 @@ const _failure =
           report({
             kind: 'identity.login_throttled',
             severity: 'warning',
-            title: 'Перебор пароля к менеджеру',
-            detail: `Слишком много неудачных входов${client ? ` с адреса ${client}` : ''}.`,
+            title: {
+              en: 'Password guessing on the manager',
+              de: 'Passwort-Rateversuche am Manager',
+              ru: 'Перебор пароля к менеджеру',
+            },
+            detail: {
+              en: `Too many failed sign-ins${client ? ` from ${client}` : ''}.`,
+              de: `Zu viele fehlgeschlagene Anmeldungen${client ? ` von ${client}` : ''}.`,
+              ru: `Слишком много неудачных входов${client ? ` с адреса ${client}` : ''}.`,
+            },
           })
         ),
         _error(_statusOf(error.code), error.code, error.message, error.at))
@@ -277,7 +296,11 @@ const _failure =
         report({
           kind: 'manager.error',
           severity: 'error',
-          title: `Менеджер: ошибка на ${request.method} ${new URL(request.url).pathname}`,
+          title: ((route) => ({
+            en: `Manager: error on ${route}`,
+            de: `Manager: Fehler bei ${route}`,
+            ru: `Менеджер: ошибка на ${route}`,
+          }))(`${request.method} ${new URL(request.url).pathname}`),
           detail: errorDetail(error),
           key: errorKey('manager.error', error),
         }),
@@ -400,6 +423,12 @@ const _routes = ({
   version,
 }: ApiServices): readonly Route[] => {
   const searchOf = (request: Request) => new URL(request.url).searchParams;
+  // Сброс пароля по почте — когда почта настроена и задан адрес сайта: ссылка в письме строится от него.
+  const resetReady = (): boolean =>
+    notify.email.ready() && _originOf(site.settings.get().siteUrl) !== null;
+  // Менеджер ставит свой язык первым в Accept-Language: на нём сервер и собирает тексты для него.
+  const languageOf = (request: Request): ManagerLanguage =>
+    managerLanguageOf(request.headers.get('accept-language'));
 
   // Фильтры списка заявок из адреса: форма, статус, непрочитанные, поиск, «раньше этой».
   const inboxQuery = (request: Request, limit: number) =>
@@ -430,14 +459,22 @@ const _routes = ({
       .slice(0, 200),
   });
 
-  const _cell = (value: string): string =>
-    /[";\n\r]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+  // Значение посетителя, которое начинается с = + - @ или табуляции, Excel счёл бы формулой: перед ним
+  // апостроф, и ячейка остаётся текстом.
+  const _cell = (raw: string): string =>
+    ((value) =>
+      /[";\n\r]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value)(
+      /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw
+    );
 
   // CSV для Excel: точка с запятой, BOM — кириллица открывается сразу.
-  const csvOf = (items: readonly Submission[]): string =>
-    ((labels) =>
+  const csvOf = (
+    items: readonly Submission[],
+    language: ManagerLanguage
+  ): string =>
+    ((labels, head) =>
       `\uFEFF${[
-        ['№', 'Дата', 'Форма', 'Статус', ...labels, 'Страница', 'UTM', 'IP'],
+        [...head.slice(0, 4), ...labels, ...head.slice(4)],
         ...items.map((item) => [
           String(item.id),
           item.createdAt,
@@ -452,15 +489,16 @@ const _routes = ({
         ]),
       ]
         .map((row) => row.map(_cell).join(';'))
-        .join('\r\n')}\r\n`)([
-      ...new Set(items.flatMap((_) => _.values.map((value) => value.label))),
-    ]);
+        .join('\r\n')}\r\n`)(
+      [...new Set(items.flatMap((_) => _.values.map((value) => value.label)))],
+      _CSV_HEAD[language]
+    );
 
   const kitState = (entry: KitComponent): KitState =>
     ((element) =>
       element === null
         ? 'missing'
-        : element.source === entry.source
+        : [entry.source, ...(entry.translations ?? [])].includes(element.source)
           ? 'installed'
           : 'changed')(design.elements.get('component', entry.name));
 
@@ -477,7 +515,7 @@ const _routes = ({
             ).values(),
           ]
         : fail('manager.kit_not_found', `No kit component "${name}"`))(
-      kit.find((_) => _.name === name)
+      kit().find((_) => _.name === name)
     );
 
   // Свой исходник на сайте заменяется только по явной просьбе; зависимости, что уже есть, не трогаем.
@@ -680,6 +718,7 @@ const _routes = ({
       fields,
       inherited: inheritedOf(page, fields),
       oldPaths: content.pages.oldPaths(id),
+      translations: content.drafts.translations(id),
     };
   };
 
@@ -730,7 +769,7 @@ const _routes = ({
           }))(site.settings.get()),
           version,
           // «Забыли пароль?» — только когда письмо есть чем отправить.
-          passwordReset: notify.email.ready(),
+          passwordReset: resetReady(),
           // Новая версия программы — только тем, кто ведёт сайт: им её и ставить.
           update:
             user && can(user.role, 'site.edit')
@@ -791,7 +830,7 @@ const _routes = ({
       'public',
       ({ request, body, client }) =>
         body().then((_) =>
-          notify.email.ready()
+          resetReady()
             ? ((link) => (
                 void (
                   link &&
@@ -799,10 +838,11 @@ const _routes = ({
                     .send(
                       link.user.email,
                       _resetLetter(
+                        languageOf(request),
                         link.user.name,
                         _managerLink(
                           request,
-                          site.settings.get().siteUrl,
+                          _originOf(site.settings.get().siteUrl)!,
                           `reset?token=${link.token}`
                         )
                       )
@@ -811,7 +851,11 @@ const _routes = ({
                       report({
                         kind: 'identity.reset_mail_failed',
                         severity: 'warning',
-                        title: 'Не ушло письмо для сброса пароля',
+                        title: {
+                          en: 'The password reset email was not sent',
+                          de: 'Die E-Mail zum Zurücksetzen des Passworts wurde nicht gesendet',
+                          ru: 'Не ушло письмо для сброса пароля',
+                        },
                         detail: errorDetail(error),
                         key: errorKey('identity.reset_mail_failed', error),
                       })
@@ -870,12 +914,29 @@ const _routes = ({
       'user',
       ({ user, body }) =>
         body().then((_) => {
-          const next = parseAppearance(_ ?? {});
+          // Что не прислали — остаётся прежним: язык меняется из меню, не трогая цвета.
+          const next = parseAppearance({
+            ...appearanceOf(user!.id),
+            ...(_ ?? {}),
+          });
           appearance.save(user!.id, next);
           return _json(200, next);
         }),
     ],
-    ['GET', '/pages', 'content.edit', () => _json(200, content.drafts.tree())],
+    [
+      'GET',
+      '/pages',
+      'content.edit',
+      // Язык узла — уже с языком сайта: по нему менеджер собирает адрес из заголовка, как сервер.
+      () =>
+        ((language) =>
+          _json(
+            200,
+            content.drafts
+              .tree()
+              .map((_) => ({ ..._, language: _.language || language }))
+          ))(site.settings.get().language),
+    ],
     [
       'GET',
       '/assistant',
@@ -1246,13 +1307,19 @@ const _routes = ({
       '/inbox.csv',
       'inbox.read',
       ({ request }) =>
-        new Response(csvOf(forms.inbox.list(inboxQuery(request, 10_000))), {
-          headers: {
-            'content-type': 'text/csv; charset=utf-8',
-            'content-disposition': `attachment; filename="submissions-${new Date().toISOString().slice(0, 10)}.csv"`,
-            'cache-control': 'no-store',
-          },
-        }),
+        new Response(
+          csvOf(
+            forms.inbox.list(inboxQuery(request, 10_000)),
+            managerLanguageOf(searchOf(request).get('lang'))
+          ),
+          {
+            headers: {
+              'content-type': 'text/csv; charset=utf-8',
+              'content-disposition': `attachment; filename="submissions-${new Date().toISOString().slice(0, 10)}.csv"`,
+              'cache-control': 'no-store',
+            },
+          }
+        ),
     ],
     [
       'GET',
@@ -1273,7 +1340,26 @@ const _routes = ({
                 lastError: _.lastError,
                 sentAt: _.sentAt,
               })),
+            files: forms.inbox.files(submission.id),
           }))(forms.inbox.open(Number(params.id), user!.id)),
+    ],
+    [
+      'GET',
+      '/inbox/:id/files/:file',
+      'inbox.read',
+      // Файл посетителя — только скачиванием и как набор байтов: ни HTML, ни SVG не откроются на адресе
+      // менеджера.
+      ({ params }) =>
+        ((file) =>
+          new Response(file.bytes, {
+            headers: {
+              'content-type': 'application/octet-stream',
+              'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+              'content-security-policy': "default-src 'none'; sandbox",
+              'x-content-type-options': 'nosniff',
+              'cache-control': 'private, no-store',
+            },
+          }))(forms.inbox.file(Number(params.id), Number(params.file))),
     ],
     [
       'PATCH',
@@ -1287,7 +1373,7 @@ const _routes = ({
     [
       'DELETE',
       '/inbox/:id',
-      'inbox.read',
+      'inbox.delete',
       ({ params }) => (forms.inbox.remove(Number(params.id)), _json(200, {})),
     ],
     [
@@ -1433,7 +1519,13 @@ const _routes = ({
       '/diagnostics',
       'site.edit',
       ({ request }) =>
-        _json(200, diagnostics.report(searchOf(request).has('fresh'))),
+        _json(
+          200,
+          diagnostics.report(
+            searchOf(request).has('fresh'),
+            languageOf(request)
+          )
+        ),
     ],
     [
       'GET',
@@ -1550,7 +1642,17 @@ const _routes = ({
       'GET',
       '/notify/incidents',
       'site.edit',
-      () => _json(200, notify.incidents.list()),
+      // Журнал — на языке того, кто его читает, а не того, на котором ушло уведомление.
+      ({ request }) =>
+        ((language) =>
+          _json(
+            200,
+            notify.incidents.list().map((_) => ({
+              ..._,
+              title: textIn(_.title, language),
+              detail: textIn(_.detail, language),
+            }))
+          ))(languageOf(request)),
     ],
     [
       'GET',
@@ -1573,7 +1675,7 @@ const _routes = ({
       () =>
         _json(
           200,
-          kit.map((_) => ({
+          kit().map((_) => ({
             name: _.name,
             description: _kitDescription(_.source),
             requires: _.requires,
@@ -1728,24 +1830,29 @@ const _routes = ({
           .then(undefined, () =>
             fail('manager.invalid_form', 'Expected a multipart form')
           )
-          .then((form) => {
-            const file = form.get('file');
-            return file instanceof Blob
-              ? file.arrayBuffer().then((buffer) =>
-                  media.files.save({
-                    path: String(form.get('path') ?? ''),
-                    data: new Uint8Array(buffer),
-                    width: form.has('width') ? Number(form.get('width')) : null,
-                    height: form.has('height')
-                      ? Number(form.get('height'))
-                      : null,
-                  })
-                )
-              : Promise.reject(
-                  domainError('media.no_file', 'The form has no file')
-                );
-          })
-          .then((_) => _json(201, _)),
+          .then(
+            pipe(
+              (form) =>
+                ((file) =>
+                  file instanceof Blob
+                    ? file.arrayBuffer().then((buffer) =>
+                        media.files.save({
+                          path: String(form.get('path') ?? ''),
+                          data: new Uint8Array(buffer),
+                          width: form.has('width')
+                            ? Number(form.get('width'))
+                            : null,
+                          height: form.has('height')
+                            ? Number(form.get('height'))
+                            : null,
+                        })
+                      )
+                    : Promise.reject(
+                        domainError('media.no_file', 'The form has no file')
+                      ))(form.get('file')),
+              (_) => _json(201, _)
+            )
+          ),
     ],
     [
       'GET',
@@ -1941,23 +2048,56 @@ const _originOf = (url: string): string | null =>
   );
 
 /** Ссылка на страницу менеджера для письма: адрес сайта из настроек, иначе адрес запроса. */
-const _managerLink = (
-  request: Request,
-  siteUrl: string,
-  page: string
-): string =>
-  ((url) =>
-    `${_originOf(siteUrl) ?? url.origin}${url.pathname.replace(/\/api\/.*$/, '')}/${page}`)(
-    new URL(request.url)
-  );
+// Адрес — только из настроек: Host запроса подделывается, и ссылка с токеном ушла бы на чужой сайт.
+const _managerLink = (request: Request, origin: string, page: string): string =>
+  `${origin}${new URL(request.url).pathname.replace(/\/api\/.*$/, '')}/${page}`;
 
-const _resetLetter = (name: string, link: string) =>
-  message({
-    topic: 'account',
+// Письмо — на языке страницы, с которой попросили сброс: её человек только что читал.
+const _RESET_LETTER: Readonly<
+  Record<
+    ManagerLanguage,
+    {
+      readonly title: string;
+      readonly text: (name: string) => string;
+      readonly link: string;
+    }
+  >
+> = {
+  en: {
+    title: 'New password for the site manager',
+    text: (name) =>
+      `Hello, ${name}! Someone — hopefully you — asked to reset the password for the site manager. The link below is valid for 30 minutes and works only once.\n\nIf it wasn’t you, do nothing: your password stays the same.`,
+    link: 'Set a new password',
+  },
+  de: {
+    title: 'Neues Passwort für den Website-Manager',
+    text: (name) =>
+      `Hallo ${name}, jemand – hoffentlich Sie – hat ein neues Passwort für den Manager der Website angefordert. Der Link unten ist 30 Minuten gültig und funktioniert nur einmal.\n\nWenn Sie das nicht waren, müssen Sie nichts tun: Ihr Passwort bleibt unverändert.`,
+    link: 'Neues Passwort festlegen',
+  },
+  ru: {
     title: 'Новый пароль для менеджера',
-    text: `Здравствуйте, ${name}! Кто-то — надеемся, вы — попросил сбросить пароль к менеджеру сайта. Ссылка ниже действует 30 минут и сработает один раз.\n\nЕсли это были не вы, ничего не делайте: пароль останется прежним.`,
-    link: { label: 'Задать новый пароль', url: link },
-  });
+    text: (name) =>
+      `Здравствуйте, ${name}! Кто-то — надеемся, вы — попросил сбросить пароль к менеджеру сайта. Ссылка ниже действует 30 минут и сработает один раз.\n\nЕсли это были не вы, ничего не делайте: пароль останется прежним.`,
+    link: 'Задать новый пароль',
+  },
+};
+
+const _resetLetter = (language: ManagerLanguage, name: string, link: string) =>
+  ((letter) =>
+    message({
+      topic: 'account',
+      title: letter.title,
+      text: letter.text(name),
+      link: { label: letter.link, url: link },
+    }))(_RESET_LETTER[language]);
+
+// Заголовки выгрузки заявок; подписи полей встают между статусом и страницей.
+const _CSV_HEAD: Readonly<Record<ManagerLanguage, readonly string[]>> = {
+  en: ['No.', 'Date', 'Form', 'Status', 'Page', 'UTM', 'IP'],
+  de: ['Nr.', 'Datum', 'Formular', 'Status', 'Seite', 'UTM', 'IP'],
+  ru: ['№', 'Дата', 'Форма', 'Статус', 'Страница', 'UTM', 'IP'],
+};
 
 /** JSON API менеджера под `/manager/api`. */
 export var defineManagerApi = (services: ApiServices) => {
@@ -1982,14 +2122,18 @@ export var defineManagerApi = (services: ApiServices) => {
               : _error(403, 'identity.forbidden', 'Not allowed for your role')
           )
         : _buffered(request, _limitOf(found.route))
-            .then((buffered) => ({
-              request: buffered,
-              client,
-              user,
-              params: found.params!,
-              body: () => buffered.json().catch(() => ({})),
-            }))
-            .then(found.route[3])
+            .then(
+              pipe(
+                (buffered) => ({
+                  request: buffered,
+                  client,
+                  user,
+                  params: found.params!,
+                  body: () => buffered.json().catch(() => ({})),
+                }),
+                found.route[3]
+              )
+            )
             .then(undefined, _failure(services.report, request, client));
   };
 

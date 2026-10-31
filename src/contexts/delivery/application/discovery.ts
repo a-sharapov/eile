@@ -10,6 +10,7 @@ import {
   sitemapXml,
 } from '../domain/discovery.ts';
 import { htmlToMarkdown } from '../domain/markdown.ts';
+import { oneByLanguage } from '../domain/translations.ts';
 import type { PageDelivery } from './page-delivery.ts';
 import type { RequestInfo } from './ports.ts';
 
@@ -75,6 +76,20 @@ export var defineDiscovery = ({
       ? `${origin}/index.md`
       : `${url(page, site, origin)}.md`;
 
+  // Переводы страницы — те же, что в hreflang её шапки: находимые, по одному на язык.
+  const alternates = (page: PageView, site: SiteSettings, origin: string) =>
+    ((items) => (items.length < 2 ? [] : items))(
+      oneByLanguage(
+        content
+          .translations(page.id)
+          .filter((_) => findable(_, site))
+          .map((_) => ({
+            language: _.language || site.language,
+            url: url(_, site, origin),
+          }))
+      )
+    );
+
   const sitemap = (request: RequestInfo): Discovered =>
     ((site, origin) =>
       _text('application/xml; charset=utf-8')(
@@ -82,6 +97,7 @@ export var defineDiscovery = ({
           pages(site).map(({ page }) => ({
             url: url(page, site, origin),
             lastmod: page.updatedAt,
+            alternates: alternates(page, site, origin),
           }))
         )
       ))(settings(), originOf(request, settings()));

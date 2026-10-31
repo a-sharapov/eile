@@ -43,6 +43,11 @@ export var notifyMigrations: readonly Migration[] = [
       );
     `,
   },
+  {
+    // Заголовок и подробности сбоя на каждом языке (JSON); title и detail — английские, у старых строк — как были.
+    id: 'notify/002_incident_texts',
+    sql: `ALTER TABLE notify_incidents ADD COLUMN texts TEXT NOT NULL DEFAULT '';`,
+  },
 ];
 
 /**

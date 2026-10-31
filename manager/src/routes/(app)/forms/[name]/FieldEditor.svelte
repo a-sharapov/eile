@@ -1,5 +1,5 @@
 <script lang="ts">
-import { FIELD_KINDS, type FieldDraft, PATTERNS } from '#lib/form-blocks.ts';
+import { FIELD_KINDS, type FieldDraft, patterns } from '#lib/form-blocks.ts';
 import { t } from '#lib/i18n.ts';
 import { transliterate } from '#lib/translit.ts';
 import type { FieldKind, SourceChoice } from '#lib/types.ts';
@@ -10,6 +10,7 @@ let {
   pageFields,
   pages,
   taken,
+  others,
 }: {
   field: FieldDraft;
   sources: readonly SourceChoice[];
@@ -18,6 +19,8 @@ let {
   pages: readonly { id: number; title: string; depth: number }[];
   /** Имена других полей формы: имя поля в форме одно. */
   taken: readonly string[];
+  /** Поля, от которых может зависеть показ этого. */
+  others: readonly { name: string; label: string }[];
 } = $props();
 
 const uid = $props.id();
@@ -119,11 +122,31 @@ const needsKey = $derived(sourceBase.endsWith(':'));
         <label>
           <span>{t('formEditor.pattern')}</span>
           <input class="code" bind:value={field.pattern} list="{uid}-patterns" spellcheck="false" />
-          <datalist id="{uid}-patterns">{#each PATTERNS as pattern (pattern.value)}<option value={pattern.value}>{pattern.label}</option>{/each}</datalist>
+          <datalist id="{uid}-patterns">{#each patterns() as pattern (pattern.value)}<option value={pattern.value}>{pattern.label}</option>{/each}</datalist>
           <small>{t('formEditor.patternHint')}</small>
         </label>
       {/if}
     </div>
+  {/if}
+
+  {#if field.kind === 'file'}
+    <div class="grid">
+      <label>
+        <span>{t('formEditor.accept')}</span>
+        <input class="code" bind:value={field.accept} list="{uid}-accept" spellcheck="false" placeholder=".pdf, image/*" />
+        <datalist id="{uid}-accept"><option value=".pdf"></option><option value="image/*"></option><option value=".pdf, .doc, .docx"></option><option value=".jpg, .jpeg, .png"></option></datalist>
+        <small>{t('formEditor.acceptHint')}</small>
+      </label>
+      <label>
+        <span>{t('formEditor.maxSize')}</span>
+        <input type="number" min="1" max="20" step="1" bind:value={field.maxSize} placeholder="10" />
+        <small>{t('formEditor.maxSizeHint')}</small>
+      </label>
+    </div>
+    <label class="option">
+      <input type="checkbox" bind:checked={field.multiple} />
+      <span>{t('formEditor.multiple')}</span>
+    </label>
   {/if}
 
   {#if field.kind === 'consent'}
@@ -165,6 +188,24 @@ const needsKey = $derived(sourceBase.endsWith(':'));
       <span>{t('formEditor.message')}</span>
       <input bind:value={field.message} maxlength="200" placeholder={t('formEditor.messagePlaceholder')} />
     </label>
+    {#if others.length > 0}
+      <div class="grid">
+        <label>
+          <span>{t('formEditor.showIf')}</span>
+          <select bind:value={field.showField}>
+            <option value="">{t('formEditor.showAlways')}</option>
+            {#each others as other (other.name)}<option value={other.name}>{other.label || other.name}</option>{/each}
+          </select>
+        </label>
+        {#if field.showField}
+          <label>
+            <span>{t('formEditor.showValues')}</span>
+            <input bind:value={field.showValues} maxlength="200" />
+            <small>{t('formEditor.showValuesHint')}</small>
+          </label>
+        {/if}
+      </div>
+    {/if}
   {/if}
 </div>
 

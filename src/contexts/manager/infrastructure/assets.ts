@@ -11,7 +11,9 @@ export type ManagerAssets = {
   /** Файл SPA по пути внутри `/manager`; неизвестный путь — index.html, маршрутизирует сама SPA. */
   readonly serve: (
     path: string,
-    acceptEncoding?: string | null
+    acceptEncoding?: string | null,
+    /** Страница для окна полосы правки: фрейм разрешён, но только своему сайту. */
+    framed?: boolean
   ) => Response | Promise<Response>;
 };
 
@@ -40,8 +42,14 @@ const _scriptHashes = (html: string): string[] =>
       `'sha256-${new Bun.CryptoHasher('sha256').update(body!).digest('base64')}'`
   );
 
-/** Заголовки страницы менеджера: CSP без чужих скриптов, без встраивания во фрейм, без утечки адреса. */
-export var pageSecurity = (html: string): Record<string, string> => ({
+/**
+ * Заголовки страницы менеджера: CSP без чужих скриптов, без встраивания во фрейм, без утечки адреса.
+ * `framed` — для окна полосы правки: встраивать можно, но только своему же сайту.
+ */
+export var pageSecurity = (
+  html: string,
+  framed = false
+): Record<string, string> => ({
   'content-security-policy': [
     "default-src 'self'",
     `script-src 'self' ${_scriptHashes(html).join(' ')}`.trim(),
@@ -54,9 +62,9 @@ export var pageSecurity = (html: string): Record<string, string> => ({
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",
-    "frame-ancestors 'none'",
+    `frame-ancestors ${framed ? "'self'" : "'none'"}`,
   ].join('; '),
-  'x-frame-options': 'DENY',
+  'x-frame-options': framed ? 'SAMEORIGIN' : 'DENY',
   'referrer-policy': 'same-origin',
 });
 
@@ -71,11 +79,13 @@ export var defineManagerAssets = (
   const compressed = new Map<string, Promise<Uint8Array>>();
   const policies = new Map<string, Promise<Record<string, string>>>();
 
-  const security = (path: string, source: string) =>
+  const security = (path: string, source: string, framed: boolean) =>
     path.endsWith('.html')
-      ? (policies.get(source) ??
-        ((policy) => (policies.set(source, policy), policy))(
-          Bun.file(source).text().then(pageSecurity)
+      ? (policies.get(`${framed}:${source}`) ??
+        ((policy) => (policies.set(`${framed}:${source}`, policy), policy))(
+          Bun.file(source)
+            .text()
+            .then((_) => pageSecurity(_, framed))
         ))
       : Promise.resolve({});
 
@@ -88,7 +98,7 @@ export var defineManagerAssets = (
     );
 
   return {
-    serve: (path, acceptEncoding = null) => {
+    serve: (path, acceptEncoding = null, framed = false) => {
       const known = table[path] === undefined ? '/index.html' : path;
       const source = table[known];
       const encoding = _COMPRESSIBLE.test(known)
@@ -96,7 +106,7 @@ export var defineManagerAssets = (
         : null;
       return source === undefined
         ? _notBuilt()
-        : security(known, source).then((policy) =>
+        : security(known, source, framed).then((policy) =>
             encoding === null
               ? new Response(Bun.file(source), {
                   headers: { ..._headers(known), ...policy },

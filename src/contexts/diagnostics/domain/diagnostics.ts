@@ -1,3 +1,5 @@
+import type { ManagerLanguage } from '../../../shared/kernel/manager-language.ts';
+
 /** error — сайт работает неправильно; warning — стоит поправить; info — на заметку, в счётчик не идёт. */
 export type Severity = 'error' | 'warning' | 'info';
 
@@ -15,7 +17,7 @@ export type FindingItem = {
   readonly fix?: Fix;
 };
 
-/** Находка проверки: одна проблема и всё, что ею затронуто. Тексты — для человека, по-русски. */
+/** Находка проверки: одна проблема и всё, что ею затронуто. Тексты — для человека, на языке менеджера. */
 export type Finding = {
   /** Стабильный id: `links.broken`. */
   readonly id: string;
@@ -30,10 +32,10 @@ export type Finding = {
   readonly fix?: Fix;
 };
 
-/** Проверка: функция без аргументов; данные она берёт сама. Ошибка в ней — тоже находка, а не 500. */
+/** Проверка: данные она берёт сама, тексты пишет на языке менеджера. Ошибка в ней — тоже находка, а не 500. */
 export type Check = {
   readonly id: string;
-  readonly run: () => readonly Finding[];
+  readonly run: (language: ManagerLanguage) => readonly Finding[];
 };
 
 export type DiagnosticsReport = {

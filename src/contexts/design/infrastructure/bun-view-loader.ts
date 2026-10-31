@@ -1,6 +1,7 @@
 import { type PluginBuilder, plugin } from 'bun';
 import * as svelte from 'svelte';
 import * as svelteServer from 'svelte/internal/server';
+import { rewriteImports } from '../../../platform/module-imports.ts';
 import { fail } from '../../../shared/kernel/errors.ts';
 import { pipe } from '../../../shared/kernel/pipe.ts';
 import {
@@ -30,8 +31,6 @@ const _modules = (): PluginBuilder =>
     setup: (build) => void (_builder = build),
   }),
   _current()!);
-
-const _IMPORT_SPECIFIER = /(\bfrom\s*|\bimport\s*\(?\s*)(['"])([^'"\n]+)\2/g;
 
 const _componentKeys = (imports: readonly string[]): string[] =>
   imports
@@ -93,20 +92,14 @@ export var defineViewLoader = ({
         ? fail('design.element_not_found', `There is no built-in "${path}"`)
         : host(path);
 
-  const rewrite =
-    (trail: readonly string[]) =>
-    (code: string): string =>
-      code.replace(
-        _IMPORT_SPECIFIER,
-        (_match, keyword: string, quote: string, path: string) =>
-          `${keyword}${quote}${target(path, trail)}${quote}`
-      );
+  const rewrite = (trail: readonly string[]) =>
+    rewriteImports((path) => target(path, trail));
 
   // Хэш — от кода с переписанными импортами: правка зависимости меняет спецификаторы всех зависящих.
   const register =
     (key: string, compiled: CompiledView) =>
     (code: string): string =>
-      pipe<string, string>(
+      pipe(
         (_: string) => `${scope}/${key}-${Bun.hash(_).toString(36)}`,
         (_: string) => (
           defineCode(_, code),
@@ -136,14 +129,11 @@ export var defineViewLoader = ({
             'design.import_cycle',
             `Import cycle: ${[...trail, key].join(' → ')}`
           )
-        : pipe<void, string>(
+        : pipe(
             () => load(kind, name),
             compileForServer,
             (_: CompiledView) =>
-              pipe<string, string>(
-                rewrite([...trail, key]),
-                register(key, _)
-              )(_.code)
+              pipe(rewrite([...trail, key]), register(key, _))(_.code)
           )())
     );
   };
@@ -151,13 +141,16 @@ export var defineViewLoader = ({
   const loadView =
     (kind: ElementKind) =>
     (name: string): Promise<LoadedView> =>
-      Promise.resolve(name)
-        .then((_) => specifier(kind, _, []))
-        .then((_) => import(_))
-        .then((_) => ({
-          view: _.default,
-          elements: closures.get(`${kind}/${name}`) ?? [`${kind}/${name}`],
-        }));
+      Promise.resolve(name).then(
+        pipe(
+          (_) => specifier(kind, _, []),
+          (_) => import(_),
+          (_) => ({
+            view: _.default,
+            elements: closures.get(`${kind}/${name}`) ?? [`${kind}/${name}`],
+          })
+        )
+      );
 
   defineObject('svelte', svelte);
   defineObject('svelte/internal/server', svelteServer);

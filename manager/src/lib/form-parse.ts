@@ -85,8 +85,27 @@ const _draftOf = (wrapper: Element): FieldDraft => {
           /\[~(\d+)~\]/.exec(consentLink.getAttribute('href') ?? '')?.[1]
         ) || null
       : null,
+    ..._showIf(wrapper.getAttribute('data-show-if') ?? ''),
+    accept: kind === 'file' ? _attrOf(control, 'accept') : '',
+    maxSize: kind === 'file' ? _attrOf(control, 'data-max-size') : '',
+    multiple: kind === 'file' && (control?.hasAttribute('multiple') ?? false),
   };
 };
+
+// `поле=а|б` → поле и значения через запятую, как их пишут в редакторе.
+const _showIf = (raw: string): Pick<FieldDraft, 'showField' | 'showValues'> =>
+  ((at) =>
+    at < 0
+      ? { showField: raw.trim(), showValues: '' }
+      : {
+          showField: raw.slice(0, at).trim(),
+          showValues: raw
+            .slice(at + 1)
+            .split('|')
+            .map((_) => _.trim())
+            .filter(Boolean)
+            .join(', '),
+        })(raw.indexOf('='));
 
 const _hiddenOf = (input: Element): FieldDraft => ({
   ...emptyField('hidden'),
@@ -103,36 +122,86 @@ const _merge = (blocks: FormBlock[], html: string): FormBlock[] =>
       ? [...blocks.slice(0, -1), { ...last, html: `${last.html}${html}` }]
       : [...blocks, { id: formBlockId(), kind: 'text', html }])(blocks.at(-1));
 
-/** HTML формы → блоки: обёртки data-field и скрытые поля — полями, остальное — текстом. */
-export var parseForm = (source: string): FormBlock[] => {
-  const template = document.createElement('template');
-  template.innerHTML = source;
-  return [...template.content.childNodes].reduce<FormBlock[]>(
-    (blocks, node) => {
-      const element =
-        node.nodeType === Node.ELEMENT_NODE ? (node as Element) : null;
-      const field = element?.hasAttribute('data-field')
-        ? _draftOf(element)
-        : element?.matches('input[type="hidden"]')
-          ? _hiddenOf(element)
-          : null;
-      return field
-        ? [
+// Узлы по порядку: шаг — блок шага и его содержимое без <legend>, поле — блоком, остальное — текстом.
+const _nodes = (nodes: readonly ChildNode[], start: FormBlock[]): FormBlock[] =>
+  nodes.reduce<FormBlock[]>((blocks, node) => {
+    const element =
+      node.nodeType === Node.ELEMENT_NODE ? (node as Element) : null;
+    return element?.matches('fieldset[data-step]')
+      ? _nodes(
+          [...element.childNodes].filter(
+            (_) => !(_ instanceof Element && _.tagName === 'LEGEND')
+          ),
+          [
             ...blocks,
             {
               id: formBlockId(),
-              kind: 'field',
-              field,
-              original: element!.outerHTML,
+              kind: 'step',
+              title:
+                element.getAttribute('data-step') ||
+                _labelText(element.querySelector(':scope > legend')),
             },
           ]
-        : node.nodeType === Node.TEXT_NODE && !node.textContent?.trim()
-          ? blocks
-          : _merge(
-              blocks,
-              element ? element.outerHTML : _text(node.textContent ?? '')
-            );
-    },
-    []
-  );
+        )
+      : _node(blocks, node, element);
+  }, start);
+
+const _node = (
+  blocks: FormBlock[],
+  node: ChildNode,
+  element: Element | null
+): FormBlock[] => {
+  const field = element?.hasAttribute('data-field')
+    ? _draftOf(element)
+    : element?.matches('input[type="hidden"]')
+      ? _hiddenOf(element)
+      : null;
+  return field
+    ? [
+        ...blocks,
+        {
+          id: formBlockId(),
+          kind: 'field',
+          field,
+          original: element!.outerHTML,
+        },
+      ]
+    : node.nodeType === Node.TEXT_NODE && !node.textContent?.trim()
+      ? blocks
+      : _merge(
+          blocks,
+          element ? element.outerHTML : _text(node.textContent ?? '')
+        );
+};
+
+/** HTML формы → блоки: обёртки data-field и скрытые поля — полями, шаги — блоком шага, остальное — текстом. */
+export var parseForm = (source: string): FormBlock[] => {
+  const template = document.createElement('template');
+  template.innerHTML = source;
+  return [...template.content.childNodes].reduce<{
+    blocks: FormBlock[];
+    inStep: boolean;
+  }>(
+    (acc, node) =>
+      ((step, blank) =>
+        step || blank
+          ? { blocks: _nodes([node], acc.blocks), inStep: acc.inStep || step }
+          : {
+              // Что стоит после шагов, не входит ни в один: перед ним — конец шагов.
+              blocks: _nodes(
+                [node],
+                acc.inStep
+                  ? [
+                      ...acc.blocks,
+                      { id: formBlockId(), kind: 'step', title: '' },
+                    ]
+                  : acc.blocks
+              ),
+              inStep: false,
+            })(
+        node instanceof Element && node.matches('fieldset[data-step]'),
+        node.nodeType === Node.TEXT_NODE && !node.textContent?.trim()
+      ),
+    { blocks: [], inStep: false }
+  ).blocks;
 };

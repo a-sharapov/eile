@@ -39,7 +39,7 @@ const _TAG =
 
 /** `footer-menu`, `Main menu` → `FooterMenu`, `MainMenu`: Svelte-компонент — PascalCase. */
 export var pascalCase = (name: string): string =>
-  pipe<string, string>(
+  pipe(
     (_: string) => _.replace(/[^A-Za-z0-9]+/g, ' ').trim(),
     (_: string) =>
       _.split(' ')
@@ -51,10 +51,7 @@ export var pascalCase = (name: string): string =>
 
 /** Имя TV → имя поля: `main-image` → `mainImage`. */
 export var camelCase = (name: string): string =>
-  pipe<string, string>(
-    pascalCase,
-    (_: string) => _[0]!.toLowerCase() + _.slice(1)
-  )(name);
+  pipe(pascalCase, (_: string) => _[0]!.toLowerCase() + _.slice(1))(name);
 
 const _html = (text: string): string =>
   text ? `{@html ${JSON.stringify(text)}}` : '';

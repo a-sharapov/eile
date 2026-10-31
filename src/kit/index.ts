@@ -1,4 +1,5 @@
 import breadcrumbs from './Breadcrumbs.svelte' with { type: 'text' };
+import { KIT_EN } from './en.ts';
 import menu from './Menu.svelte' with { type: 'text' };
 import menuKeys from './MenuKeys.svelte' with { type: 'text' };
 import modal from './Modal.svelte' with { type: 'text' };
@@ -9,6 +10,7 @@ import postList from './PostList.svelte' with { type: 'text' };
 import postMeta from './PostMeta.svelte' with { type: 'text' };
 import searchForm from './SearchForm.svelte' with { type: 'text' };
 import searchResults from './SearchResults.svelte' with { type: 'text' };
+import { russian, translated } from './translated.ts';
 
 /** Компонент набора: исходник и что ставится вместе с ним. */
 export type KitEntry = {
@@ -40,16 +42,27 @@ export var KIT: readonly KitEntry[] = [
   { name: 'ModalButton', source: _text(modalButton), requires: ['ModalLinks'] },
 ];
 
+/** Набор по-английски: исходники с переводом подписей, описаний и комментариев. */
+export var KIT_ENGLISH: readonly KitEntry[] = KIT.map((_) => ({
+  ..._,
+  source: translated(_.source, KIT_EN[_.name] ?? []),
+}));
+
+/** Набор на языке сайта: русский — как в исходниках, любой другой — английский. */
+export var kitFor = (language: string): readonly KitEntry[] =>
+  russian(language) ? KIT : KIT_ENGLISH;
+
 /** Что поставить ради компонента: он сам и всё, что ему нужно, зависимости первыми. */
-export var kitClosure = (name: string): KitEntry[] =>
-  ((entry) =>
-    entry
-      ? [
-          ...new Map(
-            [...entry.requires.flatMap(kitClosure), entry].map((_) => [
-              _.name,
-              _,
-            ])
-          ).values(),
-        ]
-      : [])(KIT.find((_) => _.name === name));
+export var kitClosure = (name: string, language = 'ru'): KitEntry[] =>
+  ((kit) =>
+    ((entry) =>
+      entry
+        ? [
+            ...new Map(
+              [
+                ...entry.requires.flatMap((_) => kitClosure(_, language)),
+                entry,
+              ].map((_) => [_.name, _])
+            ).values(),
+          ]
+        : [])(kit.find((_) => _.name === name)))(kitFor(language));

@@ -1,5 +1,6 @@
 import { attempt, fail } from '../../../shared/kernel/errors.ts';
 import type { DomainEvent, EventBus } from '../../../shared/kernel/events.ts';
+import type { ManagerLanguage } from '../../../shared/kernel/manager-language.ts';
 import { pipe } from '../../../shared/kernel/pipe.ts';
 import {
   type Channel,
@@ -15,18 +16,25 @@ import {
   removeForm,
 } from '../domain/form.ts';
 import type {
+  FileRepository,
   FormMarkup,
   FormRepository,
   InboxStats,
   Stamps,
+  SubmissionFile,
   SubmissionQuery,
   SubmissionRepository,
+  UploadedFile,
 } from '../domain/ports.ts';
 import {
   checkValues,
   type FieldSpec,
+  formTextsFor,
+  isShown,
   messagesFor,
   type Posted,
+  shownValues,
+  uploadsOf,
   type Value,
 } from '../domain/schema.ts';
 import {
@@ -68,6 +76,7 @@ export type FormRequest = {
 export type FormsPorts = {
   readonly forms: FormRepository;
   readonly submissions: SubmissionRepository;
+  readonly files: FileRepository;
   readonly markup: FormMarkup;
   readonly stamps: Stamps;
   readonly bus: EventBus;
@@ -81,6 +90,8 @@ export type FormsPorts = {
     readonly page: (id: number) => FormPage | null;
     readonly setting: (key: string) => string | null;
   };
+  /** Язык уведомлений: на нём подписи уведомления о заявке. */
+  readonly noticeLanguage: () => ManagerLanguage;
   /** Уведомление о заявке в каналы формы или по маршруту из настроек. */
   readonly notify: (
     notice: Notice,
@@ -99,8 +110,13 @@ export type Flash = {
 
 export var FLASH_COOKIE = 'cms_form';
 
+/** Что примет приём формы до чтения тела. */
+export type Intake = 'missing' | 'limited' | 'files' | 'plain';
+
 export type SubmitInput = {
   readonly fields: Posted;
+  /** Файлы по имени поля: только у формы с полями-файлами. */
+  readonly files?: Readonly<Record<string, readonly UploadedFile[]>>;
   readonly ip: string;
   readonly userAgent: string;
 };
@@ -179,6 +195,7 @@ export var encodeFlash = (flash: Flash): string =>
 export var defineFormsService = ({
   forms,
   submissions,
+  files,
   markup,
   stamps,
   bus,
@@ -186,6 +203,7 @@ export var defineFormsService = ({
   site,
   pages,
   notify,
+  noticeLanguage,
 }: FormsPorts) => {
   // Поля формы — по ревизии: HTML разбирается раз на правку, а не на каждый показ.
   const parsed = new Map<string, { revision: number; fields: FieldSpec[] }>();
@@ -317,7 +335,11 @@ export var defineFormsService = ({
     const fields = fieldsOf(form);
     const context = contextOf(page, {}, _first(input.fields, '_ref'));
     const final = withServerValues(fields, values, context);
-    const spam = looksLikeSpam(final, form.allowLinks);
+    // Имя файла вроде «site.com.pdf» — не ссылка: файлы фильтр спама не смотрит.
+    const spam = looksLikeSpam(
+      final.filter((_) => _.kind !== 'file'),
+      form.allowLinks
+    );
     const submission = {
       form: form.name,
       formTitle: form.title,
@@ -336,6 +358,26 @@ export var defineFormsService = ({
       createdAt: iso(),
     };
     const id = submissions.add(submission);
+    // Файлы — только у показанных полей и не у спама: спам с вложениями не должен раздувать базу.
+    void (
+      spam ||
+      fields
+        .filter(
+          (_) =>
+            _.kind === 'file' &&
+            isShown(
+              fields,
+              shownValues(fields, input.fields, input.files ?? {}),
+              _
+            )
+        )
+        .forEach(
+          (field) =>
+            void uploadsOf(field, input.files?.[field.name] ?? []).forEach(
+              (file) => void files.add(id, field.name, file)
+            )
+        )
+    );
     publish([
       {
         type: 'forms.submission_received',
@@ -346,7 +388,7 @@ export var defineFormsService = ({
     void (
       spam ||
       notify(
-        noticeOf(form, { ...submission, id }, site().url),
+        noticeOf(form, { ...submission, id }, site().url, noticeLanguage()),
         form.channels,
         `submission:${id}`
       )
@@ -355,16 +397,37 @@ export var defineFormsService = ({
     return sent(form, back);
   };
 
-  const submit = (name: string, input: SubmitInput): SubmitResult => {
+  // Скрытые поля с источником на сервере — его значения ещё до проверки: присланное не решает условий.
+  const trusted = (
+    form: Form,
+    input: SubmitInput,
+    page: FormPage | null
+  ): SubmitInput =>
+    ((context) => ({
+      ...input,
+      fields: {
+        ...input.fields,
+        ...Object.fromEntries(
+          fieldsOf(form)
+            .filter(
+              (_) => _.kind === 'hidden' && _.source && !fromVisitor(_.source)
+            )
+            .map((_) => [_.name, [resolveSource(_.source!, context)]])
+        ),
+      },
+    }))(contextOf(page, {}, _first(input.fields, '_ref')));
+
+  const submit = (name: string, posted: SubmitInput): SubmitResult => {
     const form = find(name);
-    const page = pageOf(_first(input.fields, '_page'));
+    const page = pageOf(_first(posted.fields, '_page'));
+    const input = form ? trusted(form, posted, page) : posted;
     const back = page?.path ?? '/';
     const language = page?.language || site().language;
     const messages = messagesFor(language);
     const token = _first(input.fields, '_stamp');
     const iat = Number(_first(input.fields, '_iat'));
     const checked = form
-      ? checkValues(fieldsOf(form), input.fields, language)
+      ? checkValues(fieldsOf(form), input.fields, language, input.files)
       : null;
     return form === null || checked === null
       ? { kind: 'missing', back }
@@ -434,6 +497,7 @@ export var defineFormsService = ({
                   .filter((_) => _.kind === 'hidden' && _.source)
                   .map((_) => [_.source!, resolveSource(_.source!, context)])
               ),
+              texts: formTextsFor(page?.language || site().language),
             }),
           };
   };
@@ -485,12 +549,13 @@ export var defineFormsService = ({
           values: {},
           errors: {},
           hidden: {},
+          texts: formTextsFor(site().language),
         }),
       }),
       sources: SOURCES,
       exists: (name: string): boolean => find(name) !== null,
       save: (name: string, input: FormInput): Form =>
-        pipe<string, Form>(parseFormName, (formName) =>
+        pipe(parseFormName, (formName) =>
           ((existing) =>
             store(
               existing
@@ -506,6 +571,19 @@ export var defineFormsService = ({
     },
     render,
     submit,
+    /**
+     * Что принять до чтения тела: формы нет, с адреса уже слишком много отправок, форма с файлами (большое
+     * тело) или без. Так тело в 50 МБ не читается ради несуществующей формы или формы без файлов.
+     */
+    intake: (name: string, ip: string): Intake =>
+      ((form) =>
+        form === null
+          ? 'missing'
+          : limited(`${ip}|${form.name}`)
+            ? 'limited'
+            : fieldsOf(form).some((_) => _.kind === 'file')
+              ? 'files'
+              : 'plain')(find(name)),
     inbox: {
       stats: (): InboxStats =>
         ((now) =>
@@ -522,9 +600,23 @@ export var defineFormsService = ({
         changes: { readonly status?: unknown; readonly note?: unknown }
       ): Submission =>
         saveSubmission(changeSubmission(changes, iso())(load(id))),
+      /** Файлы заявки — без содержимого. */
+      files: (id: number): SubmissionFile[] => files.list(load(id).id),
+      /** Файл заявки для скачивания; чужой заявки — нет. */
+      file: (
+        id: number,
+        fileId: number
+      ): SubmissionFile & { readonly bytes: Uint8Array } =>
+        ((file) =>
+          file && file.submissionId === id
+            ? file
+            : fail('forms.file_not_found', `No file ${fileId} in ${id}`))(
+          files.get(fileId)
+        ),
       remove: (id: number): void =>
         ((submission) => (
           submissions.remove(id),
+          files.removeOrphans(),
           publish([
             {
               type: 'forms.submission_removed',
@@ -540,17 +632,18 @@ export var defineFormsService = ({
       const before = (days: number): string =>
         new Date(now - days * 86_400_000).toISOString();
       const all = forms.list();
-      return (
+      // Файлы уходят вместе со своими заявками.
+      return ((removed) => (files.removeOrphans(), removed))(
         all.reduce(
           (sum, form) =>
             sum + submissions.purge(form.name, before(form.retentionDays), []),
           0
         ) +
-        submissions.purge(
-          null,
-          before(_ORPHAN_DAYS),
-          all.map((_) => _.name)
-        )
+          submissions.purge(
+            null,
+            before(_ORPHAN_DAYS),
+            all.map((_) => _.name)
+          )
       );
     },
   };

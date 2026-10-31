@@ -4,11 +4,16 @@ import {
   type FieldDraft,
   fieldHtml,
   optionsOf,
-  PATTERNS,
-  STARTER,
+  patterns,
+  serializeForm,
+  starterFields,
 } from '../manager/src/lib/form-blocks.ts';
+import { LANGUAGES, loadLanguage } from '../manager/src/lib/i18n.ts';
 import { checkValues } from '../src/contexts/forms/domain/schema.ts';
 import { fieldsOf } from '../src/contexts/forms/infrastructure/html-markup.ts';
+
+// Стартовая форма подписана на языке менеджера.
+await loadLanguage('ru');
 
 // Редактор форм собирает разметку, сервер её разбирает: каждое поле должно прочитаться тем же.
 
@@ -16,7 +21,7 @@ const parsed = (field: FieldDraft) => fieldsOf(fieldHtml(field));
 
 it('стартовая форма читается сервером как задумано', () => {
   expect(
-    fieldsOf(STARTER.map(fieldHtml).join('\n')).map((_) => [
+    fieldsOf(starterFields().map(fieldHtml).join('\n')).map((_) => [
       _.name,
       _.kind,
       _.label,
@@ -108,14 +113,70 @@ it('кавычки и угловые скобки в подписях не ло�
 });
 
 it('шаблоны из подсказок верны под флагом v и проверяются сервером', () => {
-  for (const pattern of PATTERNS) {
+  for (const pattern of LANGUAGES.flatMap((_) => patterns(_))) {
     expect(() => new RegExp(`^(?:${pattern.value})$`, 'v')).not.toThrow();
   }
-  const [phone] = parsed(STARTER[1]!);
+  const [phone] = parsed(starterFields()[1]!);
   expect(checkValues([phone!], { phone: ['12'] }, 'ru').errors.phone).toBe(
     'Нужен телефон: +7 900 000-00-00'
   );
   expect(
     checkValues([phone!], { phone: ['+7 (900) 000-00-00'] }, 'ru').errors
   ).toEqual({});
+});
+
+it('файл, условие показа и шаги из редактора сервер читает так же', () => {
+  const file: FieldDraft = {
+    ...emptyField('file'),
+    label: 'Чертёж',
+    name: 'plan',
+    required: true,
+    accept: '.pdf, image/*',
+    maxSize: '5',
+    multiple: true,
+    showField: 'delivery',
+    showValues: 'courier, post',
+  };
+  expect(parsed(file)).toMatchObject([
+    {
+      name: 'plan',
+      kind: 'file',
+      label: 'Чертёж',
+      required: true,
+      multiple: true,
+      accept: ['.pdf', 'image/*'],
+      maxSize: 5 * 1024 * 1024,
+      showIf: { field: 'delivery', values: ['courier', 'post'] },
+    },
+  ]);
+  const source = serializeForm([
+    { id: 1, kind: 'step', title: 'Контакты' },
+    {
+      id: 2,
+      kind: 'field',
+      field: { ...emptyField('text'), label: 'Имя', name: 'name' },
+      original: null,
+    },
+    { id: 3, kind: 'step', title: 'Чертёж' },
+    { id: 4, kind: 'field', field: file, original: null },
+  ]);
+  expect(source).toContain('<fieldset class="form-step" data-step="Контакты">');
+  expect(source.match(/<fieldset class="form-step"/g)).toHaveLength(2);
+  expect(fieldsOf(source).map((_) => _.name)).toEqual(['name', 'plan']);
+});
+
+it('шаг без названия — конец шагов: то, что ниже, остаётся вне fieldset', () => {
+  const source = serializeForm([
+    { id: 1, kind: 'step', title: 'Контакты' },
+    {
+      id: 2,
+      kind: 'field',
+      field: { ...emptyField('text'), label: 'Имя', name: 'name' },
+      original: null,
+    },
+    { id: 3, kind: 'step', title: '' },
+    { id: 4, kind: 'text', html: '<p>После шагов</p>' },
+  ]);
+  expect(source.match(/<fieldset class="form-step"/g)).toHaveLength(1);
+  expect(source.trimEnd()).toEndWith('</fieldset>\n<p>После шагов</p>');
 });

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { type App, createApp } from '../src/app.ts';
-import { KIT, kitClosure } from '../src/kit/index.ts';
+import { KIT, KIT_ENGLISH, kitClosure, kitFor } from '../src/kit/index.ts';
 
 let app: App;
 let ids: Record<string, number>;
@@ -73,6 +73,29 @@ it('зависимости ставятся раньше компонента', 
 it('каждый компонент набора проходит проверку при сохранении', () => {
   const names = new Set(app.design.components.catalog().map((_) => _.name));
   expect(KIT.every((_) => names.has(_.name as never))).toBe(true);
+});
+
+it('английский набор: те же компоненты, сохраняются, без кириллицы; русскому сайту — русский', () => {
+  const english = createApp();
+  KIT_ENGLISH.forEach(
+    (_) => void english.design.components.save(_.name, _.source)
+  );
+  expect(
+    english.design.components
+      .catalog()
+      .map((_) => String(_.name))
+      .toSorted()
+  ).toEqual(KIT.map((_) => _.name).toSorted());
+  expect(
+    KIT_ENGLISH.filter((_) => /[А-Яа-яЁё]/.test(_.source)).map((_) => _.name)
+  ).toEqual([]);
+  english.close();
+  expect(kitFor('ru')).toBe(KIT);
+  expect(kitFor('en')).toBe(KIT_ENGLISH);
+  expect(kitFor('de')).toBe(KIT_ENGLISH);
+  expect(kitClosure('PostList', 'en')[1]!.source).toBe(
+    KIT_ENGLISH.find((_) => _.name === 'PostList')!.source
+  );
 });
 
 describe('меню', () => {
@@ -222,7 +245,8 @@ describe('набор в менеджере', () => {
       (_) => _.json() as Promise<{ name: string; state: string }[]>
     );
 
-  it('список: описание, зависимости, состояние', async () => {
+  it('список: описание, зависимости, состояние — на языке сайта', async () => {
+    app.site.settings.update({ language: 'ru' });
     const kit = await list();
     expect(kit.map((_) => _.name)).toEqual(KIT.map((_) => _.name));
     expect(kit.find((_) => _.name === 'Menu')).toMatchObject({
@@ -230,6 +254,16 @@ describe('набор в менеджере', () => {
       requires: ['MenuKeys'],
       description: expect.stringContaining('Меню сайта'),
     });
+    app.site.settings.update({ language: 'en' });
+    expect((await list()).find((_) => _.name === 'Menu')).toMatchObject({
+      description: expect.stringContaining('Site menu'),
+    });
+    // Поставленный по-английски компонент после смены языка сайта не «изменён».
+    await call('POST', '/kit/Breadcrumbs', {});
+    app.site.settings.update({ language: 'ru' });
+    expect((await list()).find((_) => _.name === 'Breadcrumbs')!.state).toBe(
+      'installed'
+    );
   });
 
   it('установка ставит и зависимости', async () => {

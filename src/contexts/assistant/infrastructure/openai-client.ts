@@ -41,10 +41,8 @@ export var defineOpenAiClient = (
     })
       .then(undefined, _network)
       .then((response) =>
-        response
-          .json()
-          .then(undefined, () => ({}))
-          .then((data) => data as Completion)
+        (response.json() as Promise<Completion>)
+          .then(undefined, (): Completion => ({}))
           .then((body) =>
             response.status >= 300 && response.status < 400
               ? fail(

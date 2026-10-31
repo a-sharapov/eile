@@ -56,7 +56,12 @@ const revealProblem = () => (
   })
 );
 
-$effect(() => aiScope({ area: `плагин «${page.params.name}»`, facts: [] }));
+$effect(() =>
+  aiScope({
+    area: t('aiFacts.plugin', { name: page.params.name ?? '' }),
+    facts: [],
+  })
+);
 
 const save = () =>
   dirty && !busy
@@ -64,7 +69,7 @@ const save = () =>
       api
         .send<Plugin>('PUT', path, { source })
         .then(
-          (_) => (notify(`${t('elements.saved')} ${_.revision}`), accept(_))
+          (_) => (notify(t('elements.saved', { n: _.revision })), accept(_))
         )
         .then(undefined, (_: Error) => void (error = describeSource(_)))
         .finally(() => (busy = false)))

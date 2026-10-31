@@ -1,5 +1,12 @@
 import { attempt, fail } from '../../../shared/kernel/errors.ts';
 import {
+  type Localized,
+  localized,
+  type ManagerLanguage,
+  managerLanguageOf,
+  textIn,
+} from '../../../shared/kernel/manager-language.ts';
+import {
   type Delivery,
   failureOf,
   nextAttempt,
@@ -33,8 +40,12 @@ import {
   statusOf,
 } from '../domain/settings.ts';
 
-/** Сайт глазами уведомлений: имя — подпись, адрес — ссылки в менеджер. */
-export type SiteFacts = { readonly name: string; readonly url: string };
+/** Сайт глазами уведомлений: имя — подпись, адрес — ссылки в менеджер, язык — язык уведомлений по умолчанию. */
+export type SiteFacts = {
+  readonly name: string;
+  readonly url: string;
+  readonly language: string;
+};
 
 export type NotifyPorts = {
   readonly settings: SettingsRepository;
@@ -58,6 +69,71 @@ const _HOLD: Verdict = { kind: 'hold' };
 const _permanent = (text: string): SendFailure & Error =>
   Object.assign(new Error(text), { permanent: true, retryAfter: null });
 
+type _Texts = {
+  readonly repeated: string;
+  readonly times: (repeats: number, since: string) => string;
+  readonly log: string;
+  readonly floodTitle: string;
+  readonly floodText: string;
+  readonly notDelivered: (title: string) => string;
+  readonly testTitle: string;
+  readonly testText: (site: string) => string;
+};
+
+const _times = (
+  language: ManagerLanguage,
+  n: number,
+  forms: Readonly<Record<string, string>>
+) => forms[new Intl.PluralRules(language).select(n)] ?? forms.other!;
+
+// Тексты уведомлений, которые собирает сам notify; язык — из настроек уведомлений.
+const _TEXTS: Readonly<Record<ManagerLanguage, _Texts>> = {
+  en: {
+    repeated: 'Repeated',
+    times: (n, since) =>
+      `${n} ${_times('en', n, { one: 'time', other: 'times' })} since ${since}`,
+    log: 'Incident log',
+    floodTitle: 'Too many incidents',
+    floodText:
+      'No more incident notifications until the end of the hour: see the incident log in the manager.',
+    notDelivered: (title) => `Not delivered: ${title}`,
+    testTitle: 'Notification test',
+    testText: (site) =>
+      `The channel works: submissions and incidents of “${site}” will arrive here.`,
+  },
+  de: {
+    repeated: 'Wiederholt',
+    times: (n, since) => `${n}-mal seit ${since}`,
+    log: 'Fehlerprotokoll',
+    floodTitle: 'Zu viele Fehler',
+    floodText:
+      'Bis zum Ende der Stunde gehen keine Fehlermeldungen mehr raus: Sehen Sie im Fehlerprotokoll des Managers nach.',
+    notDelivered: (title) => `Nicht zugestellt: ${title}`,
+    testTitle: 'Test der Benachrichtigungen',
+    testText: (site) =>
+      `Der Kanal funktioniert: Hier kommen Anfragen und Fehler der Website „${site}“ an.`,
+  },
+  ru: {
+    repeated: 'Повторялось',
+    times: (n, since) =>
+      `${n} ${_times('ru', n, { one: 'раз', few: 'раза', many: 'раз', other: 'раза' })} с ${since}`,
+    log: 'Журнал сбоев',
+    floodTitle: 'Сбоев слишком много',
+    floodText:
+      'До конца часа уведомления о сбоях не отправляются — смотрите журнал сбоев в менеджере.',
+    notDelivered: (title) => `Не доставлено: ${title}`,
+    testTitle: 'Проверка уведомлений',
+    testText: (site) =>
+      `Канал настроен: сюда придут заявки и сбои сайта «${site}».`,
+  },
+};
+
+// В журнал — не длиннее предела на каждом языке.
+const _clip = (text: Localized | string, max: number): Localized | string =>
+  typeof text === 'string'
+    ? text.slice(0, max)
+    : localized((_) => text[_].slice(0, max));
+
 export var defineNotifyService = ({
   settings,
   outbox,
@@ -71,6 +147,10 @@ export var defineNotifyService = ({
   let running: Promise<number> | null = null;
 
   const iso = (): string => clock().toISOString();
+
+  /** Язык уведомлений: из настроек, иначе язык сайта, если менеджер его знает. */
+  const language = (): ManagerLanguage =>
+    settings.get().language ?? managerLanguageOf(site().language);
 
   const recipientsOf: Readonly<
     Record<ChannelKind, (current: NotifySettings) => string[]>
@@ -86,9 +166,10 @@ export var defineNotifyService = ({
     source: string | null
   ): number[] => {
     const current = settings.get();
+    const stamped = { ...item, language: item.language ?? language() };
     const ids = channels.flatMap((channel) =>
       recipientsOf[channel](current).map((recipient) =>
-        outbox.add({ channel, recipient, message: item, source }, iso())
+        outbox.add({ channel, recipient, message: stamped, source }, iso())
       )
     );
     void (ids.length > 0 && kick());
@@ -126,36 +207,40 @@ export var defineNotifyService = ({
     repeats: number,
     record: IncidentRecord
   ): Message =>
-    message({
-      topic: 'incidents',
-      severity: incident.severity,
-      title: incident.title,
-      fields:
-        repeats > 0
-          ? [
-              {
-                label: 'Повторялось',
-                value: `${repeats} раз с ${record.firstAt}`,
-              },
-            ]
-          : [],
-      text: incident.detail,
-      mono: true,
-      link: site().url
-        ? {
-            label: 'Журнал сбоев',
-            url: `${site().url}/manager/settings?tab=notify`,
-          }
-        : null,
-    });
+    ((lang) =>
+      message({
+        topic: 'incidents',
+        severity: incident.severity,
+        title: textIn(incident.title, lang),
+        fields:
+          repeats > 0
+            ? [
+                {
+                  label: _TEXTS[lang].repeated,
+                  value: _TEXTS[lang].times(repeats, record.firstAt),
+                },
+              ]
+            : [],
+        text: textIn(incident.detail, lang),
+        mono: true,
+        link: site().url
+          ? {
+              label: _TEXTS[lang].log,
+              url: `${site().url}/manager/settings?tab=notify`,
+            }
+          : null,
+        language: lang,
+      }))(language());
 
   const _FLOOD = (): Message =>
-    message({
-      topic: 'incidents',
-      severity: 'critical',
-      title: 'Сбоев слишком много',
-      text: 'До конца часа уведомления о сбоях не отправляются — смотрите журнал сбоев в менеджере.',
-    });
+    ((lang) =>
+      message({
+        topic: 'incidents',
+        severity: 'critical',
+        title: _TEXTS[lang].floodTitle,
+        text: _TEXTS[lang].floodText,
+        language: lang,
+      }))(language());
 
   // Сбой отправки, сам отчёт о сбое и любая ошибка внутри не роняют того, кто сообщил.
   const report = (incident: Incident): void =>
@@ -168,8 +253,8 @@ export var defineNotifyService = ({
             fingerprint,
             kind: incident.kind,
             severity: incident.severity,
-            title: incident.title.slice(0, 300),
-            detail: incident.detail.slice(0, 4000),
+            title: _clip(incident.title, 300),
+            detail: _clip(incident.detail, 4000),
           },
           iso()
         );
@@ -202,7 +287,7 @@ export var defineNotifyService = ({
       report({
         kind: 'notify.delivery_failed',
         severity: 'critical',
-        title: `Не доставлено: ${delivery.message.title}`,
+        title: localized((_) => _TEXTS[_].notDelivered(delivery.message.title)),
         detail: `${delivery.channel} → ${delivery.recipient}: ${failure.message}`,
         key: `notify.delivery_failed:${delivery.channel}`,
         avoid: [delivery.channel],
@@ -264,11 +349,13 @@ export var defineNotifyService = ({
     );
 
   const testMessage = (): Message =>
-    message({
-      topic: 'test',
-      title: 'Проверка уведомлений',
-      text: `Канал настроен: сюда придут заявки и сбои сайта «${site().name}».`,
-    });
+    ((lang) =>
+      message({
+        topic: 'test',
+        title: _TEXTS[lang].testTitle,
+        text: _TEXTS[lang].testText(site().name),
+        language: lang,
+      }))(language());
 
   const _TEST: Readonly<Record<ChannelKind, () => Promise<void>>> = {
     telegram: () =>
@@ -304,6 +391,7 @@ export var defineNotifyService = ({
   };
 
   return {
+    language,
     settings: {
       status: (): NotifyStatus => statusOf(settings.get()),
       save: (input: Record<string, unknown>): NotifyStatus =>

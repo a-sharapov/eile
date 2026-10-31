@@ -60,12 +60,12 @@ it('часовой потолок: дальше одно «слишком мно
   });
 });
 
-it('отпечаток — источник и заголовок, если не задан свой', () => {
+it('отпечаток — источник и заголовок по-английски, если не задан свой', () => {
   expect(
     fingerprintOf({
       kind: 'site.error',
       severity: 'critical',
-      title: 'boom',
+      title: { en: 'boom', de: 'Bumm', ru: 'бум' },
       detail: '',
     })
   ).toBe('site.error:boom');
@@ -73,7 +73,7 @@ it('отпечаток — источник и заголовок, если не
     fingerprintOf({
       kind: 'site.error',
       severity: 'critical',
-      title: '500 на /a',
+      title: { en: '500 on /a', de: '500 auf /a', ru: '500 на /a' },
       detail: '',
       key: 'site.error:TypeError',
     })

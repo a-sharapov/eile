@@ -1,4 +1,61 @@
+import {
+  localized,
+  type ManagerLanguage,
+} from '../../../shared/kernel/manager-language.ts';
 import { errorKey, type Report } from '../../../shared/kernel/report.ts';
+
+// Тексты событий сертификата на каждом языке: уведомление уходит на языке из настроек.
+const _TEXTS: Readonly<
+  Record<
+    ManagerLanguage,
+    {
+      readonly issued: string;
+      readonly renewed: string;
+      readonly issueFailed: string;
+      readonly renewFailed: string;
+      readonly until: (date: string) => string;
+      readonly domains: string;
+      readonly current: (date: string) => string;
+      readonly none: string;
+      readonly error: string;
+    }
+  >
+> = {
+  en: {
+    issued: 'HTTPS certificate issued',
+    renewed: 'HTTPS certificate renewed',
+    issueFailed: 'Could not issue the HTTPS certificate',
+    renewFailed: 'Could not renew the HTTPS certificate',
+    until: (date) => `until ${date}`,
+    domains: 'Domains',
+    current: (date) => `The current certificate is valid until ${date}.`,
+    none: 'Until there is a certificate, the site answers over HTTP.',
+    error: 'Error',
+  },
+  de: {
+    issued: 'HTTPS-Zertifikat ausgestellt',
+    renewed: 'HTTPS-Zertifikat verlängert',
+    issueFailed: 'HTTPS-Zertifikat konnte nicht ausgestellt werden',
+    renewFailed: 'HTTPS-Zertifikat konnte nicht verlängert werden',
+    until: (date) => `gültig bis ${date}`,
+    domains: 'Domains',
+    current: (date) => `Das aktuelle Zertifikat gilt bis ${date}.`,
+    none: 'Solange es kein Zertifikat gibt, antwortet die Website über HTTP.',
+    error: 'Fehler',
+  },
+  ru: {
+    issued: 'Сертификат HTTPS выпущен',
+    renewed: 'Сертификат HTTPS продлён',
+    issueFailed: 'Не удалось выпустить сертификат HTTPS',
+    renewFailed: 'Не удалось продлить сертификат HTTPS',
+    until: (date) => `до ${date}`,
+    domains: 'Домены',
+    current: (date) => `Действующий сертификат — до ${date}.`,
+    none: 'Пока сертификата нет, сайт отвечает по HTTP.',
+    error: 'Ошибка',
+  },
+};
+
 import { type Certificate, type Due, due } from '../domain/certificate.ts';
 import type {
   AccountRepository,
@@ -81,11 +138,13 @@ export var defineCertificatesService = ({
             report({
               kind: 'certificates.issued',
               severity: 'info',
-              title:
-                kind === 'renew'
-                  ? 'Сертификат HTTPS продлён'
-                  : 'Сертификат HTTPS выпущен',
-              detail: `${domains.join(', ')} — до ${issued.notAfter.slice(0, 10)}`,
+              title: localized((_) =>
+                kind === 'renew' ? _TEXTS[_].renewed : _TEXTS[_].issued
+              ),
+              detail: localized(
+                (_) =>
+                  `${domains.join(', ')} — ${_TEXTS[_].until(issued.notAfter.slice(0, 10))}`
+              ),
             }),
             kind === 'renew' ? 'renewed' : 'issued'
           ),
@@ -98,17 +157,18 @@ export var defineCertificatesService = ({
             report({
               kind: 'certificates.failed',
               severity: _severity(kind, before, clock()),
-              title:
-                kind === 'renew'
-                  ? 'Не удалось продлить сертификат HTTPS'
-                  : 'Не удалось выпустить сертификат HTTPS',
-              detail: [
-                `Домены: ${domains.join(', ')}.`,
-                before
-                  ? `Действующий сертификат — до ${before.notAfter.slice(0, 10)}.`
-                  : 'Пока сертификата нет, сайт отвечает по HTTP.',
-                `Ошибка: ${_message(error)}`,
-              ].join('\n'),
+              title: localized((_) =>
+                kind === 'renew' ? _TEXTS[_].renewFailed : _TEXTS[_].issueFailed
+              ),
+              detail: localized((_) =>
+                [
+                  `${_TEXTS[_].domains}: ${domains.join(', ')}.`,
+                  before
+                    ? _TEXTS[_].current(before.notAfter.slice(0, 10))
+                    : _TEXTS[_].none,
+                  `${_TEXTS[_].error}: ${_message(error)}`,
+                ].join('\n')
+              ),
               key: errorKey('certificates.failed', error),
             }),
             'failed'

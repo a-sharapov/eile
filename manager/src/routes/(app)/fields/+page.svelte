@@ -236,7 +236,7 @@ const remove = (name: string) =>
         title: t('fields.removeTitle'),
         body:
           usage.pages > 0
-            ? `${t('fields.removeBodyValues')} ${usage.pages}.`
+            ? t('fields.removeBodyValues', { n: usage.pages })
             : t('fields.removeBodyEmpty'),
         items: [name],
         confirm: t('fields.remove'),
@@ -268,7 +268,7 @@ const remove = (name: string) =>
     <button type="button" class="icon danger" aria-label={`${t('fields.remove')}: ${editing}`} title={t('fields.remove')} onclick={() => remove(editing!)}>{@html icons.trash}</button>
   {/if}
   <!-- Неактивная кнопка не отправляет форму: иначе браузер счёл бы поля «тронутыми» и окрасил их. -->
-  <button type="submit" form="field-form" class="primary" aria-disabled={!dirty || taken} onclick={(e) => void ((!dirty || taken) && e.preventDefault())} aria-keyshortcuts="Control+S" title={dirty ? `${t('common.unsaved')} · Ctrl+S` : 'Ctrl+S'}>
+  <button type="submit" form="field-form" class="primary" aria-disabled={!dirty || taken} onclick={(e) => void ((!dirty || taken) && e.preventDefault())} aria-keyshortcuts="Control+S" title={dirty ? `${t('common.unsaved')} · ${t('common.ctrl')}+S` : `${t('common.ctrl')}+S`}>
     {#if dirty}<span class="dirty" aria-hidden="true"></span>{/if}{t('fields.save')}{#if dirty}<span class="sr-only">: {t('common.unsaved')}</span>{/if}
   </button>
 {/snippet}

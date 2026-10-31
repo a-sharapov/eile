@@ -29,6 +29,8 @@ export type PageView = {
   readonly socialImage: string;
   /** Язык страницы с учётом ветки: свой, иначе ближайшего предка; пусто — язык сайта. */
   readonly language: string;
+  /** Исходная страница, если эта — её перевод. */
+  readonly translationOf: number | null;
   readonly createdAt: Moment;
   readonly updatedAt: Moment;
   readonly publishedAt: Moment | null;
@@ -52,6 +54,20 @@ export type PageNode = {
   readonly hiddenFromMenu: boolean;
   readonly publishAt: Moment | null;
   readonly unpublishAt: Moment | null;
+  /** Язык с учётом ветки; пусто — язык сайта. */
+  readonly language: string;
+};
+
+/** Страница из набора переводов — для менеджера, в том числе неопубликованная. */
+export type TranslationNode = {
+  readonly id: number;
+  readonly title: string;
+  /** Язык с учётом ветки; пусто — язык сайта. */
+  readonly language: string;
+  readonly published: boolean;
+  readonly trashed: boolean;
+  /** Исходная страница набора. */
+  readonly original: boolean;
 };
 
 /** Модель чтения менеджера. */
@@ -59,6 +75,8 @@ export type DraftContent = {
   readonly tree: () => PageNode[];
   /** Страница как в шаблоне — для предпросмотра, даже неопубликованная. */
   readonly view: (id: number) => PageView | null;
+  /** Набор переводов страницы: исходная первой; у страницы без переводов — пусто. */
+  readonly translations: (id: number) => TranslationNode[];
 };
 
 export type ChildrenOptions = {
@@ -93,6 +111,13 @@ export type PublishedContent = {
   readonly movedFrom: (path: string) => PageView | null;
   /** Предки страницы от ближайшего к корню. */
   readonly lineage: (id: number) => number[];
+  /**
+   * Опубликованные страницы её набора переводов, включая её саму: исходная первой, затем по id.
+   * У страницы без переводов — только она.
+   */
+  readonly translations: (id: number) => PageView[];
+  /** Исходная страница набора: по ней сбрасывается кэш всех переводов. */
+  readonly translationHub: (id: number) => number | null;
   /** По порядку в меню; `null` — верхний уровень дерева. Страницы-файлы в меню не попадают. */
   readonly children: (
     parentId: number | null,

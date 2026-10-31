@@ -65,7 +65,7 @@ const _extension = (path: string): string =>
   path.slice(path.lastIndexOf('.') + 1);
 
 export var parseMediaPath = (raw: string): MediaPath =>
-  pipe<string, MediaPath>(
+  pipe(
     (_: string) => _.trim().toLowerCase().replace(/^\/+/, ''),
     (_: string) =>
       _.length > 0 &&

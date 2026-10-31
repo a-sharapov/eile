@@ -143,10 +143,8 @@ export var defineTelegramClient = ({
       })
       .then(undefined, _network(settings.token))
       .then((response) =>
-        response
-          .json()
-          .then(undefined, () => ({}))
-          .then((_) => _ as Reply<T>)
+        (response.json() as Promise<Reply<T>>)
+          .then(undefined, (): Reply<T> => ({}))
           .then((reply) =>
             response.ok && reply.ok
               ? (reply.result as T)

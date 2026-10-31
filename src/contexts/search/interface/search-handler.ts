@@ -59,6 +59,7 @@ export var defineSearchHandler = ({
         ((result) =>
           _json(200, {
             query: result.query,
+            corrected: result.corrected,
             total: result.total,
             page,
             items: result.hits.flatMap((_) =>

@@ -27,6 +27,14 @@
   Страница-файл — с `default-src 'none'; style-src 'unsafe-inline'; sandbox`, как SVG медиатеки.
 - **Service worker** со страниц сайта не регистрируется: запрос с `Service-Worker: script` получает 404.
 - **Менеджер** в схеме визуального редактора тоже отбрасывает исполняемые адреса ссылок и картинок.
+- **Служебные имена.** Чистка снимает `id` и `name` с приставкой `eile-`/`cms-` (`_RESERVED`): HTML
+  редактора не подменит элемент, который ищут скрипты CMS. Настройки полосы правки к тому же лежат в
+  атрибуте самого скрипта (`data-eile-bar`), а не в отдельном элементе страницы, и скрипт пропускает только
+  цвет вида `#rrggbb` и адреса `/manager/…`.
+- **Заголовки страниц сайта.** HTML-страницы отдаются с `X-Frame-Options: SAMEORIGIN` и
+  `Content-Security-Policy: frame-ancestors 'self'` (форму на сайте не накроют чужим фреймом) и
+  `Referrer-Policy: strict-origin-when-cross-origin`. Встроенный HTTPS добавляет
+  `Strict-Transport-Security: max-age=31536000`.
 
 ## Последствия
 

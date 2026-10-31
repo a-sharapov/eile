@@ -28,7 +28,7 @@ export var defineSiteService = ({
   const get = (): SiteSettings => (current ??= settings.load());
 
   const update = (patch: Partial<SiteSettings>): void =>
-    pipe<Partial<SiteSettings>, void>(
+    pipe(
       (_: Partial<SiteSettings>) => changeSettings(get(), _),
       (_: SiteSettings) => (settings.save(_), (current = _)),
       () => bus.publish({ type: 'site.settings_changed' } satisfies SiteEvent)

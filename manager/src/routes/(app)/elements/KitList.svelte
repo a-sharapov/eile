@@ -73,7 +73,7 @@ const href = (name: string) =>
           </div>
           <p class="about">{item.description}</p>
           {#if item.requires.length > 0}
-            <p class="muted requires">{t('kit.requires')} {item.requires.join(', ')}</p>
+            <p class="muted requires">{t('kit.requires', { names: item.requires.join(', ') })}</p>
           {/if}
           {#if item.state !== 'installed'}
             <button

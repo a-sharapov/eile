@@ -125,15 +125,17 @@ $effect(() => {
 // Для описания картинки ИИ видит не саму картинку, а её имя, размеры и страницы, где она стоит.
 $effect(() =>
   aiScope({
-    area: 'медиатека',
+    area: t('aiFacts.media'),
     facts: facts([
-      selected && `Файл: ${selected.path}`,
-      selected?.width && `Размеры: ${selected.width}×${selected.height}`,
+      selected && t('aiFacts.file', { path: selected.path }),
+      selected?.width &&
+        t('aiFacts.size', { size: `${selected.width}×${selected.height}` }),
       usage &&
         usage.pages.length > 0 &&
-        `Стоит на страницах: ${usage.pages.map((_) => _.title).join(', ')}`,
-      selected &&
-        'Саму картинку ты не видишь — опиши по имени файла и страницам, осторожно',
+        t('aiFacts.usedOn', {
+          pages: usage.pages.map((_) => _.title).join(', '),
+        }),
+      selected && t('aiFacts.blindImage'),
     ]),
   })
 );
@@ -247,7 +249,7 @@ const remove = (file: MediaFile) =>
       <small id="folder-help" class="sr-only">{t('media.folderHint')}</small>
     </label>
   </div>
-    <p id="drop-hint" class="muted drop-hint" aria-live="polite">{busy ? `${t('media.uploading')} ${Math.min(progress.done + 1, progress.total)} ${t('media.of')} ${progress.total}…` : `${t('media.into')} ${folderSlug(folder) || '/'}. ${t('media.variants')}`}</p>
+    <p id="drop-hint" class="muted drop-hint" aria-live="polite">{busy ? t('media.uploadingOf', { n: Math.min(progress.done + 1, progress.total), total: progress.total }) : `${t('media.into', { folder: folderSlug(folder) || '/' })} ${t('media.variants')}`}</p>
 
   <LoadState load={loading}>
   {#if all.length > 0}

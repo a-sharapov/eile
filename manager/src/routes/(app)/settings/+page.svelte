@@ -4,7 +4,7 @@ import { aiScope } from '#lib/ai.svelte.ts';
 import { api } from '#lib/api.ts';
 import { ask, modalOpen } from '#lib/dialog.svelte.ts';
 import { guardUnsaved } from '#lib/guard.svelte.ts';
-import { t } from '#lib/i18n.ts';
+import { quoted, t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
 import { describe, failed, notify } from '#lib/notices.svelte.ts';
@@ -45,7 +45,7 @@ const loading = defineLoad(() =>
 
 $effect(() => void loading.retry());
 
-$effect(() => aiScope({ area: 'настройки сайта', facts: [] }));
+$effect(() => aiScope({ area: t('aiFacts.settings'), facts: [] }));
 
 // Подключение ИИ: ключ в форму не возвращается — поле ключа пустое, пока его не меняют.
 type AiStatus = {
@@ -96,7 +96,7 @@ const testAi = () => (
         (aiCheck = {
           ok: true,
           text: _.reply.trim()
-            ? `${t('aiSettings.works')} «${_.reply.trim()}»`
+            ? `${t('aiSettings.works')} ${quoted(_.reply.trim())}`
             : t('aiSettings.worksSilent'),
         }),
       (error) => (aiCheck = { ok: false, text: describe(error) })
@@ -158,6 +158,7 @@ const _SEARCH = [
   'aiSearch',
   'aiTraining',
   'robots',
+  'searchSynonyms',
   'pagingSegment',
   'pagingCanonical',
 ] as const;
@@ -426,7 +427,7 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
     <span class="autosave">{@html icons.check}{t('settings.autosave')}</span>
   {/if}
   {#if tab === 'site' || tab === 'search' || dirty}
-    <button type="submit" form="settings-form" class="primary" aria-disabled={busy || !dirty} aria-keyshortcuts="Control+S" title={dirty ? `${t('common.unsaved')} · Ctrl+S` : 'Ctrl+S'}>
+    <button type="submit" form="settings-form" class="primary" aria-disabled={busy || !dirty} aria-keyshortcuts="Control+S" title={dirty ? `${t('common.unsaved')} · ${t('common.ctrl')}+S` : `${t('common.ctrl')}+S`}>
       {#if dirty}<span class="dirty" aria-hidden="true"></span>{/if}{t('settings.save')}{#if dirty}<span class="sr-only">: {t('common.unsaved')}</span>{/if}
     </button>
   {/if}
@@ -627,6 +628,19 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
           <span class="muted">{t('settings.files')}</span>
           {#each files as file (file)}<a href={file} target="_blank" rel="noopener">{file}{@html icons.external}</a>{/each}
         </p>
+      </div>
+    </section>
+    <section class="form-section">
+      <header>
+        <h2>{t('settings.sectionSiteSearch')}</h2>
+        <p>{t('settings.sectionSiteSearchHint')}</p>
+      </header>
+      <div class="fields">
+        <label>
+          {t('settings.synonyms')}
+          <textarea form="settings-form" rows="5" maxlength="20000" bind:value={settings.searchSynonyms} placeholder={t('settings.synonymsExample')}></textarea>
+          <small>{t('settings.synonymsHint')}</small>
+        </label>
       </div>
     </section>
   {/if}

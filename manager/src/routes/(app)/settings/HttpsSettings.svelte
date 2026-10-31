@@ -1,7 +1,7 @@
 <script lang="ts">
 import { api } from '#lib/api.ts';
 import { moment } from '#lib/format.ts';
-import { t } from '#lib/i18n.ts';
+import { currentLanguage, t, tn } from '#lib/i18n.ts';
 import type { HttpsStatus } from '#lib/types.ts';
 
 // Только чтение: сертификат — забота сервера. Блока нет, если HTTPS держит прокси или его нет вовсе.
@@ -21,7 +21,7 @@ const left = $derived(
     : null
 );
 const date = (iso: string): string =>
-  new Date(iso).toLocaleDateString('ru', { dateStyle: 'long' });
+  new Date(iso).toLocaleDateString(currentLanguage(), { dateStyle: 'long' });
 </script>
 
 {#if status}
@@ -37,7 +37,7 @@ const date = (iso: string): string =>
           <dt>{t('https.until')}</dt>
           <dd>
             {#if status.notAfter}
-              {date(status.notAfter)}<small class="muted">{t('https.daysLeft')} {left}</small>
+              {date(status.notAfter)}<small class="muted">{tn('https.daysLeft', left ?? 0)}</small>
             {:else}
               {t('https.notYet')}
             {/if}

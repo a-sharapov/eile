@@ -1,6 +1,6 @@
 <script lang="ts">
 import { ago } from '#lib/format.ts';
-import { t } from '#lib/i18n.ts';
+import { currentLanguage, t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { inbox, watchInbox } from '#lib/inbox.svelte.ts';
 import { resolve } from '$app/paths';
@@ -21,10 +21,13 @@ const inboxHref = (query = '') =>
 
 // Подпись дня столбца: «30 окт.»; последний столбец — сегодня.
 const dayOf = (back: number): string =>
-  new Date(Date.now() - back * 86_400_000).toLocaleDateString('ru', {
-    day: 'numeric',
-    month: 'short',
-  });
+  new Date(Date.now() - back * 86_400_000).toLocaleDateString(
+    currentLanguage(),
+    {
+      day: 'numeric',
+      month: 'short',
+    }
+  );
 
 const close = (event: Event) =>
   void (

@@ -1,5 +1,6 @@
 import { attempt } from '../../../shared/kernel/errors.ts';
 import type { EventBus } from '../../../shared/kernel/events.ts';
+import type { ManagerLanguage } from '../../../shared/kernel/manager-language.ts';
 import {
   type Check,
   type DiagnosticsReport,
@@ -7,6 +8,7 @@ import {
   ordered,
   problemsOf,
 } from '../domain/diagnostics.ts';
+import { CHECK_TEXTS } from '../domain/texts.ts';
 
 export type Clock = () => Date;
 
@@ -16,13 +18,13 @@ const _TTL_MS = 5 * 60 * 1000;
 
 // Упавшая проверка — тоже находка: отчёт не должен пропадать из-за одной ошибки.
 const _broken =
-  (check: Check) =>
+  (check: Check, language: ManagerLanguage) =>
   (error: unknown): Finding[] => [
     {
       id: `check.failed.${check.id}`,
       group: 'server',
       severity: 'error',
-      title: `Проверка «${check.id}» не выполнилась`,
+      title: CHECK_TEXTS[language].checkFailed(check.id),
       hint: error instanceof Error ? error.message : String(error),
       items: [{ label: check.id }],
       count: 1,
@@ -41,14 +43,15 @@ export var defineDiagnosticsService = ({
   clock: Clock;
 }) => {
   const checks = new Map<string, Check>();
-  let cached: DiagnosticsReport | null = null;
-  bus.onAny(() => void (cached = null));
+  // Свой отчёт на каждый язык менеджера: тексты находок собираются на нём.
+  const cached = new Map<ManagerLanguage, DiagnosticsReport>();
+  bus.onAny(() => cached.clear());
 
-  const compute = (): DiagnosticsReport => {
+  const compute = (language: ManagerLanguage): DiagnosticsReport => {
     const started = performance.now();
     const findings = ordered(
       [...checks.values()].flatMap((check) =>
-        attempt(() => [...check.run()], _broken(check))
+        attempt(() => [...check.run(language)], _broken(check, language))
       )
     );
     return {
@@ -60,18 +63,29 @@ export var defineDiagnosticsService = ({
   };
 
   const fresh = (
-    report: DiagnosticsReport | null
+    report: DiagnosticsReport | undefined
   ): report is DiagnosticsReport =>
-    report !== null &&
+    report !== undefined &&
     clock().getTime() - Date.parse(report.generatedAt) < _TTL_MS;
+
+  const remember = (
+    language: ManagerLanguage,
+    report: DiagnosticsReport
+  ): DiagnosticsReport => (cached.set(language, report), report);
 
   return {
     /** Отчёт; `again` — посчитать заново, не глядя в кэш («Обновить» в менеджере). */
-    report: (again = false): DiagnosticsReport =>
-      !again && fresh(cached) ? cached : (cached = compute()),
+    report: (
+      again = false,
+      language: ManagerLanguage = 'en'
+    ): DiagnosticsReport =>
+      ((report) =>
+        !again && fresh(report)
+          ? report
+          : remember(language, compute(language)))(cached.get(language)),
     /** Добавить проверку; с тем же id — заменить. */
     register: (check: Check): void => (
-      checks.set(check.id, check), void (cached = null)
+      checks.set(check.id, check), cached.clear()
     ),
   };
 };

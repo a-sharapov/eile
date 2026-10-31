@@ -1,13 +1,14 @@
 <script lang="ts">
 import { api, CREATE_ONLY } from '#lib/api.ts';
 import { ask, askValue } from '#lib/dialog.svelte.ts';
-import { fieldHtml, STARTER } from '#lib/form-blocks.ts';
+import { fieldHtml, starterFields } from '#lib/form-blocks.ts';
 import { ago, moment } from '#lib/format.ts';
 import { forms, loadForms, removeForm } from '#lib/forms.svelte.ts';
-import { type MessageKey, t } from '#lib/i18n.ts';
+import { currentLanguage, type MessageKey, t, tn } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { refreshInbox } from '#lib/inbox.svelte.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
+import { fileSize } from '#lib/media.ts';
 import { failed, notify } from '#lib/notices.svelte.ts';
 import { session } from '#lib/session.svelte.ts';
 import { aliasFromTitle } from '#lib/translit.ts';
@@ -225,7 +226,10 @@ const keys = (event: KeyboardEvent) =>
     );
   })(({ j: 1, k: -1 } as Record<string, number>)[event.key] ?? 0);
 
-const csv = $derived(api.url(`/inbox.csv?${params()}`));
+// Ссылка на файл идёт без заголовков fetch: язык заголовков таблицы — в адресе.
+const csv = $derived(
+  api.url(`/inbox.csv?${params()}&lang=${currentLanguage()}`)
+);
 
 const createForm = () =>
   askValue({
@@ -243,7 +247,7 @@ const createForm = () =>
             .send(
               'PUT',
               `/forms/${name}`,
-              { title, source: STARTER.map(fieldHtml).join('\n') },
+              { title, source: starterFields().map(fieldHtml).join('\n') },
               CREATE_ONLY
             )
             .then(() => loadForms())
@@ -293,7 +297,7 @@ const copyTag = (name: string) =>
       {#each forms.items as item (item.name)}
         <li class="frame">
           <a class="title" href={resolve('/(app)/forms/[name]', { name: item.name })}>{item.title}</a>
-          <span class="muted">{item.fields} {t('forms.fieldsCount')} · {t('forms.changed')} {ago(item.updatedAt)}</span>
+          <span class="muted">{tn('forms.fieldsCount', item.fields)} · {t('forms.changed', { when: ago(item.updatedAt) })}</span>
           <div class="tag">
             <code>[#Form:{item.name}]</code>
             <button type="button" class="button ghost icon" aria-label={`${t('common.copy')} [#Form:${item.name}]`} title={t('forms.copyTag')} onclick={() => copyTag(item.name)}>{@html icons.copy}</button>
@@ -360,7 +364,20 @@ const copyTag = (name: string) =>
         {/if}
         <dl class="values">
           {#each detail.values.filter((_) => _.value !== '') as value (value.name)}
-            <div><dt>{value.label}</dt><dd>{value.value}</dd></div>
+            {#if value.kind === 'file'}
+              <div>
+                <dt>{value.label}</dt>
+                <dd>
+                  <ul class="files">
+                    {#each detail.files.filter((_) => _.field === value.name) as file (file.id)}
+                      <li><a href={api.url(`/inbox/${detail.id}/files/${file.id}`)} download={file.name}>{@html icons.download}{file.name}</a> <span class="muted">{fileSize(file.size)}</span></li>
+                    {/each}
+                  </ul>
+                </dd>
+              </div>
+            {:else}
+              <div><dt>{value.label}</dt><dd>{value.value}</dd></div>
+            {/if}
           {/each}
         </dl>
         <h3>{t('inbox.context')}</h3>
@@ -394,7 +411,7 @@ const copyTag = (name: string) =>
         <textarea id="inbox-note" rows="3" bind:value={note} placeholder={t('inbox.notePlaceholder')}></textarea>
         <div class="buttons">
           <button type="button" class="button primary" aria-disabled={busy || note === detail.note} onclick={() => note !== detail?.note && change({ note })}>{t('inbox.saveNote')}</button>
-          <button type="button" class="button danger" onclick={remove}>{@html icons.trash}{t('inbox.remove')}</button>
+          {#if admin}<button type="button" class="button danger" onclick={remove}>{@html icons.trash}{t('inbox.remove')}</button>{/if}
         </div>
       {:else}
         <p class="muted pick">{rows.length > 0 ? t('inbox.pick') : ''}</p>
@@ -609,6 +626,25 @@ const copyTag = (name: string) =>
 
   .small {
     font-size: 0.875rem;
+  }
+
+  .files {
+    display: grid;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .files a {
+    display: inline-flex;
+    gap: 0.375rem;
+    align-items: center;
+  }
+
+  .files a :global(svg) {
+    width: 1rem;
+    height: 1rem;
   }
 
   .deliveries {

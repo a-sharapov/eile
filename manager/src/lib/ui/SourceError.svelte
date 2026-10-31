@@ -23,7 +23,7 @@ const _parts = (text: string) =>
 <div class="source-error" role="alert">
   {#if error.at}
     <button type="button" class="where" onclick={onreveal}>
-      {t('elements.errorLine')} {error.at.line}, {t('elements.errorColumn')} {error.at.column}
+      {t('elements.errorAt', { line: error.at.line, column: error.at.column })}
     </button>
   {/if}
   <pre>{#each _parts(error.text) as part, index (index)}{#if part.href}<a href={part.href} target="_blank" rel="noopener">{part.text}</a>{:else}{part.text}{/if}{/each}</pre>

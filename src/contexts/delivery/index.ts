@@ -19,6 +19,7 @@ import {
 } from './application/page-delivery.ts';
 import type {
   Dictionary,
+  EditBar,
   Hooks,
   Modules,
   PageCache,
@@ -29,6 +30,7 @@ import type {
 } from './application/ports.ts';
 import type { RenderScope } from './application/render-scope.ts';
 import { responseType } from './domain/content-type.ts';
+import { translationsTag } from './domain/translations.ts';
 import content from './infrastructure/Content.svelte' with { type: 'text' };
 import form from './infrastructure/Form.svelte' with { type: 'text' };
 import island from './infrastructure/Island.svelte' with { type: 'text' };
@@ -44,6 +46,7 @@ export {
   type SearchResults,
 } from './application/component-runtime.ts';
 export type {
+  EditBar,
   PageCacheStats,
   RedirectRules,
   SearchHit,
@@ -71,10 +74,18 @@ export var BUILTIN_COMPONENTS: Readonly<Record<string, string>> = {
 };
 
 const _page = (event: DomainEvent): readonly string[] => {
-  const { pageId, parentId, previousParentId } = event as ContentEvent & {
+  const {
+    pageId,
+    parentId,
+    previousParentId,
+    translationOf,
+    previousTranslationOf,
+  } = event as ContentEvent & {
     pageId: number;
     parentId: number | null;
     previousParentId?: number | null;
+    translationOf?: number | null;
+    previousTranslationOf?: number | null;
   };
   // Выдачу поиска меняет любая страница: тег search сбрасывается с каждой правкой.
   return [
@@ -85,6 +96,11 @@ const _page = (event: DomainEvent): readonly string[] => {
     ...(previousParentId === undefined
       ? []
       : [`children:${previousParentId ?? 'root'}`]),
+    // Ссылки на переводы есть у всех страниц набора: и у исходной, и у прежнего набора, если связь сменилась.
+    translationsTag(pageId),
+    ...[translationOf, previousTranslationOf]
+      .filter((_) => typeof _ === 'number')
+      .map(translationsTag),
   ];
 };
 
@@ -126,7 +142,7 @@ const _TAGS: Readonly<
 const _invalidate =
   (cache: PageCache) =>
   (event: DomainEvent): void =>
-    pipe<DomainEvent, void>(
+    pipe(
       (_: DomainEvent) => (_TAGS[_.type] ?? _TAGS._!)(_),
       (tags: readonly string[] | null) =>
         tags === null ? cache.clear() : cache.invalidate(tags)
@@ -144,6 +160,7 @@ export var defineDelivery = ({
   report,
   modules,
   redirects,
+  editBar,
 }: {
   content: PublishedContent;
   settings: () => SiteSettings;
@@ -158,6 +175,8 @@ export var defineDelivery = ({
   modules?: Modules;
   /** Правила переадресации из менеджера. */
   redirects?: RedirectRules;
+  /** Полоса правки на сайте для вошедших в менеджер. */
+  editBar?: EditBar;
 }) => {
   const cache = defineMemoryPageCache(
     () => settings().pageCacheMb * 1024 * 1024
@@ -219,7 +238,8 @@ export var defineDelivery = ({
       counted,
       defineCompressionCache(),
       discovery,
-      report
+      report,
+      editBar
     ),
     /** Кэш страниц в настройках: заполненность и ручной сброс — с ним и карта сайта. */
     cache: {

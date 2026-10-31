@@ -12,6 +12,7 @@ bun run check      # biome + tsc + все тесты (NODE_ENV=production)
 bun run format     # форматирование Biome
 bun run dev:manager # SPA менеджера на Vite с прокси API на :8080
 bun run build      # SPA + dist/cms: один файл, запуск: dist/cms --port 8080 --db site.db
+bun run site       # промо-сайт Eile на самой Eile → eile.db (--force, --url); в бинарник не входит
 dist/cms new blog --db site.db              # сайт из каркаса: blog, portfolio, company, showcase, shop
 dist/cms import-evo dump.sql --db site.db   # перенос сайта Evo
 dist/cms backup copy.db --db site.db        # бэкап всего сайта одним файлом
@@ -28,6 +29,8 @@ dist/cms help [команда]                     # справка с прим�
 - `src/scaffolds/` — каркасы сайтов для `cms new` и приветствие новой базы; `tests/fixtures/demo.ts` — демо-сайт тестов.
 - `manager/` — SPA менеджера (SvelteKit 3, TypeScript 6, свой `package.json`); перед правкой — скилл `sveltekit-3`.
 - `scripts/build.ts` — сборка бинарника со встроенной SPA; `scripts/release.ts` — бинарники под платформы релиза.
+- `site/` — промо-сайт Eile (RU + EN), сделанный на Eile; `site/index.ts` — страницы и переводы; `site/cookbook/` —
+  кукбук для новичков, его главы проходит `tests/promo-cookbook.test.ts`.
 - `install.sh` — установщик `curl … | bash`; `.github/workflows/` — CI и релиз по тегу `vX.Y.Z` (ADR 0023).
 - `README.md` — для владельцев сайтов; разработка, проверки и релиз — `CONTRIBUTING.md`.
 

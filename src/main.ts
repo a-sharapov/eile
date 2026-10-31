@@ -7,7 +7,9 @@ import {
   RUN,
   unknownCommand,
 } from './cli/commands.ts';
+import { cliLanguage } from './cli/language.ts';
 import { colorsWanted, definePaint } from './cli/paint.ts';
+import { named, PROGRAM } from './cli/program.ts';
 import { VERSION } from './cli/version.ts';
 import { PRODUCT } from './product.ts';
 
@@ -18,11 +20,15 @@ const _paint = definePaint(
 const _stderr = definePaint(
   colorsWanted(process.env, process.stderr.isTTY === true)
 );
+const _language = cliLanguage(process.env);
+const _ERROR = { ru: 'Ошибка:', en: 'Error:' } as const;
 
 const _fail = (error: unknown): void =>
   (
     // write, а не console.error: Bun красит console.error в TTY целиком, поверх наших акцентов.
-    process.stderr.write(`${_stderr.error('Ошибка:')} ${explain(error)}\n`),
+    process.stderr.write(
+      `${_stderr.error(_ERROR[_language])} ${named(PROGRAM)(explain(error, _language))}\n`
+    ),
     void (process.exitCode = 1)
   );
 
@@ -37,12 +43,17 @@ const _run = (
             _paint,
             invocation.command === 'help'
               ? invocation.args[0]
-              : (invocation.command ?? undefined)
+              : (invocation.command ?? undefined),
+            _language
           ).then(console.log)
-        : (RUN[command] ?? (() => Promise.reject(unknownCommand(command))))({
+        : (
+            RUN[command] ??
+            (() => Promise.reject(unknownCommand(command, _language)))
+          )({
             args: invocation.args,
             options: invocation.options,
             paint: _paint,
+            language: _language,
             tty: process.stdin.isTTY === true && process.stdout.isTTY === true,
             out: console.log,
           } satisfies Context))(invocation.command ?? 'serve');

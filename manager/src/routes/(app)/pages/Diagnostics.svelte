@@ -55,7 +55,7 @@ const opened = (finding: Finding): boolean =>
       {#if report}
         <p class="muted when">
           {t('diagnostics.checked')} <time datetime={report.generatedAt} title={moment(report.generatedAt)}>{ago(report.generatedAt)}</time>
-          · {report.tookMs} {t('diagnostics.took')}
+          · {t('diagnostics.took', { n: report.tookMs })}
         </p>
       {/if}
     </div>
@@ -96,7 +96,7 @@ const opened = (finding: Finding): boolean =>
                       {/each}
                     </ul>
                     {#if finding.count > finding.items.length}
-                      <p class="muted more">{t('diagnostics.more')} {finding.count}</p>
+                      <p class="muted more">{t('diagnostics.more', { n: finding.count })}</p>
                     {/if}
                   </div>
                 </details>

@@ -94,7 +94,7 @@ import {
   type Upkeep,
   upkeepMigrations,
 } from './contexts/upkeep/index.ts';
-import { KIT } from './kit/index.ts';
+import { KIT, KIT_ENGLISH, kitFor } from './kit/index.ts';
 import {
   type Archive,
   databaseFromArchive,
@@ -119,6 +119,7 @@ import { REPOSITORY } from './product.ts';
 import { applyScaffold, type Scaffold } from './scaffolds/scaffold.ts';
 import { serverChecks } from './server-checks.ts';
 import { attempt, fail } from './shared/kernel/errors.ts';
+import { type Localized, localized } from './shared/kernel/manager-language.ts';
 import { errorDetail, errorKey } from './shared/kernel/report.ts';
 import { redirectPages, siteFacts } from './site-facts.ts';
 
@@ -221,13 +222,30 @@ const _DERIVED = [..._SERVER_ONLY, ...SEARCH_TABLES];
 const _KEEP_BEFORE_RESTORE = 3;
 
 // События, о которых владелец сайта хочет знать, даже если всё работает: кто получил доступ к менеджеру.
-const _AUDIT: Readonly<Record<string, string>> = {
-  'identity.user_created': 'В менеджере новый пользователь',
-  'identity.role_changed': 'У пользователя менеджера сменилась роль',
-  'identity.password_reset':
-    'Пароль пользователя менеджера сброшен по ссылке из письма',
-  'identity.user_removed': 'Пользователь менеджера удалён',
+const _AUDIT: Readonly<Record<string, Localized>> = {
+  'identity.user_created': {
+    en: 'A new manager user',
+    de: 'Neuer Benutzer im Manager',
+    ru: 'В менеджере новый пользователь',
+  },
+  'identity.role_changed': {
+    en: 'A manager user’s role changed',
+    de: 'Die Rolle eines Manager-Benutzers wurde geändert',
+    ru: 'У пользователя менеджера сменилась роль',
+  },
+  'identity.password_reset': {
+    en: 'A manager user’s password was reset from an email link',
+    de: 'Das Passwort eines Manager-Benutzers wurde per E-Mail-Link zurückgesetzt',
+    ru: 'Пароль пользователя менеджера сброшен по ссылке из письма',
+  },
+  'identity.user_removed': {
+    en: 'A manager user was removed',
+    de: 'Ein Manager-Benutzer wurde gelöscht',
+    ru: 'Пользователь менеджера удалён',
+  },
 };
+
+const _USER: Localized = { en: 'User', de: 'Benutzer', ru: 'Пользователь' };
 
 const _isManager = (path: string): boolean =>
   path === MANAGER_PATH || path.startsWith(`${MANAGER_PATH}/`);
@@ -251,7 +269,10 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
   const notify = defineNotify({
     db,
     clock,
-    site: () => ((_) => ({ name: _.name, url: _.siteUrl }))(settings()),
+    site: () =>
+      ((_) => ({ name: _.name, url: _.siteUrl, language: _.language }))(
+        settings()
+      ),
     transports: options.transports,
   });
   const report = notify.incidents.report;
@@ -269,7 +290,9 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
           kind: event.type,
           severity: 'info',
           title: _AUDIT[event.type]!,
-          detail: `Пользователь #${(event as { userId?: number }).userId ?? '?'}`,
+          detail: ((user) => localized((_) => `${_USER[_]} #${user}`))(
+            (event as { userId?: number }).userId ?? '?'
+          ),
           key: `${event.type}:${(event as { userId?: number }).userId}`,
         })
       )
@@ -280,21 +303,32 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
     report({
       kind: 'content.schedule_failed',
       severity: 'error',
-      title: 'Не сработало расписание публикаций',
+      title: {
+        en: 'Scheduled publishing did not run',
+        de: 'Geplante Veröffentlichung hat nicht funktioniert',
+        ru: 'Не сработало расписание публикаций',
+      },
       detail: errorDetail(error),
       key: errorKey('content.schedule_failed', error),
     })
   );
-  const content = defineContent({ db, bus, clock });
+  const content = defineContent({
+    db,
+    bus,
+    clock,
+    siteLanguage: () => settings().language,
+  });
   const search = defineSearch({
     db,
     bus,
     published: content.published,
     tree: content.drafts.tree,
     site: () =>
-      ((_) => ({ language: _.language, notFoundPageId: _.notFoundPageId }))(
-        settings()
-      ),
+      ((_) => ({
+        language: _.language,
+        notFoundPageId: _.notFoundPageId,
+        synonyms: _.searchSynonyms,
+      }))(settings()),
   });
   const identity = defineIdentity({ db, bus, clock });
   const scope = defineRenderScope();
@@ -354,6 +388,7 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
     },
     notify: (notice, channels, source) =>
       void notify.send(notice, channels, source),
+    noticeLanguage: notify.language,
   });
   const redirects = defineRedirects({
     db,
@@ -372,6 +407,8 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
     report,
     modules: { Form: forms.render },
     redirects: { match: redirects.match, hit: redirects.hit },
+    // Менеджер создаётся ниже: полоса понадобится только на запрос, когда он уже есть.
+    editBar: (request, page) => manager.editBar(request, page),
   });
   const diagnostics = defineDiagnostics({
     bus,
@@ -421,7 +458,13 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
     preview: delivery.preview,
     backup,
     assistant,
-    kit: KIT,
+    kit: () =>
+      kitFor(settings().language).map((_) => ({
+        ..._,
+        translations: [KIT, KIT_ENGLISH].map(
+          (kit) => kit.find((entry) => entry.name === _.name)!.source
+        ),
+      })),
     report,
     notify,
     forms,

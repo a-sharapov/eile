@@ -3,6 +3,7 @@ import { api } from '#lib/api.ts';
 import { ago, moment } from '#lib/format.ts';
 import { type MessageKey, t } from '#lib/i18n.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
+import { fileSize } from '#lib/media.ts';
 import { failed, notify } from '#lib/notices.svelte.ts';
 import { session } from '#lib/session.svelte.ts';
 import type { BackupSchedule, UpdateStatus, UpkeepStatus } from '#lib/types.ts';
@@ -44,10 +45,7 @@ const _EVERY: readonly { id: BackupSchedule['every']; label: MessageKey }[] = [
   { id: 1, label: 'upkeep.every1' },
 ];
 
-const _size = (bytes: number): string =>
-  bytes < 1024 ** 2
-    ? `${Math.max(1, Math.round(bytes / 1024))} КБ`
-    : `${(bytes / 1024 ** 2).toFixed(1).replace('.', ',')} МБ`;
+const _size = fileSize;
 
 const _name = (file: string): string => file.split(/[\\/]/).at(-1) ?? file;
 

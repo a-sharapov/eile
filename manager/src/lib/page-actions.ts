@@ -3,7 +3,7 @@ import { resolve } from '$app/paths';
 import { api } from './api.ts';
 import { ask, askValue } from './dialog.svelte.ts';
 import { moment } from './format.ts';
-import { t } from './i18n.ts';
+import { quoted, t } from './i18n.ts';
 import { failed, notify } from './notices.svelte.ts';
 import {
   branchOrder,
@@ -35,7 +35,7 @@ const _move = (
   _place(node.id, parentId, index)
     .then(() => _done(node.id))
     .then(() =>
-      notify(`${t('tree.moved')}: «${node.title}»`, 'ok', {
+      notify(`${t('tree.moved')}: ${quoted(node.title)}`, 'ok', {
         label: t('common.undo'),
         run: () =>
           _place(node.id, from.parentId, from.index)
@@ -91,7 +91,7 @@ const _confirmPublish = (
   published && isScheduledAhead(node)
     ? ask({
         title: t('page.publishNowTitle'),
-        body: `${t('page.publishNowBody')} ${moment(node.publishAt!)}.`,
+        body: t('page.publishNowBody', { when: moment(node.publishAt!) }),
         confirm: t('page.publishNow'),
       })
     : Promise.resolve(true);
@@ -122,12 +122,12 @@ export var confirmBranchTrash = (node: PageNode): Promise<boolean> =>
       ? Promise.resolve(true)
       : ask({
           title: t('page.trashBranchTitle'),
-          body: `${t('page.trashBranchBody')} ${branch.length}.`,
+          body: t('page.trashBranchBody', { n: branch.length }),
           items: [
             node.title,
             ...branch.slice(0, 8).map((_) => `↳ ${_.title} (${_.id})`),
             ...(branch.length > 8
-              ? [`${t('common.andMore')} ${branch.length - 8}`]
+              ? [t('common.andMore', { n: branch.length - 8 })]
               : []),
           ],
           confirm: t('page.toTrash'),
@@ -191,7 +191,7 @@ const _finish = (text: string, undo?: () => Promise<unknown>) =>
 
 const _titles = (nodes: readonly PageNode[]): string[] => [
   ...nodes.slice(0, 8).map((_) => `${_.title} (${_.id})`),
-  ...(nodes.length > 8 ? [`${t('common.andMore')} ${nodes.length - 8}`] : []),
+  ...(nodes.length > 8 ? [t('common.andMore', { n: nodes.length - 8 })] : []),
 ];
 
 /** Опубликовать или снять разом; запланированные на будущее — только после вопроса. */
@@ -230,7 +230,13 @@ export var trashMany = (nodes: readonly PageNode[]): Promise<void> =>
   ((tops) =>
     ask({
       title: t('bulk.trashTitle'),
-      body: `${t('bulk.trashBody')} ${tops.reduce((sum, _) => sum + descendantsOf(_.id).filter((child) => !child.trashed).length, 0)}.`,
+      body: t('bulk.trashBody', {
+        n: tops.reduce(
+          (sum, _) =>
+            sum + descendantsOf(_.id).filter((child) => !child.trashed).length,
+          0
+        ),
+      }),
       items: _titles(tops),
       confirm: t('page.toTrash'),
       tone: 'danger',

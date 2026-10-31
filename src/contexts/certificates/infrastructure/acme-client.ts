@@ -1,5 +1,6 @@
 import { X509Certificate } from 'node:crypto';
 import { attempt } from '../../../shared/kernel/errors.ts';
+import { pipe } from '../../../shared/kernel/pipe.ts';
 import type {
   Acme,
   AcmeAccount,
@@ -205,29 +206,30 @@ export var defineAcmeClient = (options: AcmeOptions): Acme => {
       accept = 'application/json',
       tries = 0
     ): Promise<Response> =>
-      fresh()
-        .then((value) => signed(url, payload, value))
-        .then((body) =>
-          fetch(url, {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/jose+json',
-              accept,
-            },
-            body,
-            signal: AbortSignal.timeout(_TIMEOUT),
-          })
+      fresh().then(
+        pipe(
+          (value) => signed(url, payload, value),
+          (body) =>
+            fetch(url, {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/jose+json',
+                accept,
+              },
+              body,
+              signal: AbortSignal.timeout(_TIMEOUT),
+            }),
+          keep,
+          (response): Response | Promise<Response> =>
+            response.ok
+              ? response
+              : _rejected(response).then(undefined, (error) =>
+                  _problemOf(error).type === `${_ERROR}badNonce` && tries < 3
+                    ? send(url, payload, accept, tries + 1)
+                    : Promise.reject(error)
+                )
         )
-        .then(keep)
-        .then((response) =>
-          response.ok
-            ? response
-            : _rejected(response).then(undefined, (error) =>
-                _problemOf(error).type === `${_ERROR}badNonce` && tries < 3
-                  ? send(url, payload, accept, tries + 1)
-                  : Promise.reject(error)
-              )
-        );
+      );
 
     const read = <T>(url: string): Promise<{ body: T; response: Response }> =>
       send(url, null).then((response) =>
@@ -322,47 +324,53 @@ export var defineAcmeClient = (options: AcmeOptions): Acme => {
       ]).then(({ 0: dir, 1: print, 2: keys }) =>
         send(dir.newOrder, {
           identifiers: request.domains.map((value) => ({ type: 'dns', value })),
-        })
-          .then((response) =>
-            (response.json() as Promise<Order>).then((body) => ({
-              body,
-              url: response.headers.get('location') ?? '',
-            }))
-          )
-          .then(({ body, url }) =>
-            body.authorizations
-              .reduce<Promise<unknown>>(
-                (previous, authz) =>
-                  previous.then(() =>
-                    authorize(authz, (token) => `${token}.${print}`)
-                  ),
-                Promise.resolve()
-              )
-              .then(() => certificateRequest(request.domains, keys))
-              .then((csr) => send(body.finalize, { csr: _b64u(csr) }))
-              .then(() =>
-                poll<Order>(
-                  url,
-                  (_) => _.status === 'valid' && Boolean(_.certificate),
-                  (_) =>
-                    _.status === 'invalid'
-                      ? (_.error?.detail ?? 'order is invalid')
-                      : null
+        }).then(
+          pipe(
+            (response) =>
+              (response.json() as Promise<Order>).then((body) => ({
+                body,
+                url: response.headers.get('location') ?? '',
+              })),
+            ({ body, url }) =>
+              body.authorizations
+                .reduce<Promise<unknown>>(
+                  (previous, authz) =>
+                    previous.then(() =>
+                      authorize(authz, (token) => `${token}.${print}`)
+                    ),
+                  Promise.resolve()
                 )
-              )
+                .then(
+                  pipe(
+                    () => certificateRequest(request.domains, keys),
+                    (csr) => send(body.finalize, { csr: _b64u(csr) }),
+                    () =>
+                      poll<Order>(
+                        url,
+                        (_) => _.status === 'valid' && Boolean(_.certificate),
+                        (_) =>
+                          _.status === 'invalid'
+                            ? (_.error?.detail ?? 'order is invalid')
+                            : null
+                      )
+                  )
+                ),
+            (ready) =>
+              send(
+                ready.certificate!,
+                null,
+                'application/pem-certificate-chain'
+              ),
+            (response) => response.text(),
+            (chain) =>
+              crypto.subtle.exportKey('pkcs8', keys.privateKey).then((key) => ({
+                account: { key: current.jwk, url: current.url! },
+                chain,
+                key: pem('PRIVATE KEY', new Uint8Array(key)),
+                notAfter: new X509Certificate(chain).validToDate.toISOString(),
+              }))
           )
-          .then((ready) =>
-            send(ready.certificate!, null, 'application/pem-certificate-chain')
-          )
-          .then((response) => response.text())
-          .then((chain) =>
-            crypto.subtle.exportKey('pkcs8', keys.privateKey).then((key) => ({
-              account: { key: current.jwk, url: current.url! },
-              chain,
-              key: pem('PRIVATE KEY', new Uint8Array(key)),
-              notAfter: new X509Certificate(chain).validToDate.toISOString(),
-            }))
-          )
+        )
       );
 
     return () => account().then(order);

@@ -42,6 +42,30 @@ describe('медиатека', () => {
     expect((await get('/media/docs/none.txt')).status).toBe(404);
   });
 
+  it('отдаёт файл кусками по Range: видео в Safari без этого не играет', async () => {
+    app.media.files.save({ path: 'video/clip.mp4', data: bytes('0123456789') });
+    const whole = await get('/media/video/clip.mp4');
+    expect(whole.headers.get('accept-ranges')).toBe('bytes');
+    const first = await get('/media/video/clip.mp4', { range: 'bytes=0-1' });
+    expect(first.status).toBe(206);
+    expect(first.headers.get('content-range')).toBe('bytes 0-1/10');
+    expect(await first.text()).toBe('01');
+    const tail = await get('/media/video/clip.mp4', { range: 'bytes=-3' });
+    expect([tail.headers.get('content-range'), await tail.text()]).toEqual([
+      'bytes 7-9/10',
+      '789',
+    ]);
+    const open = await get('/media/video/clip.mp4', { range: 'bytes=8-' });
+    expect(await open.text()).toBe('89');
+    const beyond = await get('/media/video/clip.mp4', { range: 'bytes=20-30' });
+    expect([beyond.status, beyond.headers.get('content-range')]).toEqual([
+      416,
+      'bytes */10',
+    ]);
+    const many = await get('/media/video/clip.mp4', { range: 'bytes=0-1,4-5' });
+    expect([many.status, await many.text()]).toEqual([200, '0123456789']);
+  });
+
   it('SVG — в песочнице CSP; HTML и обход каталогов не принимаются', async () => {
     app.media.files.save({ path: 'i/logo.svg', data: bytes('<svg/>') });
     expect(

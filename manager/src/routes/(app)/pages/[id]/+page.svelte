@@ -10,9 +10,10 @@ import {
   isHtml,
 } from '#lib/content-types.ts';
 import { ask, modalOpen } from '#lib/dialog.svelte.ts';
+import { tellPage } from '#lib/embed.ts';
 import { moment } from '#lib/format.ts';
 import { guardUnsaved } from '#lib/guard.svelte.ts';
-import { type MessageKey, t } from '#lib/i18n.ts';
+import { type MessageKey, quoted, t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
 import { describe, describeLoad, failed, notify } from '#lib/notices.svelte.ts';
@@ -68,6 +69,7 @@ const _EDITABLE = [
   'searchable',
   'socialImage',
   'language',
+  'translationOf',
   'publishAt',
   'unpublishAt',
 ] as const;
@@ -99,6 +101,9 @@ const _FIELD_ERRORS: Readonly<
   'content.invalid_schedule': ['unpublish-at', 'settings'],
   'content.invalid_moment': ['publish-at', 'settings'],
   'content.invalid_language': ['language', 'settings'],
+  'content.invalid_translation': ['translation-of', 'settings'],
+  'content.translation_not_found': ['translation-of', 'settings'],
+  'content.translation_has_translations': ['translation-of', 'settings'],
   'content.invalid_content_type': ['content-type', 'settings'],
 };
 
@@ -132,6 +137,7 @@ const _blank = (parentId: number | null, template: string): Page => ({
   searchable: true,
   socialImage: '',
   language: '',
+  translationOf: null,
   fields: {},
 });
 
@@ -163,12 +169,22 @@ const creating = $derived(route.params.id === 'new');
 const asFile = $derived(
   draft !== null && draft.kind === 'page' && !isHtml(draft.contentType)
 );
+// Язык для транслита: свой у страницы, иначе родителя (его язык уже с учётом ветки), иначе сайта.
+const aliasLanguage = $derived(
+  draft?.language ||
+    (parentId === null
+      ? undefined
+      : tree.nodes.find((_) => _.id === parentId)?.language) ||
+    site?.language ||
+    ''
+);
+
 // Заголовок ведёт за собой адрес — транслитом, как TransAlias в Evo, — пока адрес не правили вручную.
 const retitle = (title: string) =>
   void (
     draft &&
-    ((draft.alias = followsTitle(draft.alias, draft.title)
-      ? aliasFromTitle(title)
+    ((draft.alias = followsTitle(draft.alias, draft.title, aliasLanguage)
+      ? aliasFromTitle(title, aliasLanguage)
       : draft.alias),
     (draft.title = title))
   );
@@ -250,7 +266,7 @@ const startBlank = (names: readonly string[]) => {
     kind: requestedKind,
   } satisfies Page;
   return fieldsOf(page.template).then((_) =>
-    accept({ page, view: null, fields: _, oldPaths: [] })
+    accept({ page, view: null, fields: _, oldPaths: [], translations: [] })
   );
 };
 
@@ -439,6 +455,15 @@ const valid = (): Promise<boolean> =>
       ? ((tab = found.tab ?? tab), tick().then(() => (found.report(), false)))
       : Promise.resolve(true))(firstInvalid(form));
 
+// В окне полосы правки на сайте: сохранили — страница сайта перезагрузится или откроет новую.
+const tellSaved = (): void =>
+  tellPage({
+    type: 'saved',
+    url: details?.page.published ? (details.view?.path ?? null) : null,
+  });
+
+$effect(() => tellPage({ type: 'dirty', dirty }));
+
 // Кнопка «Сохранить» не гаснет через disabled: иначе фокус с неё улетает на body.
 const save = (event?: SubmitEvent) => {
   event?.preventDefault();
@@ -455,6 +480,7 @@ const save = (event?: SubmitEvent) => {
                 notify(t(created ? 'page.created' : 'page.saved')), loadTree()
               )
             )
+            .then(tellSaved)
             .then(undefined, fail)
             .finally(() => (busy = false)))
       )
@@ -495,6 +521,7 @@ const perform = (action: Action): Promise<void> => (
         loadTree()
       )
     )
+    .then(tellSaved)
     .then(() => undefined, fail)
     .finally(() => ((busy = false), refocus(_FOCUS_AFTER[action])))
 );
@@ -510,7 +537,7 @@ const publish = () =>
   scheduledAhead
     ? ask({
         title: t('page.publishNowTitle'),
-        body: `${t('page.publishNowBody')} ${moment(draft!.publishAt!)}.`,
+        body: t('page.publishNowBody', { when: moment(draft!.publishAt!) }),
         confirm: t('page.publishNow'),
       }).then((confirmed) => (confirmed ? act('publish') : undefined))
     : act('publish');
@@ -546,9 +573,11 @@ const publishingText = $derived(
   creating
     ? t('page.notSaved')
     : details?.page.published
-      ? `${t('pages.published')}${details.page.publishedAt ? ` ${moment(details.page.publishedAt)}` : ''}`
+      ? details.page.publishedAt
+        ? t('page.publishedOn', { when: moment(details.page.publishedAt) })
+        : t('pages.published')
       : draft?.publishAt
-        ? `${t('page.scheduledFor')} ${moment(draft.publishAt)}`
+        ? t('page.scheduledFor', { when: moment(draft.publishAt) })
         : t('pages.draft')
 );
 
@@ -568,12 +597,16 @@ const onKey = (event: KeyboardEvent) =>
 
 // Родитель выбирается в порядке дерева с отступами; своя ветка не предлагается — в неё переместить нельзя.
 const parents = $derived(branchOrder(id));
+// Исходной для перевода может стать любая страница, кроме самой этой.
+const translationTargets = $derived(
+  branchOrder(null).filter((_) => _.node.id !== id)
+);
 
 // Наследуемое поле подсказывает, что именно подставится и откуда: «Пусто — возьмётся у «Раздел»: Скидки».
 const hint = (field: Field): string =>
   ((inherited) =>
     inherited
-      ? `${t('page.inheritedFrom')} «${inherited.from.title}»${
+      ? `${t('page.inheritedFrom')} ${quoted(inherited.from.title)}${
           field.type === 'richtext' ? '' : `: ${_shown(inherited.value)}`
         }`
       : field.inherit
@@ -602,6 +635,7 @@ const _SETTINGS = [
   'kind',
   'contentType',
   'language',
+  'translationOf',
   'publishAt',
   'unpublishAt',
   'cacheable',
@@ -685,19 +719,23 @@ const heading = $derived(
 $effect(() =>
   draft
     ? aiScope({
-        area: `страница «${draft.title || heading}»`,
+        area: t('aiFacts.page', { title: draft.title || heading }),
         facts: facts([
-          details?.view?.path && `Адрес: ${details.view.path}`,
-          `Раздел: ${
-            crumbs
-              .slice(1)
-              .map((_) => _.label)
-              .join(' › ') || 'верхний уровень сайта'
-          }`,
-          draft.template && `Шаблон: ${draft.template}`,
-          draft.kind === 'link' && 'Это не страница, а ссылка на другой адрес',
+          details?.view?.path &&
+            t('aiFacts.address', { path: details.view.path }),
+          t('aiFacts.section', {
+            path:
+              crumbs
+                .slice(1)
+                .map((_) => _.label)
+                .join(' › ') || t('aiFacts.topLevel'),
+          }),
+          draft.template && t('aiFacts.template', { name: draft.template }),
+          draft.kind === 'link' && t('aiFacts.link'),
           fields.length > 0 &&
-            `Поля шаблона: ${fields.map((_) => `${_.name} (${_.label})`).join(', ')}`,
+            t('aiFacts.fields', {
+              list: fields.map((_) => `${_.name} (${_.label})`).join(', '),
+            }),
         ]),
       })
     : undefined
@@ -716,17 +754,19 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
 <svelte:window onkeydown={(e) => (onKey(e), moreKey(e))} onpointerdown={moreOutside} />
 <svelte:head><title>{tabTitle ? `${tabTitle} — ` : ''}{t('nav.pages')} — {t('app.name')}</title></svelte:head>
 
+<!-- Статус — плашкой с узлом, как в дереве; дальше через волосяные разделители — id и адрес на сайте. -->
 {#snippet statusLine()}
   <span class="status" data-status={creating ? 'new' : status}><i class="status-node" aria-hidden="true"></i>{creating ? t('page.notSaved') : t(_STATUS[status])}</span>
-  {#if !creating}<span class="id">id {pageId}</span>{/if}
   {#if details?.page.publishAt && !details.page.published}
-    <span>{t('page.scheduledFor')} {moment(details.page.publishAt)}</span>
+    <time class="when" datetime={details.page.publishAt} title={t('page.scheduledFor', { when: moment(details.page.publishAt) })}>{moment(details.page.publishAt)}</time>
   {/if}
+  {#if !creating}<i class="sep" aria-hidden="true"></i><span class="id"><span class="key">id</span>{pageId}</span>{/if}
   {#if details?.view}
+    <i class="sep" aria-hidden="true"></i>
     {#if details.page.published && !trashed}
-      <a class="path" href={details.view.path} target="_blank" rel="noopener" title={t('page.open')}><span class="path-text">{details.view.path}</span>{@html icons.external}<span class="sr-only">({t('page.open')})</span></a>
+      <a class="path" href={details.view.path} target="_blank" rel="noopener" title={`${t('page.open')}: ${details.view.path}`}><span class="path-text">{details.view.path}</span>{@html icons.external}<span class="sr-only">({t('page.open')})</span></a>
     {:else}
-      <span class="path"><span class="path-text">{details.view.path}</span></span>
+      <span class="path" title={details.view.path}><span class="path-text">{details.view.path}</span></span>
     {/if}
   {/if}
 {/snippet}
@@ -761,7 +801,7 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
     {:else}
       <button type="button" data-act="publish" disabled={busy} title={dirty ? t('page.publishHint') : undefined} onclick={publish}>{t(scheduledAhead ? 'page.publishNow' : 'page.publish')}</button>
     {/if}
-    <button class="primary" aria-disabled={busy || (!dirty && !creating)} aria-keyshortcuts="Control+S" title={dirty ? `${t('common.unsaved')} · Ctrl+S` : 'Ctrl+S'}>
+    <button class="primary" aria-disabled={busy || (!dirty && !creating)} aria-keyshortcuts="Control+S" title={dirty ? `${t('common.unsaved')} · ${t('common.ctrl')}+S` : `${t('common.ctrl')}+S`}>
       {#if dirty}<span class="dirty" aria-hidden="true"></span>{/if}{t('page.save')}{#if dirty}<span class="sr-only">: {t('common.unsaved')}</span>{/if}
     </button>
   {/if}
@@ -800,7 +840,7 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
               id="alias"
               data-ai="off"
               bind:value={draft.alias}
-              placeholder={aliasFromTitle(draft.title) || t('page.aliasHint')}
+              placeholder={aliasFromTitle(draft.title, aliasLanguage) || t('page.aliasHint')}
               aria-invalid={invalid('alias')}
               aria-describedby={describedBy('alias', 'alias-help')}
             />
@@ -867,7 +907,7 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
           <p class="state"><span class="status-node" aria-hidden="true"></span>{publishingText}</p>
           <p class="schedule">
             {#if details?.page.published}
-              {#if draft.unpublishAt}<span>{t('page.unpublishOn')} {moment(draft.unpublishAt)}</span>{/if}
+              {#if draft.unpublishAt}<span>{t('page.unpublishOn', { when: moment(draft.unpublishAt) })}</span>{/if}
               <button type="button" class="link" onclick={toSchedule}>{t(draft.unpublishAt ? 'page.changeSchedule' : 'page.unpublishLater')}</button>
             {:else}
               <button type="button" class="link" onclick={toSchedule}>{t(draft.publishAt ? 'page.changeSchedule' : 'page.publishLater')}</button>
@@ -1059,6 +1099,40 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
         </div>
       </div>
     </section>
+    {#if site && site.languages.length > 0 && draft.kind === 'page' && !asFile}
+      <section class="form-section">
+        <header>
+          <h2>{t('page.sectionTranslations')}</h2>
+          <p>{t('page.sectionTranslationsHint')}</p>
+        </header>
+        <div class="fields">
+          <label>
+            {t('page.translationOf')}
+            <select id="translation-of" bind:value={draft.translationOf} aria-invalid={invalid('translation-of')} aria-describedby={describedBy('translation-of')}>
+              <option value={null}>{t('page.translationNone')}</option>
+              {#each translationTargets as { node: target, depth } (target.id)}<option value={target.id}>{' '.repeat(depth)}{target.title} ({target.id})</option>{/each}
+            </select>
+            {@render problem('translation-of')}
+            <small>{t('page.translationOfHint')}</small>
+          </label>
+          {#if details && details.translations.length > 0}
+            <div class="translations">
+              <span class="label">{t('page.translations')}</span>
+              <ul>
+                {#each details.translations as item (item.id)}
+                  <li>
+                    <code class="lang">{item.language || site.language}</code>
+                    {#if item.id === details.page.id}<strong>{item.title}</strong>{:else}<a href={resolve('/(app)/pages/[id]', { id: String(item.id) })}>{item.title}</a>{/if}
+                    {#if item.original}<span class="muted">· {t('page.translationOriginal')}</span>{/if}
+                    {#if item.trashed}<span class="muted">· {t('pages.trashed')}</span>{:else if !item.published}<span class="muted">· {t('pages.draft')}</span>{/if}
+                  </li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+        </div>
+      </section>
+    {/if}
     <section class="form-section">
       <header>
         <h2>{t('page.sectionSchedule')}</h2>
@@ -1121,7 +1195,7 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
     {#if trashed}
       <p class="banner" role="status" tabindex="-1">
         {#if trashedSection}
-          {t('page.inTrashSection')} <a href={resolve('/(app)/pages/[id]', { id: String(trashedSection.id) })}>«{trashedSection.title}»</a>.
+          {t('page.inTrashSection')} <a href={resolve('/(app)/pages/[id]', { id: String(trashedSection.id) })}>{quoted(trashedSection.title)}</a>.
         {:else}
           {t('page.inTrash')}
         {/if}
@@ -1290,21 +1364,81 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
     opacity: 0.6;
   }
 
-  /* Мета строки: статус и id не сжимаются, длинный адрес — с многоточием. */
+  /* Мета строки: статус — плашка цвета своего узла (как в дереве), дальше id и адрес через волосяные
+     разделители. Статус, дата и id не сжимаются; длинный адрес — с многоточием. */
   .status {
     display: inline-flex;
     flex: none;
-    gap: 0.4rem;
+    gap: 0.375rem;
     align-items: center;
+    height: 1.375rem;
+    padding: 0 0.5rem 0 0.4375rem;
+    border-radius: 999px;
+    background: var(--sunken);
+    box-shadow: inset 0 0 0 0.0625rem var(--line);
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.01em;
+  }
+
+  /* Текст плашки — цвет статуса, притемнённый к тексту: на мягкой подложке он держит контраст 4.5:1. */
+  .status[data-status='published'] {
+    background: var(--ok-soft);
+    box-shadow: none;
+    color: color-mix(in oklch, var(--ok), var(--text) 30%);
+  }
+
+  .status[data-status='scheduled'] {
+    background: var(--warn-soft);
+    box-shadow: none;
+    color: color-mix(in oklch, var(--warn), var(--text) 35%);
+  }
+
+  /* Ещё не сохранена: пунктир, как у её узла, — страницы пока нет. */
+  .status[data-status='new'] {
+    background: transparent;
+    box-shadow: none;
+    outline: 0.0625rem dashed var(--field-line);
+    outline-offset: -0.0625rem;
+  }
+
+  .when {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sep {
+    flex: none;
+    width: 0.0625rem;
+    height: 0.875rem;
+    background: var(--line);
   }
 
   .id {
+    display: inline-flex;
     flex: none;
+    gap: 0.3em;
+    align-items: baseline;
+    color: var(--text);
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
   }
 
-  /* Адрес сжимается сам, с многоточием; значок «открыть» остаётся видимым. */
+  .key {
+    color: var(--muted);
+  }
+
+  /* Адрес на сайте — тихий: ссылкой его выдаёт значок, акцентом он становится под мышью. Сжимается сам,
+     с многоточием; значок «открыть» остаётся видимым. */
   .path {
+    display: inline-flex;
+    gap: 0.3rem;
+    align-items: center;
     min-width: 0;
+    color: var(--muted);
+    font-family: var(--mono);
   }
 
   .path-text {
@@ -1313,28 +1447,26 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
     text-overflow: ellipsis;
   }
 
-  .id {
-    font-family: var(--mono);
-  }
-
-  .path {
-    display: inline-flex;
-    gap: 0.25rem;
-    align-items: center;
-    font-family: var(--mono);
-  }
-
   a.path {
+    border-radius: var(--radius-s);
     text-decoration: none;
+    transition: color 140ms var(--ease);
   }
 
   a.path:hover {
+    color: var(--accent);
+  }
+
+  a.path:hover .path-text {
     text-decoration: underline;
+    text-decoration-thickness: 0.0625rem;
+    text-underline-offset: 0.2em;
   }
 
   a.path :global(svg) {
-    width: 0.9rem;
-    height: 0.9rem;
+    flex: none;
+    width: 0.875rem;
+    height: 0.875rem;
   }
 
   .dirty {
@@ -1605,6 +1737,34 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
   .old-paths .icon {
     width: 2rem;
     min-height: 2rem;
+  }
+
+  .translations {
+    display: grid;
+    gap: 0.375rem;
+  }
+
+  .translations ul {
+    display: grid;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .translations li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: baseline;
+  }
+
+  .translations .label {
+    font-weight: 600;
+  }
+
+  .translations .lang {
+    min-width: 2.5rem;
   }
 
   .banner {

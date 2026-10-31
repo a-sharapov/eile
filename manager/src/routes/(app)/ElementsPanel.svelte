@@ -6,7 +6,7 @@ import { fields } from '#lib/fields.svelte.ts';
 import { type MessageKey, t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { loadPlugins, plugins } from '#lib/plugins.svelte.ts';
-import { STARTERS } from '#lib/starters.ts';
+import { starters } from '#lib/starters.ts';
 import LoadState from '#lib/ui/LoadState.svelte';
 import NameForm from '#lib/ui/NameForm.svelte';
 import { goto } from '$app/navigation';
@@ -100,7 +100,7 @@ const _CREATE: Readonly<
       .send(
         'PUT',
         `/elements/template/${name}`,
-        { source: STARTERS.template },
+        { source: starters().template },
         CREATE_ONLY
       )
       .then(loadElements)
@@ -114,7 +114,7 @@ const _CREATE: Readonly<
       .send(
         'PUT',
         `/elements/component/${name}`,
-        { source: STARTERS.component },
+        { source: starters().component },
         CREATE_ONLY
       )
       .then(loadElements)
@@ -125,7 +125,12 @@ const _CREATE: Readonly<
       ),
   plugin: (name) =>
     api
-      .send('PUT', `/plugins/${name}`, { source: STARTERS.plugin }, CREATE_ONLY)
+      .send(
+        'PUT',
+        `/plugins/${name}`,
+        { source: starters().plugin },
+        CREATE_ONLY
+      )
       .then(loadPlugins)
       .then(() => goto(resolve('/(app)/plugins/[name]', { name }))),
 };

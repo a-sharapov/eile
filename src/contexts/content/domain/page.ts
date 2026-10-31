@@ -51,6 +51,8 @@ export type Page = {
   readonly socialImage: string;
   /** Язык страницы и её ветки (`en`); пусто — как у родителя, у корня — язык сайта. */
   readonly language: string;
+  /** Исходная страница, переводом которой эта является; набор переводов — она и все, кто на неё указывает. */
+  readonly translationOf: PageId | null;
   /** Собственные значения полей; унаследованные и умолчания сюда не попадают. */
   readonly fields: Readonly<Record<string, FieldValue>>;
 };
@@ -77,6 +79,8 @@ export type NewPage = {
   readonly searchable?: boolean;
   readonly socialImage?: string;
   readonly language?: string;
+  /** null снимает связь с исходной страницей. */
+  readonly translationOf?: number | null;
 };
 
 export type PageChanges = Partial<Omit<NewPage, 'parentId'>>;
@@ -97,7 +101,7 @@ export var parsePageId = (raw: number): PageId =>
     : fail('content.invalid_page_id', `Invalid page id ${raw}`);
 
 const _title = (raw: string): string =>
-  pipe<string, string>(
+  pipe(
     (_: string) => _.trim(),
     (_: string) =>
       _ && _.length <= _MAX_TITLE
@@ -205,6 +209,7 @@ const _EDIT: {
   searchable: (_) => _,
   socialImage: _socialImage,
   language: _language,
+  translationOf: (_) => (_ === null ? null : parsePageId(_)),
 };
 
 const _RULES: ReadonlyArray<
@@ -222,6 +227,11 @@ const _RULES: ReadonlyArray<
       _.unpublishAt <= _.publishAt,
     'content.invalid_schedule',
     'unpublishAt must be later than publishAt',
+  ],
+  [
+    (_) => _.translationOf === _.id,
+    'content.invalid_translation',
+    'A page cannot be a translation of itself',
   ],
 ];
 
@@ -246,10 +256,11 @@ const _apply =
         page
       );
 
-const _event = (type: PageEvent['type'], page: Page): ContentEvent => ({
+const _event = (type: PageEvent['type'], page: Page): PageEvent => ({
   type,
   pageId: page.id,
   parentId: page.parentId,
+  ...(page.translationOf === null ? {} : { translationOf: page.translationOf }),
 });
 
 const _BLANK: Omit<Page, 'id' | 'parentId'> = {
@@ -275,6 +286,7 @@ const _BLANK: Omit<Page, 'id' | 'parentId'> = {
   searchable: true,
   socialImage: '',
   language: '',
+  translationOf: null,
   fields: {},
 };
 
@@ -285,33 +297,46 @@ const _blankAlias = (alias: string | undefined): boolean =>
 const _withoutBlankAlias = <T extends PageChanges>(changes: T): T =>
   _blankAlias(changes.alias) ? { ...changes, alias: undefined } : changes;
 
-const _aliasFromTitle = (_: Page): Page => ({
-  ..._,
-  alias: aliasFromTitle(_.title),
-});
+// Язык для транслитерации: свой у страницы, иначе ветки — его знает только сценарий.
+const _aliasFromTitle =
+  (branchLanguage: string) =>
+  (_: Page): Page => ({
+    ..._,
+    alias: aliasFromTitle(_.title, _.language || branchLanguage),
+  });
 
+/** `branchLanguage` — язык ветки, куда ложится страница: по нему алиас из заголовка. */
 export var createPage = (
   id: PageId,
-  { parentId, ...input }: NewPage
+  { parentId, ...input }: NewPage,
+  branchLanguage = ''
 ): PageChange =>
-  pipe<Page, PageChange>(
+  pipe(
     _apply(_withoutBlankAlias(input)),
     (_: Page) =>
       input.alias === undefined || _blankAlias(input.alias)
-        ? _aliasFromTitle(_)
+        ? _aliasFromTitle(branchLanguage)(_)
         : _,
     _consistent,
     (_: Page) => changed(_, _event('content.page_created', _))
   )({ ..._BLANK, id, parentId: _parent(id, parentId ?? null) });
 
 export var editPage =
-  (changes: PageChanges) =>
+  (changes: PageChanges, branchLanguage = '') =>
   (page: Page): PageChange =>
-    pipe<Page, PageChange>(
+    pipe(
       _apply(_withoutBlankAlias(changes)),
-      (_: Page) => (_blankAlias(changes.alias) ? _aliasFromTitle(_) : _),
+      (_: Page) =>
+        _blankAlias(changes.alias) ? _aliasFromTitle(branchLanguage)(_) : _,
       _consistent,
-      (_: Page) => changed(_, _event('content.page_edited', _))
+      // Прежняя исходная страница — чтобы и её набор переводов узнал, что эта ушла.
+      (_: Page) =>
+        changed(_, {
+          ..._event('content.page_edited', _),
+          ...(_.translationOf === page.translationOf
+            ? {}
+            : { previousTranslationOf: page.translationOf }),
+        })
     )(page);
 
 /** Публикация снимает ожидание `publishAt`, даже если страница уже опубликована. */
@@ -340,7 +365,7 @@ const _due = (moment: Moment | null, at: Moment): moment is Moment =>
 export var applySchedule =
   (at: Moment) =>
   (page: Page): PageChange =>
-    pipe<PageChange, PageChange>(
+    pipe(
       (_: PageChange) =>
         _due(_.state.publishAt, at)
           ? chain(publishPage(_.state.publishAt))(_)
@@ -385,6 +410,10 @@ export var movePage =
               pageId: page.id,
               parentId,
               previousParentId: page.parentId,
+              // Перевод сменил адрес — ссылки на него у всего набора устарели.
+              ...(page.translationOf === null
+                ? {}
+                : { translationOf: page.translationOf }),
             }
           );
 
@@ -415,12 +444,10 @@ export var setFields =
           Readonly<Record<string, FieldValue>>
         >(
           (next, { 0: name, 1: value }) =>
-            pipe<string, Record<string, FieldValue>>(
-              _assigned(fields, page.template),
-              (field: Field) =>
-                value === null
-                  ? _without(next, name)
-                  : { ...next, [name]: parseFieldValue(field)(value) }
+            pipe(_assigned(fields, page.template), (field: Field) =>
+              value === null
+                ? _without(next, name)
+                : { ...next, [name]: parseFieldValue(field)(value) }
             )(name),
           page.fields
         ),

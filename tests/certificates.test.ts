@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { X509Certificate } from 'node:crypto';
 import { createApp } from '../src/app.ts';
 import { parseInvocation } from '../src/cli/args.ts';
+import { withHsts } from '../src/cli/https.ts';
 import { motd } from '../src/cli/motd.ts';
 import { definePaint } from '../src/cli/paint.ts';
 import {
@@ -102,6 +103,22 @@ const _get = (port: number, path: string, host = 'example.test') =>
     headers: { host },
     redirect: 'manual',
   });
+
+it('ответы по HTTPS — с HSTS, неизменяемый ответ не роняет запрос', async () => {
+  const fetch = withHsts(((request: Request) =>
+    Promise.resolve(
+      new URL(request.url).pathname === '/redirect'
+        ? Response.redirect('https://site.test/', 301)
+        : new Response('ok')
+    )) as never);
+  const page = await fetch(new Request('https://site.test/') as never);
+  expect(page.headers.get('strict-transport-security')).toBe(
+    'max-age=31536000'
+  );
+  expect(
+    (await fetch(new Request('https://site.test/redirect') as never)).status
+  ).toBe(301);
+});
 
 describe('HTTPS без прокси', () => {
   let stand: Awaited<ReturnType<typeof _stand>>;
@@ -284,13 +301,21 @@ describe('запуск с --domain', () => {
     };
     const plain = definePaint(false);
     expect(
-      motd(plain, {
-        ...summary,
-        https: { notAfter: '2027-01-30T00:00:00.000Z', staging: false },
-      })
+      motd(
+        plain,
+        {
+          ...summary,
+          https: { notAfter: '2027-01-30T00:00:00.000Z', staging: false },
+        },
+        'ru'
+      )
     ).toContain('HTTPS      сертификат до 2027-01-30');
     expect(
-      motd(plain, { ...summary, https: { notAfter: null, staging: true } })
+      motd(
+        plain,
+        { ...summary, https: { notAfter: null, staging: true } },
+        'ru'
+      )
     ).toContain('выпускается сертификат — пока сайт по HTTP · тестовый центр');
   });
 });

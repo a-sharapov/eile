@@ -11,6 +11,7 @@ const site = {
 const page = {
   title: 'Контакты',
   description: 'Как связаться',
+  language: 'ru',
   url: 'https://site.ru/kontakty',
   searchable: true,
   image: 'https://site.ru/media/c.jpg',
@@ -103,5 +104,17 @@ describe('находимость', () => {
     expect(seoHead({ ...page, title: '</script>' }, site, '')).not.toContain(
       '"name":"</script>"'
     );
+  });
+
+  it('JSON-LD: у сайта — язык сайта и его описания, у страницы — язык её ветки', () => {
+    const graph = (head: string) =>
+      JSON.parse(
+        head.match(/<script type="application\/ld\+json">(.*?)<\/script>/)![1]!
+      )['@graph'] as { '@type': string; inLanguage?: string }[];
+    const [website, webpage] = graph(
+      seoHead({ ...page, language: 'en' }, site, '')
+    );
+    expect([website!['@type'], website!.inLanguage]).toEqual(['WebSite', 'ru']);
+    expect([webpage!['@type'], webpage!.inLanguage]).toEqual(['WebPage', 'en']);
   });
 });

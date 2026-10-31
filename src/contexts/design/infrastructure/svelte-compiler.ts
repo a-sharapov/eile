@@ -81,11 +81,7 @@ const _checkImports =
   };
 
 export var compileForServer = (element: Source): CompiledView =>
-  pipe<Source, CompiledView>(
-    _compile,
-    _withImports,
-    _checkImports(element.name)
-  )(element);
+  pipe(_compile, _withImports, _checkImports(element.name))(element);
 
 export var svelteSourceCompiler: SourceCompiler = {
   check: (element) => void compileForServer(element),

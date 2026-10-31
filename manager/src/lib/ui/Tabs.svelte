@@ -18,7 +18,7 @@ let {
 
 let strip: HTMLDivElement;
 
-// На телефоне полоса вкладок прокручивается: выбранная вкладка всегда в поле зрения.
+// Полоса вкладок, если не влезла, прокручивается: выбранная вкладка всегда в поле зрения.
 $effect(() => {
   const tab = strip?.querySelector<HTMLElement>(`[data-tab="${current}"]`);
   void (
@@ -87,15 +87,33 @@ const onKey = (event: KeyboardEvent) => {
     min-width: 0;
   }
 
-  /* Вкладки над формой: строка с линией снизу, текущая — подчёркнута акцентом. */
+  /* Вкладки над формой: строка с линией снизу, текущая — подчёркнута акцентом. Не влезли (узкий экран,
+     длинные подписи на другом языке) — строка прокручивается, а не распирает страницу. */
   .strip {
+    position: relative;
     display: flex;
     gap: 0.25rem;
+    overflow-x: auto;
     border-bottom: 0.0625rem solid var(--line);
+    scrollbar-width: none;
+  }
+
+  /* Затухание у правого края, пока справа есть вкладки: видно, что полоса прокручивается. */
+  @supports (animation-timeline: scroll()) {
+    .strip {
+      mask-image: linear-gradient(
+        90deg,
+        #000 calc(100% - var(--fade)),
+        transparent
+      );
+      animation: strip-fade linear both;
+      animation-timeline: scroll(self inline);
+    }
   }
 
   button {
     position: relative;
+    flex: none;
     min-height: 2.75rem;
     padding: 0 0.85rem;
     border: 0;
@@ -175,30 +193,8 @@ const onKey = (event: KeyboardEvent) => {
     display: none;
   }
 
-  /* Телефон: вкладки в одну строку с прокруткой — без одинокой вкладки на второй строке. */
   @media (width < 48rem) {
-    .strip {
-      position: relative;
-      flex-wrap: nowrap;
-      overflow-x: auto;
-      scrollbar-width: none;
-    }
-
-    /* Затухание у правого края, пока справа есть вкладки: видно, что полоса прокручивается. */
-    @supports (animation-timeline: scroll()) {
-      .strip {
-        mask-image: linear-gradient(
-          90deg,
-          #000 calc(100% - var(--fade)),
-          transparent
-        );
-        animation: strip-fade linear both;
-        animation-timeline: scroll(self inline);
-      }
-    }
-
     button {
-      flex: none;
       padding: 0 0.7rem;
     }
 

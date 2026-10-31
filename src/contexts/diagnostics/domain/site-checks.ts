@@ -1,5 +1,6 @@
 import { attempt } from '../../../shared/kernel/errors.ts';
 import { type Finding, type FindingItem, finding } from './diagnostics.ts';
+import { type CheckTexts, type SiteFindingId, TITLE_LIMIT } from './texts.ts';
 
 /** Страница глазами диагностики: черновики и корзина тоже — на них ведут ссылки. */
 export type FactPage = {
@@ -192,7 +193,7 @@ type Source = {
   readonly fix: { readonly href: string };
 };
 
-const _sources = (index: Indexed): Source[] => [
+const _sources = (index: Indexed, say: CheckTexts): Source[] => [
   ...index.facts.pages
     .filter((_) => _.live)
     .map((_) => ({
@@ -206,14 +207,20 @@ const _sources = (index: Indexed): Source[] => [
       fix: _pageFix(_.id),
     })),
   ...index.facts.forms.map((_) => ({
-    label: `Форма «${_.title}»`,
+    label: say.form(_.title),
     text: _.source,
     fix: { href: `/forms/${_.name}` },
   })),
 ];
 
-export var linkChecks = (index: Indexed): Finding[] => {
-  const found = _sources(index).flatMap((source) =>
+// Заголовок и пояснение находки — на языке менеджера.
+const _said = (say: CheckTexts, id: SiteFindingId) => ({
+  id,
+  ...say.findings[id],
+});
+
+export var linkChecks = (index: Indexed, say: CheckTexts): Finding[] => {
+  const found = _sources(index, say).flatMap((source) =>
     linksOf(source.text).map((link) => ({
       source,
       link,
@@ -231,31 +238,25 @@ export var linkChecks = (index: Indexed): Finding[] => {
   return [
     ...finding(
       {
-        id: 'links.broken',
+        ..._said(say, 'links.broken'),
         group: 'links',
         severity: 'error',
-        title: 'Ссылки в никуда',
-        hint: 'Страницы или файла нет, или он в корзине: посетитель увидит 404. Поправьте ссылку или верните страницу.',
       },
       items('broken')
     ),
     ...finding(
       {
-        id: 'links.unpublished',
+        ..._said(say, 'links.unpublished'),
         group: 'links',
         severity: 'warning',
-        title: 'Ссылки на черновики',
-        hint: 'Страница не опубликована: пока это так, ссылка ведёт на 404.',
       },
       items('unpublished')
     ),
     ...finding(
       {
-        id: 'links.redirected',
+        ..._said(say, 'links.redirected'),
         group: 'links',
         severity: 'warning',
-        title: 'Ссылки через переадресацию',
-        hint: 'Адрес переадресуется дальше: лишний запрос посетителю и поисковику. Поставьте ссылку на страницу напрямую.',
       },
       items('redirected')
     ),
@@ -264,8 +265,6 @@ export var linkChecks = (index: Indexed): Finding[] => {
 
 // --- страницы ---------------------------------------------------------------
 
-// Заголовок в выдаче поисковики обрезают примерно после 60 знаков.
-const _TITLE_LIMIT = 60;
 const _TAG = /\[\[([A-Z][A-Za-z0-9]*)([^\]]*)\]\]/g;
 
 const _visible = (index: Indexed): FactPage[] =>
@@ -278,10 +277,13 @@ const _visible = (index: Indexed): FactPage[] =>
   );
 
 /** Страницы, на которые есть ссылка или которые выводит список родителя: их найдут посетители. */
-export var reachable = (index: Indexed): ReadonlySet<number> => {
+export var reachable = (
+  index: Indexed,
+  say: CheckTexts
+): ReadonlySet<number> => {
   const { facts } = index;
   const texts = [
-    ..._sources(index).map((_) => _.text),
+    ..._sources(index, say).map((_) => _.text),
     ...facts.settingValues.map((_) => (/^\d+$/.test(_) ? `[~${_}~]` : _)),
   ];
   const linked = texts
@@ -312,11 +314,11 @@ export var reachable = (index: Indexed): ReadonlySet<number> => {
   ]);
 };
 
-export var pageChecks = (index: Indexed): Finding[] => {
+export var pageChecks = (index: Indexed, say: CheckTexts): Finding[] => {
   const { facts } = index;
   const visible = _visible(index);
   const titles = Map.groupBy(visible, (_) => _shown(_).trim().toLowerCase());
-  const seen = reachable(index);
+  const seen = reachable(index, say);
   const item = (page: FactPage, detail?: string): FindingItem => ({
     label: _shown(page),
     ...(detail ? { detail } : {}),
@@ -327,17 +329,15 @@ export var pageChecks = (index: Indexed): Finding[] => {
   return [
     ...finding(
       {
-        id: 'pages.no_home',
+        ..._said(say, 'pages.no_home'),
         group: 'pages',
         severity: 'error',
-        title: 'Главная не выбрана или не опубликована',
-        hint: 'Адрес сайта без пути отвечает 404. Выберите главную в настройках.',
         fix: { href: '/settings?tab=site' },
       },
       facts.pages.length > 0 && home?.live !== true
         ? [
             {
-              label: 'Главная страница сайта',
+              label: say.homePage,
               fix: { href: '/settings?tab=site' },
             },
           ]
@@ -345,11 +345,9 @@ export var pageChecks = (index: Indexed): Finding[] => {
     ),
     ...finding(
       {
-        id: 'pages.no_description',
+        ..._said(say, 'pages.no_description'),
         group: 'pages',
         severity: 'warning',
-        title: 'Страницы без описания',
-        hint: 'Ни описания, ни анонса: поисковик и мессенджер возьмут под заголовок случайный кусок текста.',
       },
       visible
         .filter(
@@ -363,25 +361,21 @@ export var pageChecks = (index: Indexed): Finding[] => {
     ),
     ...finding(
       {
-        id: 'pages.duplicate_titles',
+        ..._said(say, 'pages.duplicate_titles'),
         group: 'pages',
         severity: 'warning',
-        title: 'Одинаковые заголовки',
-        hint: 'В выдаче такие страницы не отличить друг от друга. Сделайте заголовки разными.',
       },
       [...titles.values()]
         .filter((_) => _.length > 1)
         .flatMap((group) =>
-          group.map((_) => item(_, `таких ещё ${group.length - 1}`))
+          group.map((_) => item(_, say.sameTitle(group.length - 1)))
         )
     ),
     ...finding(
       {
-        id: 'pages.orphans',
+        ..._said(say, 'pages.orphans'),
         group: 'pages',
         severity: 'warning',
-        title: 'Страницы, до которых не дойти',
-        hint: 'Скрыта из меню, на неё нет ссылок, и список родителя её не выводит: посетитель её не найдёт.',
       },
       visible
         .filter(
@@ -392,15 +386,13 @@ export var pageChecks = (index: Indexed): Finding[] => {
     ),
     ...finding(
       {
-        id: 'pages.long_title',
+        ..._said(say, 'pages.long_title'),
         group: 'pages',
         severity: 'info',
-        title: 'Длинные заголовки',
-        hint: `Поисковики обрежут заголовок после ~${_TITLE_LIMIT} знаков; вместе с названием сайта он ещё длиннее.`,
       },
       visible
-        .filter((_) => _shown(_).length > _TITLE_LIMIT)
-        .map((_) => item(_, `${_shown(_).length} знаков`))
+        .filter((_) => _shown(_).length > TITLE_LIMIT)
+        .map((_) => item(_, say.chars(_shown(_).length)))
     ),
   ];
 };
@@ -413,15 +405,19 @@ const _MB = 1024 * 1024;
 const _HEAVY_IMAGE = _MB;
 const _HEAVY_FILE = 10 * _MB;
 
-const _size = (bytes: number): string =>
+const _size = (bytes: number, say: CheckTexts, language: string): string =>
   bytes >= _MB
-    ? `${(bytes / _MB).toFixed(1).replace('.', ',')} МБ`
-    : `${Math.round(bytes / 1024)} КБ`;
+    ? `${(bytes / _MB).toLocaleString(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ${say.megabytes}`
+    : `${Math.round(bytes / 1024).toLocaleString(language)} ${say.kilobytes}`;
 
 const _stem = (path: string): string =>
   path.slice(0, path.lastIndexOf('.')).replace(/@\d+$/, '');
 
-export var mediaChecks = (index: Indexed): Finding[] => {
+export var mediaChecks = (
+  index: Indexed,
+  say: CheckTexts,
+  language: string
+): Finding[] => {
   const files = index.facts.media;
   const resized = new Set(
     files.filter((_) => _VARIANT.test(_.path)).map((_) => _stem(_.path))
@@ -433,11 +429,9 @@ export var mediaChecks = (index: Indexed): Finding[] => {
   return [
     ...finding(
       {
-        id: 'media.no_alt',
+        ..._said(say, 'media.no_alt'),
         group: 'media',
         severity: 'warning',
-        title: 'Картинки без описания',
-        hint: 'Описание читает читалка экрана и видит поисковик по картинкам. Опишите, что на картинке.',
       },
       originals
         .filter(
@@ -447,11 +441,9 @@ export var mediaChecks = (index: Indexed): Finding[] => {
     ),
     ...finding(
       {
-        id: 'media.heavy',
+        ..._said(say, 'media.heavy'),
         group: 'media',
         severity: 'warning',
-        title: 'Тяжёлые файлы',
-        hint: 'Картинка больше мегабайта без уменьшенных копий или файл больше 10 МБ долго грузится на телефоне. Сожмите или загрузите заново.',
       },
       originals
         .filter((_) =>
@@ -462,7 +454,7 @@ export var mediaChecks = (index: Indexed): Finding[] => {
         )
         .map((_) => ({
           label: _.path,
-          detail: _size(_.size),
+          detail: _size(_.size, say, language),
           fix: fix(_.path),
         }))
     ),
@@ -501,16 +493,14 @@ export var blocksEverything = (robots: string): boolean =>
       { star: false, blocked: false, agents: false }
     ).blocked;
 
-export var settingsChecks = (index: Indexed): Finding[] => {
+export var settingsChecks = (index: Indexed, say: CheckTexts): Finding[] => {
   const { facts } = index;
   return [
     ...finding(
       {
-        id: 'settings.robots_block',
+        ..._said(say, 'settings.robots_block'),
         group: 'settings',
         severity: 'error',
-        title: 'Поисковикам закрыт весь сайт',
-        hint: 'В дополнительных строках robots.txt стоит «Disallow: /» для всех роботов. Сайт пропадёт из поиска.',
         fix: { href: '/settings?tab=search' },
       },
       blocksEverything(facts.robots)
@@ -525,61 +515,53 @@ export var settingsChecks = (index: Indexed): Finding[] => {
     ),
     ...finding(
       {
-        id: 'settings.no_site_url',
+        ..._said(say, 'settings.no_site_url'),
         group: 'settings',
         severity: 'warning',
-        title: 'Не задан адрес сайта',
-        hint: 'Без него canonical, карта сайта и ссылки в письмах строятся по адресу запроса — за прокси он бывает внутренним.',
         fix: { href: '/settings?tab=search' },
       },
       facts.siteUrl.trim() === ''
-        ? [{ label: 'Адрес сайта', fix: { href: '/settings?tab=search' } }]
+        ? [{ label: say.siteUrl, fix: { href: '/settings?tab=search' } }]
         : []
     ),
     ...finding(
       {
-        id: 'settings.no_404',
+        ..._said(say, 'settings.no_404'),
         group: 'settings',
         severity: 'warning',
-        title: 'Нет своей страницы 404',
-        hint: 'Посетитель с неверного адреса видит голое «Not Found» без меню. Выберите страницу 404 в настройках.',
         fix: { href: '/settings?tab=site' },
       },
       facts.pages.length > 0 &&
         (facts.notFoundPageId === null ||
           index.byId.get(facts.notFoundPageId)?.live !== true)
-        ? [{ label: 'Страница 404', fix: { href: '/settings?tab=site' } }]
+        ? [{ label: say.notFoundPage, fix: { href: '/settings?tab=site' } }]
         : []
     ),
     ...finding(
       {
-        id: 'settings.forms_silent',
+        ..._said(say, 'settings.forms_silent'),
         group: 'settings',
         severity: 'warning',
-        title: 'Формы без уведомлений',
-        hint: 'Заявки этих форм видно только в менеджере: ни Telegram, ни почта не настроены для них.',
         fix: { href: '/settings?tab=notify' },
       },
       facts.forms
         .filter((_) => _.channels.length === 0)
         .map((_) => ({
-          label: `Форма «${_.title}»`,
+          label: say.form(_.title),
           fix: { href: `/forms/${_.name}` },
         }))
     ),
     ...finding(
       {
-        id: 'settings.undelivered',
+        ..._said(say, 'settings.undelivered'),
         group: 'settings',
         severity: 'warning',
-        title: 'Недоставленные уведомления',
-        hint: 'Канал не принял сообщения — заявки или сбои могли пройти мимо. Ошибка канала — в настройках уведомлений.',
         fix: { href: '/settings?tab=notify' },
       },
       facts.undelivered > 0
         ? [
             {
-              label: 'Уведомления',
+              label: say.notifications,
               detail: String(facts.undelivered),
               fix: { href: '/settings?tab=notify' },
             },
@@ -588,16 +570,14 @@ export var settingsChecks = (index: Indexed): Finding[] => {
     ),
     ...finding(
       {
-        id: 'settings.ai_search_off',
+        ..._said(say, 'settings.ai_search_off'),
         group: 'settings',
         severity: 'info',
-        title: 'Сайт закрыт для ИИ-поиска',
-        hint: 'Ответы ИИ-ассистентов не будут ссылаться на сайт. Если это не нарочно — включите в настройках поиска.',
         fix: { href: '/settings?tab=search' },
       },
       facts.aiSearch
         ? []
-        : [{ label: 'ИИ-поиск', fix: { href: '/settings?tab=search' } }]
+        : [{ label: say.aiSearch, fix: { href: '/settings?tab=search' } }]
     ),
   ];
 };

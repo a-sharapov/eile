@@ -257,6 +257,75 @@ describe('сбои сайта', () => {
   });
 });
 
+describe('язык уведомлений', () => {
+  const broken = () => (
+    app.design.templates.save(
+      'Boom',
+      "<script>let { page } = $props(); const fail = () => { throw new Error('boom'); };</script><p>{fail()}</p>"
+    ),
+    app.content.pages.create({
+      title: 'Сломанная',
+      alias: 'broken',
+      template: 'Boom',
+      publish: true,
+    })
+  );
+  const journal = (language: string) =>
+    app
+      .fetch(
+        new Request('http://localhost/manager/api/notify/incidents', {
+          headers: { cookie: admin, 'accept-language': language },
+        })
+      )
+      .then(json);
+
+  it('по умолчанию — язык сайта, в настройках — свой; журнал читают на своём', async () => {
+    configure();
+    broken();
+    await get('/broken');
+    await get('/broken');
+    await app.notify.outbox.run();
+    expect(sent[0]!.message).toMatchObject({
+      title: 'Сайт ответил 500 на /broken',
+      language: 'ru',
+    });
+    app.notify.settings.save({ language: 'de' });
+    minutes(16);
+    await get('/broken');
+    await app.notify.outbox.run();
+    expect(sent.at(-1)!.message).toMatchObject({
+      title: 'Die Website antwortete 500 auf /broken',
+      language: 'de',
+      fields: [
+        { label: 'Wiederholt', value: expect.stringContaining('1-mal') },
+      ],
+    });
+    expect((await journal('en'))[0]).toMatchObject({
+      title: 'The site answered 500 on /broken',
+      detail: expect.stringContaining('boom'),
+    });
+    expect((await journal('ru'))[0].title).toBe('Сайт ответил 500 на /broken');
+  });
+
+  it('проверка канала — на языке уведомлений; null возвращает язык сайта', async () => {
+    configure();
+    app.notify.settings.save({ language: 'en' });
+    await call('POST', '/notify/test', { channel: 'email' });
+    expect(sent[0]!.message.title).toBe('Notification test');
+    expect(
+      await json(await call('PUT', '/notify', { language: null }))
+    ).toMatchObject({ language: null });
+    await call('POST', '/notify/test', { channel: 'email' });
+    expect(sent[1]!.message.title).toBe('Проверка уведомлений');
+  });
+
+  it('незнакомый язык — 422', async () => {
+    const response = await call('PUT', '/notify', { language: 'fr' });
+    expect(response.status).toBe(422);
+    expect((await json(response)).error.code).toBe('notify.invalid_language');
+  });
+});
+
 describe('настройки в менеджере', () => {
   it('токен и пароль не уходят в менеджер; пустые — прежние', async () => {
     configure();

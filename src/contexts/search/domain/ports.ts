@@ -1,4 +1,5 @@
 import type { SearchDocument } from './document.ts';
+import type { VocabularyTerm } from './typos.ts';
 
 /** Строка выдачи из индекса: что показать и откуда взять отрывок. */
 export type IndexRow = {
@@ -25,6 +26,10 @@ export type SearchIndex = {
     match: string,
     filter: IndexFilter
   ) => { readonly rows: IndexRow[]; readonly total: number };
+  /** Все основы индекса и на скольких страницах каждая: для исправления опечаток. */
+  readonly vocabulary: () => VocabularyTerm[];
+  /** Есть ли в индексе основа — точно или как начало другой. */
+  readonly known: (stem: string, prefix: boolean) => boolean;
   /** Версия формата, которой построен индекс; null — индекс не строился. */
   readonly format: () => number | null;
   readonly setFormat: (format: number) => void;

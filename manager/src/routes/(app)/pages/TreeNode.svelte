@@ -326,12 +326,34 @@ const _STATUS = {
     text-align: right;
   }
 
+  /* Подложка кнопок непрозрачная: «тушь» наведения поверх фона панели даёт цвет строки под мышью, и конец
+     заголовка со значками под кнопкой не просвечивает. Нажатие — ещё одним слоем сверху (--layer). */
   .add,
   .more {
-    background: var(--hover);
+    --layer: transparent;
+    background:
+      linear-gradient(var(--layer), var(--layer)),
+      linear-gradient(var(--hover), var(--hover)) var(--bg);
   }
 
   .row[data-current] :is(.add, .more) {
+    background: linear-gradient(var(--layer), var(--layer)) var(--selected);
+  }
+
+  /* Перед кнопками заголовок уходит в цвет строки плавно, а не обрывается на полубукве. */
+  .add::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 100%;
+    bottom: 0;
+    width: 1.25rem;
+    background: linear-gradient(var(--hover), var(--hover)) var(--bg);
+    mask-image: linear-gradient(to right, transparent, #000);
+    pointer-events: none;
+  }
+
+  .row[data-current] .add::before {
     background: var(--selected);
   }
 
@@ -355,10 +377,15 @@ const _STATUS = {
     padding: 0;
     border: 0;
     border-radius: var(--radius-s);
-    background: none;
     box-shadow: none;
     color: var(--muted);
     opacity: 0;
+  }
+
+  /* Где «…» видно всегда, под него оставлено место у колонки id: заголовок и значок «скрыто из меню»
+     кончаются раньше кнопки, а не уходят под неё. */
+  .row[data-current]:has(.more) .id {
+    min-width: 4rem;
   }
 
   .add :global(svg),
@@ -375,14 +402,14 @@ const _STATUS = {
   /* Значок на строке под мышью — подложкой и цветом, как тихая кнопка; нажатый — плотнее. */
   .row .more:hover,
   .add:hover {
+    --layer: var(--press);
     border-color: transparent;
-    background: var(--press);
     color: var(--text);
   }
 
   .row .more:active,
   .add:active {
-    background: color-mix(in oklch, var(--text) 24%, transparent);
+    --layer: color-mix(in oklch, var(--text) 24%, transparent);
   }
 
   .nested {
@@ -416,7 +443,12 @@ const _STATUS = {
     }
 
     .more {
+      background: none;
       opacity: 1;
+    }
+
+    .row:has(.more) .id {
+      min-width: 4rem;
     }
   }
 

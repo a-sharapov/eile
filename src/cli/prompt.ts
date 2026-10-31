@@ -19,7 +19,11 @@ export var typeKey = (state: Typing, key: string): Typing =>
             ? state
             : { ...state, value: state.value + key };
 
-export var promptHidden = (question: string): Promise<string> =>
+/** `cancelled` — текст ошибки, если ввод отменили Ctrl+C. */
+export var promptHidden = (
+  question: string,
+  cancelled: string
+): Promise<string> =>
   new Promise((resolve, reject) => {
     const stdin = process.stdin;
     let state: Typing = { value: '', done: null };
@@ -30,7 +34,7 @@ export var promptHidden = (question: string): Promise<string> =>
       process.stdout.write('\n');
       void (state.done === 'enter'
         ? resolve(state.value)
-        : reject(Object.assign(new Error('Отменено.'), { cli: true })));
+        : reject(Object.assign(new Error(cancelled), { cli: true })));
     };
     const onData = (chunk: string) => {
       state = [...chunk].reduce(typeKey, state);

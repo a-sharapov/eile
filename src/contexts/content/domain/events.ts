@@ -16,6 +16,10 @@ export type PageEvent = {
   readonly parentId: PageId | null;
   /** Прежний родитель при перемещении. */
   readonly previousParentId?: PageId | null;
+  /** Исходная страница набора переводов, если эта — перевод. */
+  readonly translationOf?: PageId | null;
+  /** Прежняя исходная страница, если связь сменилась. */
+  readonly previousTranslationOf?: PageId | null;
 };
 
 export type FieldEvent = {

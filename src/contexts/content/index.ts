@@ -26,6 +26,7 @@ export type {
   PageNode,
   PageView,
   PublishedContent,
+  TranslationNode,
 } from './application/published-content.ts';
 export type { ContentEvent } from './domain/events.ts';
 export type { Field, FieldType, FieldValue, NewField } from './domain/field.ts';
@@ -50,10 +51,13 @@ export var defineContent = ({
   db,
   bus,
   clock,
+  siteLanguage,
 }: {
   db: Database;
   bus: EventBus;
   clock: Clock;
+  /** Язык сайта: у веток без своего языка по нему собирается алиас из заголовка. */
+  siteLanguage?: () => string;
 }) => {
   const published = definePublishedContent(db);
   bus.onAny(
@@ -69,5 +73,6 @@ export var defineContent = ({
     drafts: published.drafts,
     bus,
     clock,
+    ...(siteLanguage ? { siteLanguage } : {}),
   });
 };

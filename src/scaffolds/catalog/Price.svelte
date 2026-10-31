@@ -35,7 +35,7 @@ const valid = (amount: unknown): amount is number =>
   {#if valid(price)}
     <span class="now">{format(price)}</span>
     {#if valid(old) && old > price}
-      <s><span class="hidden">Было </span>{format(old)}</s>
+      <s><span class="hidden">{'Было '}</span>{format(old)}</s>
     {/if}
   {:else}
     <span class="ask">{missing}</span>

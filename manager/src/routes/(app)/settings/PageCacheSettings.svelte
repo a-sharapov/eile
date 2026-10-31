@@ -2,7 +2,7 @@
 import { untrack } from 'svelte';
 import { api } from '#lib/api.ts';
 import { moment } from '#lib/format.ts';
-import { t } from '#lib/i18n.ts';
+import { number, t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
 import { fileSize } from '#lib/media.ts';
@@ -54,13 +54,13 @@ const clear = () =>
     <LoadState load={loading}>
       {#if stats}
         <dl class="stats">
-          <div><dt>{t('cache.pages')}</dt><dd>{stats.pages.toLocaleString('ru')}</dd></div>
-          <div><dt>{t('cache.memory')}</dt><dd>{fileSize(stats.bytes)}<small class="muted">{t('cache.of')} {fileSize(stats.budget)}</small></dd></div>
+          <div><dt>{t('cache.pages')}</dt><dd>{number(stats.pages)}</dd></div>
+          <div><dt>{t('cache.memory')}</dt><dd>{fileSize(stats.bytes)}<small class="muted">{t('cache.of', { total: fileSize(stats.budget) })}</small></dd></div>
           <div><dt>{t('cache.share')}</dt><dd>{share}</dd></div>
-          <div><dt>{t('cache.bypass')}</dt><dd>{stats.bypass.toLocaleString('ru')}</dd></div>
+          <div><dt>{t('cache.bypass')}</dt><dd>{number(stats.bypass)}</dd></div>
         </dl>
         <p class="muted since">
-          {t(stats.manual ? 'cache.sinceReset' : 'cache.sinceStart')} {moment(stats.since)} · {t('cache.answered')} {answered.toLocaleString('ru')}
+          {t(stats.manual ? 'cache.sinceReset' : 'cache.sinceStart')} {moment(stats.since)} · {t('cache.answered', { n: number(answered) })}
         </p>
         <label>
           {t('cache.size')}

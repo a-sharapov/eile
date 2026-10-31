@@ -100,12 +100,18 @@ const _allowedAttribute = (tag: string, name: string): boolean =>
   name.startsWith('aria-') ||
   (_ATTRIBUTES[tag]?.has(name) ?? false);
 
+// id и name служебных элементов (полоса правки, формы) в тексте страницы — подмена: getElementById вернул
+// бы их, а не настоящие.
+const _RESERVED = /^(?:eile|cms)[-_]/i;
+
 const _safeValue = (name: string, value: string): boolean =>
   _URLS.has(name)
     ? _safeUrl(value)
     : name === 'srcset'
       ? _safeSrcset(value)
-      : true;
+      : name === 'id' || name === 'name'
+        ? !_RESERVED.test(value.trim())
+        : true;
 
 const _clean = (element: HTMLRewriterTypes.Element): void =>
   [...element.attributes]

@@ -1,13 +1,19 @@
 // Контракт JSON API менеджера (src/contexts/manager/interface/api.ts).
 
+import type { Language } from './i18n.ts';
+
 export type Role = 'admin' | 'editor';
 
 export type User = { id: number; email: string; name: string; role: Role };
 
 export type ColorScheme = 'system' | 'light' | 'dark';
 
-/** Оформление менеджера у пользователя: акцент (`#rrggbb`) и схема. */
-export type Appearance = { accent: string; scheme: ColorScheme };
+/** Оформление менеджера у пользователя: акцент (`#rrggbb`), схема и язык; null — как просит браузер. */
+export type Appearance = {
+  accent: string;
+  scheme: ColorScheme;
+  language: Language | null;
+};
 
 export type Session = {
   user: User | null;
@@ -94,6 +100,8 @@ export type PageNode = {
   hiddenFromMenu: boolean;
   publishAt: string | null;
   unpublishAt: string | null;
+  /** Язык с учётом ветки и сайта. */
+  language: string;
 };
 
 export type FieldValue = string | number | boolean;
@@ -123,7 +131,20 @@ export type Page = {
   searchable: boolean;
   socialImage: string;
   language: string;
+  /** Исходная страница, если эта — её перевод. */
+  translationOf: number | null;
   fields: Record<string, FieldValue>;
+};
+
+/** Страница из набора переводов: исходная первой. */
+export type TranslationNode = {
+  id: number;
+  title: string;
+  /** Пусто — язык сайта. */
+  language: string;
+  published: boolean;
+  trashed: boolean;
+  original: boolean;
 };
 
 export type FieldType =
@@ -151,6 +172,8 @@ export type PageDetails = {
   fields: Field[];
   /** Прежние адреса, которые ведут сюда 301-й переадресацией. */
   oldPaths: string[];
+  /** Набор переводов; пусто — у страницы нет переводов. */
+  translations: TranslationNode[];
   /** Что возьмут пустые наследуемые поля и у какой страницы. */
   inherited?: Record<
     string,
@@ -229,6 +252,8 @@ export type Settings = {
   aiSearch: boolean;
   aiTraining: boolean;
   robots: string;
+  /** Синонимы для поиска по сайту: строка — группа, варианты через запятую. */
+  searchSynonyms: string;
   /** Слово в адресе порций списка: page — /blog/page-2. */
   pagingSegment: string;
   /** canonical у порций 2, 3…: self — на саму порцию, first — на первую. */
@@ -301,6 +326,8 @@ export type NotifyStatus = {
   forms: ChannelKind[];
   incidents: ChannelKind[];
   level: Severity;
+  /** null — язык сайта. */
+  language: 'en' | 'de' | 'ru' | null;
 };
 
 /** Строка журнала сбоев: повторы — счётчиком. */
@@ -345,7 +372,8 @@ export type FieldKind =
   | 'radio'
   | 'checkbox'
   | 'consent'
-  | 'hidden';
+  | 'hidden'
+  | 'file';
 
 /** Поле формы, как его видит сервер по HTML. */
 export type FieldSpec = {
@@ -519,5 +547,13 @@ export type SubmissionDetail = {
     attempts: number;
     lastError: string;
     sentAt: string | null;
+  }[];
+  /** Присланные файлы: скачиваются по ссылке, содержимое в заявку не входит. */
+  files: {
+    id: number;
+    field: string;
+    name: string;
+    type: string;
+    size: number;
   }[];
 };

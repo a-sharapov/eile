@@ -8,6 +8,7 @@ import {
 } from './application/forms-service.ts';
 import { htmlMarkup } from './infrastructure/html-markup.ts';
 import {
+  defineFileRepository,
   defineFormRepository,
   defineSecret,
   defineSubmissionRepository,
@@ -50,14 +51,19 @@ export var defineForms = ({
   site,
   pages,
   notify,
+  noticeLanguage,
   report,
-}: Pick<FormsPorts, 'bus' | 'clock' | 'site' | 'pages' | 'notify'> & {
+}: Pick<
+  FormsPorts,
+  'bus' | 'clock' | 'site' | 'pages' | 'notify' | 'noticeLanguage'
+> & {
   db: Database;
   report: Report;
 }) => {
   const service = defineFormsService({
     forms: defineFormRepository(db),
     submissions: defineSubmissionRepository(db),
+    files: defineFileRepository(db),
     markup: htmlMarkup,
     stamps: defineStamps(defineSecret(db), clock),
     bus,
@@ -65,6 +71,7 @@ export var defineForms = ({
     site,
     pages,
     notify,
+    noticeLanguage,
   });
   return {
     ...service,

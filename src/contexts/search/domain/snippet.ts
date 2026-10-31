@@ -40,7 +40,7 @@ const _window = (
  */
 export var snippetOf = (text: string, query: SearchQuery): string => {
   const words = wordsOf(text);
-  const first = words.find((_) => hits(_.word, query.terms));
+  const first = words.find((_) => hits(_.word, query.clauses));
   const { start, end } = _window(
     text,
     words,
@@ -49,7 +49,7 @@ export var snippetOf = (text: string, query: SearchQuery): string => {
   const inside = words.filter((_) => _.start >= start && _.end <= end);
   const { html, at } = inside.reduce(
     (acc, word) =>
-      hits(word.word, query.terms)
+      hits(word.word, query.clauses)
         ? {
             html: `${acc.html}${escapeHtml(text.slice(acc.at, word.start))}<mark>${escapeHtml(word.word)}</mark>`,
             at: word.end,

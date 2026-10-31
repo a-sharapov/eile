@@ -1,5 +1,6 @@
 // Улучшение форм сайта в браузере: без него форма работает обычной отправкой с переходом.
-// Отправка без перезагрузки, ошибки у полей, новая печать после устаревшей, черновик, первое касание UTM.
+// Отправка без перезагрузки, ошибки у полей, новая печать после устаревшей, черновик, первое касание UTM,
+// условные поля и шаги.
 const DRAFT = 'cms:form:';
 const LANDING = 'cms:utm';
 
@@ -24,6 +25,155 @@ const valuesOf = (form) =>
     {}
   );
 
+// Для условий файл считается заполнением поля: «показать, если приложили файл».
+const shownValuesOf = (form) =>
+  [...new FormData(form)].reduce((all, [name, value]) => {
+    const text =
+      typeof value === 'string' ? value : value.size > 0 ? value.name : '';
+    return { ...all, [name]: [...(all[name] ?? []), text] };
+  }, {});
+
+const conditionOf = (raw) => {
+  const at = raw.indexOf('=');
+  return at < 0
+    ? { field: raw.trim(), values: [] }
+    : {
+        field: raw.slice(0, at).trim(),
+        values: raw
+          .slice(at + 1)
+          .split('|')
+          .map((_) => _.trim())
+          .filter(Boolean),
+      };
+};
+
+// Условное поле прячется, а его элементы выключаются: required скрытого поля не мешает отправке, а
+// выключенное поле не уходит на сервер. Поле, которого нет в форме, условия не скрывает — как на сервере.
+const conditions = (form) => {
+  const wrappers = [...form.querySelectorAll('[data-show-if]')];
+  // Условие стоит на обёртке поля или на самом поле: выключается всё, что внутри, и оно само.
+  const controlsOf = (wrapper) =>
+    wrapper.matches('input, select, textarea')
+      ? [wrapper]
+      : wrapper.querySelectorAll('input, select, textarea');
+  const update = () => {
+    // Проходы, пока что-то меняется: поле может зависеть от поля, которое само зависит от другого.
+    for (
+      let pass = 0, changed = true;
+      changed && pass < wrappers.length + 1;
+      pass++
+    ) {
+      changed = false;
+      const values = shownValuesOf(form);
+      for (const wrapper of wrappers) {
+        const { field, values: wanted } = conditionOf(wrapper.dataset.showIf);
+        const given = (values[field] ?? []).filter((_) => _.trim() !== '');
+        const shown =
+          !form.elements.namedItem(field) ||
+          (wanted.length === 0
+            ? given.length > 0
+            : given.some((_) => wanted.includes(_)));
+        if (wrapper.hidden !== !shown) changed = true;
+        wrapper.hidden = !shown;
+        for (const control of controlsOf(wrapper)) control.disabled = !shown;
+      }
+    }
+  };
+  if (wrappers.length > 0) {
+    update();
+    form.addEventListener('input', update);
+    form.addEventListener('change', update);
+  }
+};
+
+const button = (text, className) => {
+  const node = document.createElement('button');
+  node.type = 'button';
+  node.className = className;
+  node.textContent = text;
+  return node;
+};
+
+// Шаги: один fieldset на экране; «Далее» проверяет поля шага, отправка — на последнем. Без скрипта
+// форма видна целиком.
+const steps = (form) => {
+  const list = [...form.querySelectorAll('fieldset[data-step]')];
+  if (list.length < 2) {
+    return { reveal: () => {}, advance: () => false, valid: () => true };
+  }
+  // Браузер проверял бы и поля скрытых шагов, до события submit: проверяем сами, по шагам.
+  form.noValidate = true;
+  const submit =
+    form.querySelector('.field-submit') ??
+    form.querySelector(
+      'button[type="submit"], button:not([type]), input[type="submit"]'
+    );
+  const progress = document.createElement('p');
+  progress.className = 'form-step-progress';
+  progress.setAttribute('aria-live', 'polite');
+  const nav = document.createElement('div');
+  nav.className = 'form-step-nav';
+  const back = button(form.dataset.back || 'Back', 'back');
+  const next = button(form.dataset.next || 'Next', 'next');
+  // Отправка — в одном ряду с «Назад»: на последнем шаге она заменяет «Далее».
+  nav.append(back, next, ...(submit ? [submit] : []));
+  list[0].before(progress);
+  list.at(-1).after(nav);
+  let current = 0;
+  const show = (index, focus) => {
+    current = index;
+    list.forEach((step, i) => void (step.hidden = i !== index));
+    back.hidden = index === 0;
+    next.hidden = index === list.length - 1;
+    if (submit) submit.hidden = index !== list.length - 1;
+    progress.textContent = (form.dataset.progress || '{n} / {m}')
+      .replaceAll('{n}', String(index + 1))
+      .replaceAll('{m}', String(list.length));
+    if (focus)
+      list[index]
+        .querySelector('input:not([type="hidden"]), select, textarea')
+        ?.focus();
+  };
+  const forward = () => {
+    const invalid = [
+      ...list[current].querySelectorAll('input, select, textarea'),
+    ].find((_) => !_.disabled && !_.checkValidity());
+    if (invalid) {
+      invalid.reportValidity();
+      return;
+    }
+    save(form);
+    show(current + 1, true);
+  };
+  next.addEventListener('click', forward);
+  back.addEventListener('click', () => show(current - 1, true));
+  // Ошибка в поле другого шага (сервер, флеш без JS) — открыть его шаг.
+  const reveal = (element) => {
+    const index = list.findIndex((_) => _.contains(element));
+    if (index >= 0) show(index, false);
+  };
+  const failed = form.querySelector('[aria-invalid="true"]');
+  show(0, false);
+  if (failed) reveal(failed);
+  // Enter в поле промежуточного шага — «Далее», а не отправка недозаполненной формы.
+  const advance = () => {
+    if (current === list.length - 1) return false;
+    forward();
+    return true;
+  };
+  // Перед отправкой — вся форма: неверное поле открывает свой шаг и показывает подсказку браузера.
+  const valid = () => {
+    const invalid = [...form.querySelectorAll('input, select, textarea')].find(
+      (_) => !_.disabled && !_.checkValidity()
+    );
+    if (!invalid) return true;
+    reveal(invalid);
+    invalid.reportValidity();
+    return false;
+  };
+  return { reveal, advance, valid };
+};
+
 // В черновик — только то, что вводил человек: скрытые и служебные поля всегда свежие с сервера.
 const draftOf = (form) =>
   Object.fromEntries(
@@ -45,7 +195,8 @@ const restore = (form) => {
   const draft = raw ? JSON.parse(raw) : {};
   for (const element of form.elements) {
     const saved = draft[element.name];
-    if (!saved || element.type === 'hidden') continue;
+    if (!saved || element.type === 'hidden' || element.type === 'file')
+      continue;
     if (element.type === 'checkbox' || element.type === 'radio') {
       element.checked = saved.includes(element.value);
     } else if (element.tagName === 'SELECT') {
@@ -85,7 +236,7 @@ const paragraph = (className, text, id) => {
 };
 
 // Ошибка — у поля, как рисует сервер: в конце обёртки [data-field] или сразу после поля.
-const showErrors = (form, errors, message) => {
+const showErrors = (form, errors, message, reveal = () => {}) => {
   const name = form.dataset.cmsForm;
   if (message) {
     const box = paragraph('cms-form-message', message);
@@ -106,6 +257,7 @@ const showErrors = (form, errors, message) => {
     wrapper ? wrapper.append(node) : controls[0].after(node);
     first ??= controls[0];
   }
+  if (first) reveal(first);
   first?.focus();
 };
 
@@ -136,7 +288,26 @@ const done = (form, reply) => {
   sent.focus();
 };
 
-const send = async (form, retried) => {
+// Файлы уходят только в multipart; без файлов — JSON, как раньше.
+const bodyOf = (form, fields) => {
+  const files = [...form.querySelectorAll('input[type="file"]')].some(
+    (_) => !_.disabled && _.files && _.files.length > 0
+  );
+  if (!files) {
+    return {
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify(fields),
+    };
+  }
+  const data = new FormData(form);
+  if (fields._utm?.[0] && !data.get('_utm')) data.set('_utm', fields._utm[0]);
+  return { headers: { accept: 'application/json' }, body: data };
+};
+
+const send = async (form, retried, reveal) => {
   const button = form.querySelector(
     'button[type="submit"], button:not([type])'
   );
@@ -155,11 +326,7 @@ const send = async (form, retried) => {
   try {
     const response = await fetch(form.action, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'application/json',
-      },
-      body: JSON.stringify(fields),
+      ...bodyOf(form, fields),
       credentials: 'same-origin',
     });
     const reply = await response.json().catch(() => ({}));
@@ -168,16 +335,25 @@ const send = async (form, retried) => {
       form.elements.namedItem('_stamp').value = reply.stamp.token;
       form.elements.namedItem('_iat').value = String(reply.stamp.iat);
       delete form.dataset.busy;
-      return send(form, true);
+      return send(form, true, reveal);
     }
     if (reply.ok) return done(form, reply);
     showErrors(
       form,
       reply.errors,
-      reply.message || 'Не удалось отправить форму.'
+      reply.message ||
+        (response.status === 413
+          ? form.dataset.tooLarge || 'The files are too large.'
+          : form.dataset.failed || 'The form could not be sent.'),
+      reveal
     );
   } catch {
-    showErrors(form, {}, 'Нет связи с сайтом — попробуйте ещё раз.');
+    showErrors(
+      form,
+      {},
+      form.dataset.offline || 'No connection to the site.',
+      reveal
+    );
   } finally {
     delete form.dataset.busy;
     button?.removeAttribute('aria-busy');
@@ -186,6 +362,8 @@ const send = async (form, retried) => {
 
 for (const form of document.querySelectorAll('form[data-cms-form]')) {
   restore(form);
+  conditions(form);
+  const { reveal, advance, valid } = steps(form);
   let timer = 0;
   form.addEventListener('input', () => {
     clearTimeout(timer);
@@ -193,6 +371,7 @@ for (const form of document.querySelectorAll('form[data-cms-form]')) {
   });
   form.addEventListener('submit', (event) => {
     event.preventDefault();
-    if (!form.dataset.busy) send(form, false);
+    if (advance() || !valid()) return;
+    if (!form.dataset.busy) send(form, false, reveal);
   });
 }

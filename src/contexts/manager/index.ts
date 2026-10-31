@@ -4,6 +4,7 @@ import { type ManagerAssets, managerAssets } from './infrastructure/assets.ts';
 import { defineActivityLog } from './infrastructure/sqlite-activity.ts';
 import { defineAppearanceRepository } from './infrastructure/sqlite-appearance.ts';
 import { defineManagerApi, type ManagerServices } from './interface/api.ts';
+import { defineEditBar, EDIT_BAR_URL } from './interface/edit-bar.ts';
 
 export var MANAGER_PATH = '/manager';
 
@@ -37,26 +38,35 @@ export var defineManager = (
   services: ManagerServices & { readonly db: Database },
   assets: ManagerAssets = managerAssets()
 ) => {
+  const appearance = defineAppearanceRepository(services.db);
   const api = defineManagerApi({
     ...services,
-    appearance: defineAppearanceRepository(services.db),
+    appearance,
     activity: defineActivityLog(services.db),
   });
+  const bar = defineEditBar({ identity: services.identity, appearance });
   return {
     /** `client` — адрес посетителя из сервера: для счёта неудачных входов. */
     handle: (request: Request, client = ''): Promise<Response> => {
-      const path = new URL(request.url).pathname;
+      const url = new URL(request.url);
+      const path = url.pathname;
       return path === _API || path.startsWith(`${_API}/`)
         ? api(request, path.slice(_API.length) || '/', client).then(
             _compressed(request)
           )
-        : Promise.resolve(
-            assets.serve(
-              path.slice(MANAGER_PATH.length) || '/',
-              request.headers.get('accept-encoding')
-            )
-          );
+        : path === EDIT_BAR_URL
+          ? Promise.resolve(bar.script())
+          : Promise.resolve(
+              assets.serve(
+                path.slice(MANAGER_PATH.length) || '/',
+                request.headers.get('accept-encoding'),
+                // Редактор для окна полосы правки: встраивается только в свой же сайт.
+                url.searchParams.has('embed')
+              )
+            );
     },
+    /** Полоса правки на сайте для того, кто вошёл в менеджер. */
+    editBar: bar.html,
   };
 };
 

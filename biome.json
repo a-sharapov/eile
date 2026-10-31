@@ -14,7 +14,8 @@
       "!!**/node_modules",
       "!!**/dist",
       "!!**/evolution-*",
-      "!!@source"
+      "!!@source",
+      "!!**/DESIGN.md"
     ]
   },
   "formatter": {

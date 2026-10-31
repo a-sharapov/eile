@@ -1,5 +1,6 @@
 import { type Changed, changed } from '../../../shared/kernel/changed.ts';
 import { fail } from '../../../shared/kernel/errors.ts';
+import type { ManagerLanguage } from '../../../shared/kernel/manager-language.ts';
 import type { Form, FormsEvent, Moment } from './form.ts';
 import type { Value } from './schema.ts';
 
@@ -106,6 +107,17 @@ export type Notice = {
   readonly link: { readonly label: string; readonly url: string } | null;
   readonly replyTo: string | null;
   readonly severity: null;
+  /** Язык подписей уведомления: из настроек уведомлений. */
+  readonly language: ManagerLanguage;
+};
+
+// Подписи уведомления о заявке; поля формы подписаны как на сайте — это её содержимое.
+const _NOTICE: Readonly<
+  Record<ManagerLanguage, { readonly page: string; readonly open: string }>
+> = {
+  en: { page: 'Page', open: 'Open the submission' },
+  de: { page: 'Seite', open: 'Anfrage öffnen' },
+  ru: { page: 'Страница', open: 'Открыть заявку' },
 };
 
 /** Тема: `{form}` — название формы, `{имя поля}` — его значение. */
@@ -126,7 +138,8 @@ export var subjectOf = (
 export var noticeOf = (
   form: Pick<Form, 'subject'>,
   submission: NewSubmission & { readonly id: number },
-  siteUrl: string
+  siteUrl: string,
+  language: ManagerLanguage
 ): Notice => ({
   topic: 'forms',
   title: subjectOf(form.subject, submission.formTitle, submission.values),
@@ -137,7 +150,7 @@ export var noticeOf = (
     ...(submission.context.pageTitle
       ? [
           {
-            label: 'Страница',
+            label: _NOTICE[language].page,
             value:
               `${submission.context.pageTitle} ${submission.context.url}`.trim(),
           },
@@ -152,12 +165,13 @@ export var noticeOf = (
   mono: false,
   link: siteUrl
     ? {
-        label: 'Открыть заявку',
+        label: _NOTICE[language].open,
         url: `${siteUrl}/manager/forms?id=${submission.id}`,
       }
     : null,
   replyTo: submission.values.find((_) => _.kind === 'email')?.value ?? null,
   severity: null,
+  language,
 });
 
 const _LINK =

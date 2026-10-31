@@ -22,6 +22,11 @@ export var searchMigrations: readonly Migration[] = [
       ) WITHOUT ROWID;
     `,
   },
+  {
+    // Словарь индекса — основы и число страниц с ними: по нему исправляются опечатки в запросе.
+    id: 'search/002_vocabulary',
+    sql: `CREATE VIRTUAL TABLE search_vocab USING fts5vocab(search_terms, 'row');`,
+  },
 ];
 
 /**
@@ -37,4 +42,5 @@ export var SEARCH_TABLES: readonly string[] = [
   'search_terms_content',
   'search_terms_docsize',
   'search_terms_config',
+  'search_vocab',
 ];

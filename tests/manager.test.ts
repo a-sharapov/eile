@@ -73,12 +73,25 @@ describe('вход', () => {
     expect((await json(await call('GET', '/session'))).appearance).toEqual({
       accent: '#2f5c96',
       scheme: 'system',
+      language: null,
     });
     const saved = await call('PUT', '/appearance', {
       accent: '#C0392B',
       scheme: 'dark',
     });
-    expect(await json(saved)).toEqual({ accent: '#c0392b', scheme: 'dark' });
+    expect(await json(saved)).toEqual({
+      accent: '#c0392b',
+      scheme: 'dark',
+      language: null,
+    });
+    // Язык меняется отдельно и цвета не трогает.
+    expect(
+      await json(await call('PUT', '/appearance', { language: 'de' }))
+    ).toEqual({
+      accent: '#c0392b',
+      scheme: 'dark',
+      language: 'de',
+    });
     expect((await json(await call('GET', '/session'))).appearance.scheme).toBe(
       'dark'
     );
@@ -86,6 +99,9 @@ describe('вход', () => {
       (await call('PUT', '/appearance', { accent: 'red', scheme: 'dark' }))
         .status
     ).toBe(422);
+    expect((await call('PUT', '/appearance', { language: 'fr' })).status).toBe(
+      422
+    );
   });
 
   it('cookie сессии — HttpOnly и SameSite', async () => {

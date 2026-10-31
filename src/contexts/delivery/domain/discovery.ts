@@ -7,16 +7,34 @@ const _xml = (value: string): string =>
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
 
-export type SitemapEntry = { readonly url: string; readonly lastmod: string };
+/** Перевод страницы для поисковиков: язык и адрес. */
+export type Alternate = { readonly language: string; readonly url: string };
 
-/** Карта сайта: адреса страниц для поиска и дата их последней правки. */
+export type SitemapEntry = {
+  readonly url: string;
+  readonly lastmod: string;
+  /** Переводы страницы, включая её саму; пусто — переводов нет. */
+  readonly alternates?: readonly Alternate[];
+};
+
+const _xhtml = (alternates: readonly Alternate[]): string =>
+  alternates
+    .map(
+      (_) =>
+        `<xhtml:link rel="alternate" hreflang="${_xml(_.language)}" href="${_xml(_.url)}"/>`
+    )
+    .join('');
+
+/** Карта сайта: адреса страниц для поиска, дата их последней правки и переводы. */
 export var sitemapXml = (entries: readonly SitemapEntry[]): string =>
   [
     '<?xml version="1.0" encoding="UTF-8"?>',
-    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    entries.some((_) => (_.alternates?.length ?? 0) > 0)
+      ? '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">'
+      : '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
     ...entries.map(
       (_) =>
-        `  <url><loc>${_xml(_.url)}</loc><lastmod>${_.lastmod.slice(0, 10)}</lastmod></url>`
+        `  <url><loc>${_xml(_.url)}</loc><lastmod>${_.lastmod.slice(0, 10)}</lastmod>${_xhtml(_.alternates ?? [])}</url>`
     ),
     '</urlset>',
     '',
@@ -108,6 +126,8 @@ export var llmsTxt = (site: {
 export type SeoPage = {
   readonly title: string;
   readonly description: string;
+  /** Язык страницы (её ветки): у WebPage в JSON-LD. */
+  readonly language: string;
   readonly url: string;
   readonly searchable: boolean;
   readonly image: string | null;
@@ -121,11 +141,14 @@ export type SeoPage = {
     readonly prev: string | null;
     readonly next: string | null;
   } | null;
+  /** Переводы, включая саму страницу, исходная первой; пусто — переводов нет. */
+  readonly alternates?: readonly Alternate[];
 };
 
 export type SeoSite = {
   readonly name: string;
   readonly description: string;
+  /** Язык сайта — язык его описания: у WebSite в JSON-LD, на страницах любой ветки. */
   readonly language: string;
   readonly origin: string;
 };
@@ -158,7 +181,7 @@ const _ld = (page: SeoPage, site: SeoSite): unknown => ({
       name: page.title,
       ...(page.description && { description: page.description }),
       isPartOf: { '@id': `${site.origin}/#website` },
-      inLanguage: site.language,
+      inLanguage: page.language,
       ...(page.publishedAt && { datePublished: page.publishedAt }),
       dateModified: page.updatedAt,
       ...(page.image && {
@@ -190,9 +213,10 @@ const _HAS: ReadonlyArray<readonly [RegExp, string]> = [
   [/application\/ld\+json/i, 'ld'],
   [/<link[^>]+type=["']?text\/markdown/i, 'markdown'],
   [/<link[^>]+rel=["']?(?:prev|next)\b/i, 'pagination'],
+  [/<link[^>]+hreflang=/i, 'hreflang'],
 ];
 
-/** Теги находимости для <head>: canonical, описание, robots, Open Graph, Twitter, JSON-LD, Markdown-версия. */
+/** Теги находимости для <head>: canonical, описание, robots, Open Graph, Twitter, JSON-LD, Markdown-версия, переводы. */
 export var seoHead = (
   page: SeoPage,
   site: SeoSite,
@@ -247,6 +271,19 @@ export var seoHead = (
       // У порций 2, 3… Markdown-версии нет: она одна, у самой страницы.
       page.searchable && (page.pagination?.number ?? 1) === 1
         ? `<link rel="alternate" type="text/markdown" href="${_attr(page.url === `${site.origin}/` ? `${site.origin}/index.md` : `${page.url}.md`)}">`
+        : '',
+    ],
+    [
+      // Переводы и x-default — исходная страница: её показывают тем, чей язык не подошёл ни к одному.
+      'hreflang',
+      page.searchable && (page.alternates?.length ?? 0) > 1
+        ? [
+            ...page.alternates!.map(
+              (_) =>
+                `<link rel="alternate" hreflang="${_attr(_.language)}" href="${_attr(_.url)}">`
+            ),
+            `<link rel="alternate" hreflang="x-default" href="${_attr(page.alternates![0]!.url)}">`,
+          ].join('')
         : '',
     ],
   ];

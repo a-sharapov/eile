@@ -1,7 +1,7 @@
 <script lang="ts">
 import '@fontsource-variable/onest';
 import '#lib/theme.css';
-import { restoreAppearance } from '#lib/appearance.svelte.ts';
+import { restoreAppearance, shown } from '#lib/appearance.svelte.ts';
 import { describeHints } from '#lib/hints.ts';
 import Dialog from '#lib/ui/Dialog.svelte';
 import MediaPicker from '#lib/ui/MediaPicker.svelte';
@@ -16,7 +16,10 @@ restoreAppearance();
 $effect(() => describeHints(document.body));
 </script>
 
-{@render children()}
-<Notices />
-<MediaPicker />
-<Dialog />
+<!-- Смена языка перерисовывает менеджер целиком: строки берутся при отрисовке, а не хранятся. -->
+{#key shown.language}
+  {@render children()}
+  <Notices />
+  <MediaPicker />
+  <Dialog />
+{/key}

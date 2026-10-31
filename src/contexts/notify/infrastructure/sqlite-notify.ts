@@ -1,4 +1,5 @@
 import type { Database } from '../../../platform/database.ts';
+import { textIn } from '../../../shared/kernel/manager-language.ts';
 import type { Delivery, DeliveryStatus } from '../domain/delivery.ts';
 import type { ChannelKind, Message, Severity } from '../domain/message.ts';
 import type {
@@ -108,37 +109,59 @@ type IncidentRow = {
   severity: string;
   title: string;
   detail: string;
+  texts: string;
   count: number;
   first_at: string;
   last_at: string;
 };
 
-const _incident = (row: IncidentRow): IncidentRecord => ({
-  id: row.id,
-  fingerprint: row.fingerprint,
-  kind: row.kind,
-  severity: row.severity as Severity,
-  title: row.title,
-  detail: row.detail,
-  count: row.count,
-  firstAt: row.first_at,
-  lastAt: row.last_at,
-});
+// Тексты на языках — в texts; у записей со старой версии их нет, и title с detail — как были.
+const _incident = (row: IncidentRow): IncidentRecord =>
+  ((texts) => ({
+    id: row.id,
+    fingerprint: row.fingerprint,
+    kind: row.kind,
+    severity: row.severity as Severity,
+    title: texts?.title ?? row.title,
+    detail: texts?.detail ?? row.detail,
+    count: row.count,
+    firstAt: row.first_at,
+    lastAt: row.last_at,
+  }))(
+    row.texts
+      ? (JSON.parse(row.texts) as Pick<IncidentRecord, 'title' | 'detail'>)
+      : null
+  );
 
 // Повтор того же сбоя — счётчик и время последнего; подробности — от последнего раза.
 export var defineIncidentRepository = (db: Database): IncidentRepository => {
   const upsert = db.query<IncidentRow, Record<string, string>>(`
-    INSERT INTO notify_incidents (fingerprint, kind, severity, title, detail, first_at, last_at)
-    VALUES ($fingerprint, $kind, $severity, $title, $detail, $now, $now)
+    INSERT INTO notify_incidents (fingerprint, kind, severity, title, detail, texts, first_at, last_at)
+    VALUES ($fingerprint, $kind, $severity, $title, $detail, $texts, $now, $now)
     ON CONFLICT (fingerprint) DO UPDATE SET count = count + 1, last_at = excluded.last_at,
-      severity = excluded.severity, title = excluded.title, detail = excluded.detail
+      severity = excluded.severity, title = excluded.title, detail = excluded.detail,
+      texts = excluded.texts
     RETURNING *`);
   const list = db.query<IncidentRow, [number]>(
     'SELECT * FROM notify_incidents ORDER BY last_at DESC, id DESC LIMIT ?'
   );
   const purge = db.query('DELETE FROM notify_incidents WHERE last_at < ?');
   return {
-    record: (incident, now) => _incident(upsert.get({ ...incident, now })!),
+    record: (incident, now) =>
+      _incident(
+        upsert.get({
+          fingerprint: incident.fingerprint,
+          kind: incident.kind,
+          severity: incident.severity,
+          title: textIn(incident.title, 'en'),
+          detail: textIn(incident.detail, 'en'),
+          texts: JSON.stringify({
+            title: incident.title,
+            detail: incident.detail,
+          }),
+          now,
+        })!
+      ),
     list: (limit) => list.all(limit).map(_incident),
     purge: (before) => purge.run(before).changes,
   };

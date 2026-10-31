@@ -70,7 +70,7 @@ export var parseTarget = (input: Record<string, unknown>): Target => ({
   kind: _KINDS.includes(input.kind as TargetKind)
     ? (input.kind as TargetKind)
     : fail('assistant.invalid_target', `Unknown target "${input.kind}"`),
-  label: _string(input.label, _LIMIT.label).trim() || 'поле',
+  label: _string(input.label, _LIMIT.label).trim() || 'field',
   hint: _string(input.hint, _LIMIT.fact).trim(),
   value: _string(input.value, _LIMIT.value),
   maxLength:
@@ -95,35 +95,37 @@ export var parseRequest = (input: unknown): string =>
     _string(input, _LIMIT.request * 2).trim()
   );
 
-const _TEMPLATE = `Это шаблон сайта — компонент Svelte 5 в режиме runes (\`export let\` не работает), он рисует страницу целиком.
+// Промпт — по-английски: модели точнее всего следуют английским указаниям, а пишут на языке сайта.
+const _TEMPLATE = `This is a site template: a Svelte 5 component in runes mode (\`export let\` does not work) that renders the whole page.
 - Props: \`let { page, site } = $props();\`
-- page: title, longTitle, menuTitle, description, introText, content (HTML — выводить \`{@html page.content}\`), path, kind, linkTo, publishedAt, createdAt, updatedAt, fields (значения полей страницы: \`page.fields.имя\`).
-- site: name, language и остальные настройки; \`site.i18n.ключ\` — перевод на языке страницы, \`site.custom.ключ\` — своя настройка сайта. Теги \`{i18n.ключ}\` и \`[@ключ]\` в шаблоне запрещены.
-- По обычаю Evo: \`<svelte:head><title>{page.longTitle || page.title} — {site.name}</title></svelte:head>\`, в меню — \`{item.menuTitle || item.title}\`.
-- Компоненты сайта подключаются так: \`import Menu from '$components/Menu';\`. Модуль '$core': link(id), page(id), children(parentId), site(), media(path), image(path) → { src, srcset, width, height, alt }, t(key), setting(key).
-- Импортировать можно только $components/*, $core и svelte. Стили — в <style> этого файла.`;
+- page: title, longTitle, menuTitle, description, introText, content, path, kind, linkTo, language, publishedAt, createdAt, updatedAt, fields (the page's field values: \`page.fields.name\`).
+- The page text is rendered with \`import Content from '$core/Content';\` and \`<Content of={page} />\`: it draws the components, forms and page links inside the text. \`{@html page.content}\` would show them as raw tags.
+- site: name, language and the other settings; \`site.i18n.key\` is a translation into the page language, \`site.custom.key\` a custom site setting. The tags \`{i18n.key}\` and \`[@key]\` are not allowed in a template.
+- As in Evo: \`<svelte:head><title>{page.longTitle || page.title} — {site.name}</title></svelte:head>\`; menu items show \`{item.menuTitle || item.title}\`.
+- Site components are imported like \`import Menu from '$components/Menu';\`. The '$core' module: link(id), page(id), children(parentId), current(), ancestors(id), translations() → [{ language, url, title, current }] for a language switcher, site(), media(path), image(path) → { src, srcset, width, height, alt }, t(key), setting(key).
+- Only $components/*, $core and svelte can be imported. Styles go in this file's <style>.`;
 
-const _COMPONENT = `Это компонент сайта — Svelte 5 в режиме runes; редакторы вставляют его в текст страницы блоком и заполняют форму параметров.
-- Файл начинается с описания: \`<!-- @component\\nЧто это, одной строкой.\\n-->\`.
-- Параметры — \`$props()\` с типами TypeScript; над каждым — JSDoc с подписью для формы: \`/** Заголовок */\`. Варианты строкового union подписываются так: \`/** Оттенок: note=Заметка, success=Успех */\`. Необязательные параметры — со значением по умолчанию.
-- Данные сайта — из '$core': link(id), page(id), children(parentId), site(), media(path), image(path) → { src, srcset, width, height, alt }, t(key), setting(key).
-- Импортировать можно только $components/*, $core и svelte. Стили — в <style> этого файла.`;
+const _COMPONENT = `This is a site component: Svelte 5 in runes mode. Editors insert it into the page text as a block and fill in a form of its parameters.
+- The file starts with a description: \`<!-- @component\nWhat it is, in one line.\n-->\`.
+- Parameters are \`$props()\` with TypeScript types; above each one, a JSDoc with the form label: \`/** Title */\`. Options of a string union are labelled like this: \`/** Tone: note=Note, success=Success */\`. Optional parameters have a default value. Write the labels in the site language.
+- Site data comes from '$core': link(id), page(id), children(parentId), current(), translations(), site(), media(path), image(path) → { src, srcset, width, height, alt }, t(key), setting(key).
+- Only $components/*, $core and svelte can be imported. Styles go in this file's <style>.`;
 
-const _PLUGIN = `Это плагин сайта — модуль TypeScript:
-\`export default { render?(html: string, { path, status }): string, notFound?(path: string): string | null, on?: { [тип события]: (event) => void } }\`.
-- render меняет готовый HTML страницы, notFound возвращает адрес переадресации или null, on слушает события сайта.
-- Импортировать можно только '$core'.`;
+const _PLUGIN = `This is a site plugin, a TypeScript module:
+\`export default { render?(html: string, { path, status }): string, notFound?(path: string): string | null, on?: { [event type]: (event) => void } }\`.
+- render changes the finished HTML of a page, notFound returns a redirect address or null, on listens to site events.
+- Only '$core' can be imported.`;
 
 const _CODE_ANSWER =
-  'Верни файл целиком — он заменит текущий код. Без ``` и пояснений: только код.';
+  'Return the whole file: it replaces the current code. No ``` and no explanations, only code.';
 
-const _RICHTEXT = `Это текст страницы: верни HTML-фрагмент. Можно: <p>, <h2>–<h4>, <ul>/<ol>/<li>, <blockquote>, <strong>, <em>, <a href>. Нельзя: <html>, <body>, <h1> (заголовок выводит шаблон), стили, скрипты, классы, картинки.
-Ссылка на страницу сайта пишется как [~id~]; подстановки: {i18n.ключ} — перевод, [@ключ] — своя настройка сайта.`;
+const _RICHTEXT = `This is the page text: return an HTML fragment. Allowed: <p>, <h2>–<h4>, <ul>/<ol>/<li>, <blockquote>, <strong>, <em>, <a href>. Not allowed: <html>, <body>, <h1> (the template prints the title), styles, scripts, classes, images.
+A link to a page of the site is written as [~id~]; substitutions: {i18n.key} is a translation, [@key] a custom site setting.`;
 
 const _KIND_RULES: Readonly<Record<TargetKind, string>> = {
-  text: 'Ответ — одна строка без переносов. У заголовков нет точки в конце.',
+  text: 'The answer is one line without line breaks. Titles have no full stop at the end.',
   longtext:
-    'Ответ — обычный текст без разметки и markdown; абзацы разделяй пустой строкой.',
+    'The answer is plain text without markup or markdown; separate paragraphs with an empty line.',
   richtext: _RICHTEXT,
   template: `${_TEMPLATE}\n${_CODE_ANSWER}`,
   component: `${_COMPONENT}\n${_CODE_ANSWER}`,
@@ -159,24 +161,24 @@ export var buildPrompt = (
   instructions: string
 ): Prompt => ({
   system: _lines([
-    'Ты — помощник в менеджере сайта. Ты заполняешь одно поле, которое сейчас правит человек, по его короткому запросу.',
-    `Сайт: «${site.name || 'без названия'}»${site.url ? `, ${site.url}` : ''}.${site.description ? ` О сайте: ${site.description}` : ''}`,
-    `Пиши на языке сайта (${site.language}), если в запросе не сказано другое.`,
-    'Отвечай только значением поля: без пояснений, приветствий, кавычек вокруг и markdown-обёртки.',
-    instructions && `Указания владельца сайта: ${instructions}`,
+    'You are an assistant in a website manager. You fill in one field that a person is editing right now, following their short request.',
+    `Site: "${site.name || 'untitled'}"${site.url ? `, ${site.url}` : ''}.${site.description ? ` About the site: ${site.description}` : ''}`,
+    `Write in the site language (${site.language}) unless the request says otherwise.`,
+    'Answer with the field value only: no explanations, greetings, surrounding quotes or markdown wrapping.',
+    instructions && `The site owner's instructions: ${instructions}`,
     '',
-    `Поле: «${target.label}».`,
-    target.hint && `Подсказка у поля: ${target.hint}`,
-    target.maxLength !== null && `Не длиннее ${target.maxLength} знаков.`,
-    target.pattern && `Значение должно подходить под шаблон: ${target.pattern}`,
-    target.area && `Где: ${target.area}.`,
+    `Field: "${target.label}".`,
+    target.hint && `Hint under the field: ${target.hint}`,
+    target.maxLength !== null && `At most ${target.maxLength} characters.`,
+    target.pattern && `The value must match the pattern: ${target.pattern}`,
+    target.area && `Where: ${target.area}.`,
     ...target.facts.map((_) => `- ${_}`),
     '',
     _KIND_RULES[target.kind],
   ]),
   user: _lines([
-    `Запрос: ${request}`,
-    target.value.trim() !== '' && `\nТекущее значение поля:\n${target.value}`,
+    `Request: ${request}`,
+    target.value.trim() !== '' && `\nCurrent field value:\n${target.value}`,
   ]),
   temperature: _TEMPERATURE[target.kind],
   maxTokens: _MAX_TOKENS[target.kind],

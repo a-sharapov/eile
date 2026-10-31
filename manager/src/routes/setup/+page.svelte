@@ -1,6 +1,6 @@
 <script lang="ts">
 import { api } from '#lib/api.ts';
-import { keepPickedScheme } from '#lib/appearance.svelte.ts';
+import { keepPicked } from '#lib/appearance.svelte.ts';
 import { t } from '#lib/i18n.ts';
 import { describe } from '#lib/notices.svelte.ts';
 import { loadSession, session } from '#lib/session.svelte.ts';
@@ -45,7 +45,7 @@ const submit = (event: SubmitEvent) => (
     api
       .send('POST', '/setup', { token, name, email, password })
       .then(loadSession)
-      .then(keepPickedScheme)
+      .then(keepPicked)
       // Первый вход на сайт — сразу в настройки: название, адрес, уведомления.
       .then(() => goto(resolve('/(app)/settings')))
       .then(undefined, (_) => void (error = describe(_)))

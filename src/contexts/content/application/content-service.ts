@@ -105,6 +105,7 @@ export var defineContentService = ({
   drafts,
   bus,
   clock,
+  siteLanguage = () => '',
 }: {
   pages: PageRepository;
   fields: FieldRepository;
@@ -114,6 +115,8 @@ export var defineContentService = ({
   drafts: DraftContent;
   bus: EventBus;
   clock: Clock;
+  /** Язык сайта — язык веток без своего: по нему алиас из заголовка. */
+  siteLanguage?: () => string;
 }) => {
   // undefined — ближайший момент расписания ещё не считан из базы.
   let nextScheduled: Moment | null | undefined;
@@ -127,6 +130,14 @@ export var defineContentService = ({
   const load = (id: number): Page =>
     pages.get(parsePageId(id)) ??
     fail('content.page_not_found', `Page ${id} not found`);
+
+  /** Язык ветки под этим родителем: ближайший предок со своим языком, иначе язык сайта. */
+  const branchLanguage = (parentId: number | null): string =>
+    parentId === null
+      ? siteLanguage()
+      : ((parent) => parent.language || branchLanguage(parent.parentId))(
+          load(parentId)
+        );
 
   const lineage = (parentId: number | null): PageId[] =>
     parentId === null
@@ -146,7 +157,39 @@ export var defineContentService = ({
       : change;
   };
 
-  const store = pipe<PageChange, PageId>(
+  /**
+   * Связь с исходной страницей: перевод перевода указывает на ту же исходную, а страница со своими
+   * переводами сама переводом не становится — иначе набор распался бы на цепочку.
+   */
+  const linkTranslation = <T extends PageChanges>(
+    changes: T,
+    pageId: number | null
+  ): T =>
+    changes.translationOf === undefined || changes.translationOf === null
+      ? changes
+      : ((target) =>
+          target === null
+            ? fail(
+                'content.translation_not_found',
+                `Page ${changes.translationOf} not found`
+              )
+            : ((hub) =>
+                hub === pageId
+                  ? fail(
+                      'content.invalid_translation',
+                      'A page cannot be a translation of itself'
+                    )
+                  : pageId !== null &&
+                      pages.translationsOf(parsePageId(pageId)).length > 0
+                    ? fail(
+                        'content.translation_has_translations',
+                        'This page has translations of its own: link them to the other page'
+                      )
+                    : { ...changes, translationOf: hub })(
+                target.translationOf ?? target.id
+              ))(pages.get(parsePageId(changes.translationOf)));
+
+  const store = pipe(
     (_: PageChange) => (_.state.trashedAt === null ? assertAliasFree(_) : _),
     (_: PageChange) => (pages.save(_.state), (nextScheduled = undefined), _),
     publishEvents,
@@ -217,12 +260,14 @@ export var defineContentService = ({
       : chain(setFields(fields.all(), values));
 
   const create = (input: CreatePageInput): PageId =>
-    pipe<CreatePageInput, PageId>(
+    pipe(
       (_: CreatePageInput) =>
-        createPage(pages.nextId(), {
-          ..._,
-          parentId: (_.parentId ?? null) === null ? null : load(_.parentId!).id,
-        }),
+        ((parentId) =>
+          createPage(
+            pages.nextId(),
+            { ...linkTranslation(_, null), parentId },
+            branchLanguage(parentId)
+          ))((_.parentId ?? null) === null ? null : load(_.parentId!).id),
       withFields(input.fields),
       (_: PageChange) => (input.publish ? chain(publishPage(now()))(_) : _),
       store
@@ -233,7 +278,7 @@ export var defineContentService = ({
     id: number,
     input: CreatePageInput & { readonly trashed?: boolean }
   ): PageId =>
-    pipe<number, PageId>(
+    pipe(
       (_: number) =>
         pages.get(parsePageId(_))
           ? fail('content.page_exists', `Page ${_} already exists`)
@@ -269,7 +314,13 @@ export var defineContentService = ({
       menuTitle: page.menuTitle,
       description: page.description,
       introText: page.introText,
-      alias: freeAlias(page.parentId, aliasFromTitle(copyTitle) || page.alias),
+      alias: freeAlias(
+        page.parentId,
+        aliasFromTitle(
+          copyTitle,
+          page.language || branchLanguage(page.parentId)
+        )
+      ),
       template: page.template,
       contentType: page.contentType,
       content: page.content,
@@ -417,9 +468,14 @@ export var defineContentService = ({
         changes: PageChanges,
         author: Author | null = null
       ): PageId =>
-        changes.alias === undefined
-          ? apply(editPage(changes), author)(id)
-          : keepingOldPaths(id, () => apply(editPage(changes), author)(id)),
+        ((linked) =>
+          ((transition) =>
+            linked.alias === undefined
+              ? apply(transition, author)(id)
+              : keepingOldPaths(id, () => apply(transition, author)(id)))(
+            (page: Page) =>
+              editPage(linked, branchLanguage(page.parentId))(page)
+          ))(linkTranslation(changes, id)),
       publish: (id: number): PageId => apply(publishPage(now()))(id),
       unpublish: apply(unpublishPage),
       move: (id: number, parentId: number | null): PageId =>
@@ -452,7 +508,7 @@ export var defineContentService = ({
     trash: {
       /** Удаляет навсегда страницы из корзины вместе с их ветками; id не освобождаются. */
       empty: (): number =>
-        pipe<void, number>(
+        pipe(
           () => pages.trashed(),
           (_: PageId[]) => (
             _.forEach(remove), (nextScheduled = undefined), _.length
@@ -472,7 +528,7 @@ export var defineContentService = ({
     },
     fields: {
       save: (input: NewField): FieldName =>
-        pipe<NewField, FieldName>(
+        pipe(
           createField,
           (_: Changed<Field, ContentEvent>) => (fields.save(_.state), _),
           publishEvents,
@@ -482,7 +538,7 @@ export var defineContentService = ({
       /** Сколько страниц хранят своё значение: столько потеряют его при удалении. */
       usage: (name: string): number => fields.usage(parseFieldName(name)),
       remove: (name: string): void =>
-        pipe<string, void>(
+        pipe(
           parseFieldName,
           (_: FieldName) =>
             fields.get(_) ??
@@ -514,6 +570,7 @@ export var defineContentService = ({
     drafts: {
       tree: drafts.tree,
       view: drafts.view,
+      translations: drafts.translations,
       page: (id: number): Page => load(id),
     },
     isEmpty: (): boolean => pages.count() === 0,

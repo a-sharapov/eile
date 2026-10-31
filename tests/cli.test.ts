@@ -12,11 +12,13 @@ import {
   unknownCommand,
 } from '../src/cli/commands.ts';
 import { COMMANDS, commandHelp, overview, suggest } from '../src/cli/help.ts';
+import { cliLanguage } from '../src/cli/language.ts';
 import { motd, pages } from '../src/cli/motd.ts';
 import { colorsWanted, definePaint, visibleLength } from '../src/cli/paint.ts';
 import { typeKey } from '../src/cli/prompt.ts';
 import { VERSION } from '../src/cli/version.ts';
 import { PRODUCT } from '../src/product.ts';
+import { WELCOME_EN } from '../src/scaffolds/index.ts';
 import { DEMO } from './fixtures/demo.ts';
 
 const plain = definePaint(false);
@@ -88,8 +90,32 @@ describe('разбор вызова', () => {
   });
 
   it('неизвестный параметр — ошибка по-русски', () => {
-    expect(parseInvocation(['--prot', '80'], {})).toEqual({
+    expect(parseInvocation(['--prot', '80'], { LANG: 'ru_RU.UTF-8' })).toEqual({
       error: 'Нет параметра --prot. Список — cms help',
+    });
+  });
+});
+
+describe('язык', () => {
+  it('из локали системы: русская — по-русски, другая или никакой — по-английски', () => {
+    expect(cliLanguage({ LANG: 'ru_RU.UTF-8' })).toBe('ru');
+    expect(cliLanguage({ LANG: 'en_US.UTF-8' })).toBe('en');
+    expect(cliLanguage({ LANG: 'C.UTF-8' })).toBe('en');
+    expect(cliLanguage({})).toBe('en');
+    expect(cliLanguage({ LANG: 'ru_RU.UTF-8', LC_ALL: 'de_DE.UTF-8' })).toBe(
+      'en'
+    );
+    expect(cliLanguage({ LANG: 'en_US.UTF-8', LC_MESSAGES: 'ru_RU' })).toBe(
+      'ru'
+    );
+  });
+
+  it('ошибка разбора — на языке системы', () => {
+    expect(parseInvocation(['--prot'], { LANG: 'ru_RU.UTF-8' })).toEqual({
+      error: 'Нет параметра --prot. Список — cms help',
+    });
+    expect(parseInvocation(['--prot'], { LANG: 'en_US.UTF-8' })).toEqual({
+      error: 'No option --prot. List them: cms help',
     });
   });
 });
@@ -104,22 +130,22 @@ describe('цвет', () => {
   });
 
   it('без цвета — ни одной управляющей последовательности', () => {
-    expect(overview(plain)).not.toContain(ESC);
-    expect(overview(color)).toContain(ESC);
+    expect(overview(plain, 'ru')).not.toContain(ESC);
+    expect(overview(color, 'ru')).toContain(ESC);
   });
 });
 
 describe('справка', () => {
   it('общая справка называет все команды и показывает примеры', () => {
-    const text = overview(plain);
-    COMMANDS.forEach((_) => void expect(text).toContain(`  ${_.name}`));
+    const text = overview(plain, 'ru');
+    COMMANDS.ru.forEach((_) => void expect(text).toContain(`  ${_.name}`));
     expect(text).toContain('$ cms import-evo evo.sql --db site.db');
     expect(text).toContain('NO_COLOR');
   });
 
   it('у каждой команды — использование, описание и примеры', () => {
-    COMMANDS.forEach((help) => {
-      const text = commandHelp(plain, help);
+    COMMANDS.ru.forEach((help) => {
+      const text = commandHelp(plain, help, 'ru');
       expect(text).toContain('Использование');
       expect(text).toContain(help.usage[0]!);
       expect(text).toContain('$ ');
@@ -127,11 +153,14 @@ describe('справка', () => {
   });
 
   it('строки справки — не шире 80 колонок, с цветом и без', () => {
-    expect(longLines(overview(plain))).toEqual([]);
-    expect(longLines(overview(color))).toEqual([]);
-    COMMANDS.forEach(
-      (_) => void expect(longLines(commandHelp(color, _))).toEqual([])
-    );
+    (['ru', 'en'] as const).forEach((language) => {
+      expect(longLines(overview(plain, language))).toEqual([]);
+      expect(longLines(overview(color, language))).toEqual([]);
+      COMMANDS[language].forEach(
+        (_) =>
+          void expect(longLines(commandHelp(color, _, language))).toEqual([])
+      );
+    });
   });
 
   it('опечатка в команде — подсказка с ближайшей', () => {
@@ -139,14 +168,31 @@ describe('справка', () => {
     expect(suggest('bakup')).toBe('backup');
     expect(suggest('user')).toBe('users');
     expect(suggest('zzzzzz')).toBeNull();
-    expect(unknownCommand('bakup').message).toContain(
+    expect(unknownCommand('bakup', 'ru').message).toContain(
       'Возможно, вы имели в виду: cms backup'
+    );
+    expect(unknownCommand('bakup', 'en').message).toContain(
+      'Did you mean: cms backup'
     );
   });
 
   it('справка по неизвестной команде — ошибка, по известной — текст', async () => {
-    expect(await helpFor(plain, 'users')).toContain('users password');
-    expect(helpFor(plain, 'nope')).rejects.toThrow('Нет команды «nope».');
+    expect(await helpFor(plain, 'users', 'ru')).toContain('users password');
+    expect(helpFor(plain, 'nope', 'ru')).rejects.toThrow('Нет команды «nope».');
+    expect(helpFor(plain, 'nope', 'en')).rejects.toThrow('No command “nope”.');
+  });
+
+  it('по-английски — те же команды и ни одной русской буквы', () => {
+    expect(COMMANDS.en.map((_) => _.name)).toEqual(
+      COMMANDS.ru.map((_) => _.name)
+    );
+    const text = [
+      overview(plain, 'en'),
+      ...COMMANDS.en.map((_) => commandHelp(plain, _, 'en')),
+    ].join('\n');
+    expect(text).toContain('Usage');
+    expect(text).toContain('$ cms import-evo evo.sql --db site.db');
+    expect(text).not.toMatch(/[А-Яа-яЁё]/);
   });
 
   it('версия — как в package.json', async () => {
@@ -170,7 +216,7 @@ describe('MOTD', () => {
   };
 
   it('адреса, база, сводка и ссылка настройки', () => {
-    const text = motd(plain, summary);
+    const text = motd(plain, summary, 'ru');
     expect(text).toContain(`${PRODUCT} 0.0.1`);
     expect(text).toContain('http://localhost:8080/manager');
     expect(text).toContain('12 страниц · ● опубликовано 9 · в корзине 1');
@@ -179,23 +225,38 @@ describe('MOTD', () => {
   });
 
   it('без пользователей-новичков и корзины — без лишних строк', () => {
-    const text = motd(plain, {
-      ...summary,
-      fresh: false,
-      trashed: 0,
-      setupUrl: null,
-    });
+    const text = motd(
+      plain,
+      {
+        ...summary,
+        fresh: false,
+        trashed: 0,
+        setupUrl: null,
+      },
+      'ru'
+    );
     expect(text).not.toContain('корзине');
     expect(text).not.toContain('setup');
     expect(text).not.toContain('демо-сайт');
   });
 
   it('не шире 80 колонок, кроме строк с адресом', () => {
-    expect(longLines(motd(color, summary))).toEqual([]);
+    expect(longLines(motd(color, summary, 'ru'))).toEqual([]);
+    expect(longLines(motd(color, summary, 'en'))).toEqual([]);
+  });
+
+  it('по-английски — те же строки', () => {
+    const text = motd(plain, summary, 'en');
+    expect(text).toContain('Manager    http://localhost:8080/manager');
+    expect(text).toContain('12 pages · ● published 9 · in trash 1');
+    expect(text).toContain('a welcome page and a blank template');
+    expect(text).toContain('Create the administrator at:');
+    expect(text).not.toMatch(/[А-Яа-яЁё]/);
+    expect([1, 2].map((_) => pages(_, 'en'))).toEqual(['1 page', '2 pages']);
   });
 
   it('русские формы числа', () => {
-    expect([1, 2, 5, 11, 21, 22, 112].map(pages)).toEqual([
+    expect([1, 2, 5, 11, 21, 22, 112].map((_) => pages(_, 'ru'))).toEqual([
       '1 страница',
       '2 страницы',
       '5 страниц',
@@ -226,7 +287,11 @@ describe('скрытый ввод', () => {
 
 describe('команды на базе', () => {
   const output: string[] = [];
-  const context = (args: readonly string[], db: string): Context => ({
+  const context = (
+    args: readonly string[],
+    db: string,
+    language: 'ru' | 'en' = 'ru'
+  ): Context => ({
     args,
     options: {
       port: '0',
@@ -237,6 +302,7 @@ describe('команды на базе', () => {
       trustProxy: false,
     },
     paint: plain,
+    language,
     tty: false,
     out: (_) => void output.push(_),
   });
@@ -275,9 +341,32 @@ describe('команды на базе', () => {
     expect(
       app.identity.users
         .create({ email: 'a@b.cd', password: 'short' })
-        .then(undefined, explain)
+        .then(undefined, (_) => explain(_, 'ru'))
     ).resolves.toBe('Пароль — не короче 10 символов.');
     app.close();
+  });
+
+  it('по-английски — сводка и ошибки тоже', async () => {
+    output.length = 0;
+    await RUN.info!(context([], db, 'en'));
+    const text = output.join('\n');
+    expect(text).toContain('Pages');
+    expect(text).toContain('migrations');
+    expect(text).not.toMatch(/[А-Яа-яЁё]/);
+    expect(
+      RUN.info!(context([], join(dir, 'missing.db'), 'en'))
+    ).rejects.toThrow('No database');
+  });
+
+  it('каркас ложится и на английское приветствие', async () => {
+    const english = join(dir, 'english.db');
+    const app = createApp({ databasePath: english, scaffold: WELCOME_EN });
+    expect(app.content.drafts.tree().map((_) => _.title)).toEqual(['Welcome']);
+    expect(app.site.settings.get().language).toBe('en');
+    app.close();
+    output.length = 0;
+    await RUN.new!(context(['blog'], english, 'en'));
+    expect(output.join('\n')).toContain('Blog “');
   });
 
   it('пользователь, созданный мимо настройки, закрывает ссылку настройки', async () => {

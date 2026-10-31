@@ -1,4 +1,5 @@
 import type { Socket, SocketHandler } from 'bun';
+import { pipe } from '../../../shared/kernel/pipe.ts';
 import type { SendFailure } from '../domain/delivery.ts';
 import type { EmailSender } from '../domain/ports.ts';
 import type { EmailSettings } from '../domain/settings.ts';
@@ -259,24 +260,28 @@ export var defineSmtpSender = (): EmailSender => ({
     _open(settings).then((session) =>
       session
         .greeting([220])
-        .then(() => _hello(session, settings))
-        .then((hello) => _secure(session, settings, hello))
-        .then((hello) => _login(session, settings, hello))
-        .then(() => session.command(`MAIL FROM:<${settings.from}>`, [250]))
-        .then(() =>
-          to.reduce<Promise<unknown>>(
-            (chain, address) =>
-              chain.then(() =>
-                session.command(`RCPT TO:<${address}>`, [250, 251])
+        .then(
+          pipe(
+            () => _hello(session, settings),
+            (hello) => _secure(session, settings, hello),
+            (hello) => _login(session, settings, hello),
+            () => session.command(`MAIL FROM:<${settings.from}>`, [250]),
+            () =>
+              to.reduce<Promise<unknown>>(
+                (chain, address) =>
+                  chain.then(() =>
+                    session.command(`RCPT TO:<${address}>`, [250, 251])
+                  ),
+                Promise.resolve()
               ),
-            Promise.resolve()
+            () => session.command('DATA', [354]),
+            () =>
+              session.data(
+                mimeMessage({ from: settings.from, to, item, site })
+              ),
+            () => session.command('QUIT', [221]).then(undefined, () => null)
           )
         )
-        .then(() => session.command('DATA', [354]))
-        .then(() =>
-          session.data(mimeMessage({ from: settings.from, to, item, site }))
-        )
-        .then(() => session.command('QUIT', [221]).then(undefined, () => null))
         .then(
           () => session.close(),
           (error) => (session.close(), Promise.reject(error))

@@ -1,25 +1,34 @@
 import { api } from './api.ts';
+import {
+  currentLanguage,
+  FALLBACK_LANGUAGE,
+  isLanguage,
+  type Language,
+  loadLanguage,
+  type MessageKey,
+} from './i18n.ts';
 import type { Appearance } from './types.ts';
 
 // Как на сервере (src/contexts/manager/domain/appearance.ts): синий MODX, зелёный — по триаде.
 export var DEFAULT_APPEARANCE: Appearance = {
   accent: '#2f5c96',
   scheme: 'system',
+  language: null,
 };
 
 /** Готовые акценты: оттенки, у которых триада даёт различимые цвета действий и отметок. */
 export var PRESETS: readonly {
-  readonly label: string;
+  readonly label: MessageKey;
   readonly accent: string;
 }[] = [
-  { label: 'Синий MODX', accent: '#2f5c96' },
-  { label: 'Бирюзовый', accent: '#16807a' },
-  { label: 'Зелёный', accent: '#3f8a3a' },
-  { label: 'Янтарный', accent: '#a86a12' },
-  { label: 'Терракота', accent: '#b5492c' },
-  { label: 'Малиновый', accent: '#b0305f' },
-  { label: 'Фиолетовый', accent: '#6d4bb3' },
-  { label: 'Графит', accent: '#55606e' },
+  { label: 'appearance.presetModx', accent: '#2f5c96' },
+  { label: 'appearance.presetTeal', accent: '#16807a' },
+  { label: 'appearance.presetGreen', accent: '#3f8a3a' },
+  { label: 'appearance.presetAmber', accent: '#a86a12' },
+  { label: 'appearance.presetTerracotta', accent: '#b5492c' },
+  { label: 'appearance.presetRaspberry', accent: '#b0305f' },
+  { label: 'appearance.presetViolet', accent: '#6d4bb3' },
+  { label: 'appearance.presetGraphite', accent: '#55606e' },
 ];
 
 const _KEY = 'cms.appearance';
@@ -87,15 +96,73 @@ export var saveAppearance = (next: Appearance): Promise<Appearance> => (
   applyAppearance(next), api.send<Appearance>('PUT', '/appearance', next)
 );
 
-// Схема, выбранная на входе, до сеанса; после входа она становится оформлением пользователя.
+// Схема и язык, выбранные на входе, до сеанса; после входа они становятся оформлением пользователя.
 let _picked: Appearance['scheme'] | null = null;
+let _pickedLanguage: Language | null = null;
 
 export var pickScheme = (scheme: Appearance['scheme']): void => (
   (_picked = scheme), applyAppearance({ ...appearance.current, scheme })
 );
 
-/** После входа: схему с экрана входа — в оформление на сервере, иначе вход бы её сбросил. */
-export var keepPickedScheme = (): Promise<unknown> =>
-  _picked && _picked !== appearance.current.scheme
-    ? saveAppearance({ ...appearance.current, scheme: _picked })
+/** После входа: схему и язык с экрана входа — в оформление на сервере, иначе вход бы их сбросил. */
+export var keepPicked = (): Promise<unknown> =>
+  ((next) =>
+    next.scheme !== appearance.current.scheme ||
+    next.language !== appearance.current.language
+      ? saveAppearance(next)
+      : Promise.resolve())({
+    ...appearance.current,
+    scheme: _picked ?? appearance.current.scheme,
+    language: _pickedLanguage ?? appearance.current.language,
+  });
+
+const _LANGUAGE_KEY = 'cms.language';
+
+/** Язык, на котором нарисован менеджер: корневой макет перерисовывает всё, когда он меняется. */
+export var shown = $state({ language: FALLBACK_LANGUAGE });
+
+// `lang` у страницы — для читалки, переносов и проверки орфографии в полях.
+const _showLanguage = (language: Language): Promise<void> =>
+  loadLanguage(language).then(() => {
+    document.documentElement.lang = language;
+    shown.language = language;
+    try {
+      localStorage.setItem(_LANGUAGE_KEY, language);
+    } catch {}
+  });
+
+const _storedLanguage = (): string | null => {
+  try {
+    return localStorage.getItem(_LANGUAGE_KEY);
+  } catch {
+    return null;
+  }
+};
+
+/** До сеанса: язык из этого браузера, иначе первый подходящий из языков браузера, иначе английский. */
+export var startLanguage = (): Promise<void> =>
+  _showLanguage(
+    ((stored) =>
+      isLanguage(stored)
+        ? stored
+        : (navigator.languages
+            .map((_) => _.slice(0, 2).toLowerCase())
+            .find(isLanguage) ?? FALLBACK_LANGUAGE))(_storedLanguage())
+  );
+
+/** На экране входа: сразу, а после входа он станет языком пользователя. */
+export var pickLanguage = (language: Language): Promise<void> => (
+  (_pickedLanguage = language), _showLanguage(language)
+);
+
+/** Из меню профиля: сразу и в оформление на сервере. */
+export var chooseLanguage = (language: Language): Promise<unknown> =>
+  _showLanguage(language).then(() =>
+    saveAppearance({ ...appearance.current, language })
+  );
+
+/** Пришёл сеанс: язык пользователя, если он его выбирал, а на входе не выбрали другой. */
+export var adoptLanguage = (language: Language | null): Promise<void> =>
+  language && !_pickedLanguage && language !== currentLanguage()
+    ? _showLanguage(language)
     : Promise.resolve();

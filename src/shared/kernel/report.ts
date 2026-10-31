@@ -1,10 +1,14 @@
+import type { Localized } from './manager-language.ts';
+
 /** Сбой или критическое событие, о котором стоит сообщить людям: 500, упавший плагин, перебор пароля. */
 export type Alert = {
   /** Источник: `site.error`, `extensions.plugin_failed`. */
   readonly kind: string;
   readonly severity: 'critical' | 'error' | 'warning' | 'info';
-  readonly title: string;
-  readonly detail: string;
+  /** На каждом языке: уведомление уходит на языке из настроек, журнал читают на своём. */
+  readonly title: Localized;
+  /** Подробности: на каждом языке или одной строкой — стек, текст ошибки. */
+  readonly detail: Localized | string;
   /** Что считать одним и тем же сбоем; по умолчанию — источник и заголовок. */
   readonly key?: string;
 };

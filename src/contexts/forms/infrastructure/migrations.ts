@@ -38,6 +38,22 @@ export var formsMigrations: readonly Migration[] = [
       );
     `,
   },
+  {
+    // Файлы заявок — в базе сайта: личные данные не лежат в каталоге, откуда их мог бы взять кто угодно.
+    id: 'forms/002_files',
+    sql: `
+      CREATE TABLE forms_files (
+        id INTEGER PRIMARY KEY,
+        submission_id INTEGER NOT NULL,
+        field TEXT NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        data BLOB NOT NULL
+      );
+      CREATE INDEX forms_files_submission ON forms_files (submission_id);
+    `,
+  },
 ];
 
 /** Секрет печатей — этого сервера: в копию сайта не попадает, у другого сервера свой. */

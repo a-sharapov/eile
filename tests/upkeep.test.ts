@@ -6,8 +6,10 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -258,6 +260,7 @@ describe('обновления', () => {
       status: 'updated',
       release: { version: '0.2.0' },
       previous: `${binary}.old`,
+      alias: join(binary, '..', 'eile'),
     });
     expect(readFileSync(binary, 'utf8')).toContain('Eile 0.2.0');
     expect(statSync(binary).mode & 0o777).toBe(0o755);
@@ -265,7 +268,40 @@ describe('обновления', () => {
     expect(readdirSync(join(binary, '..')).toSorted()).toEqual([
       'cms',
       'cms.old',
+      'eile',
     ]);
+    // Установка старше второго имени получила ссылку, она ведёт на новый файл.
+    expect(readlinkSync(join(binary, '..', 'eile'))).toBe('cms');
+  });
+
+  it('ссылка на месте cms.old удаляется, а не проходится насквозь', async () => {
+    const binary = installed();
+    const victim = join(binary, '..', 'victim');
+    writeFileSync(victim, 'keep');
+    symlinkSync(victim, `${binary}.old`);
+    await updateProgram({
+      releases: releases(),
+      current: '0.1.0',
+      binary,
+      standalone: true,
+      target: 'linux-x64',
+    });
+    expect(readFileSync(victim, 'utf8')).toBe('keep');
+    expect(readFileSync(`${binary}.old`, 'utf8')).toBe('old');
+  });
+
+  it('свой файл eile рядом обновление не трогает', async () => {
+    const binary = installed();
+    writeFileSync(join(binary, '..', 'eile'), 'mine');
+    const result = await updateProgram({
+      releases: releases(),
+      current: '0.1.0',
+      binary,
+      standalone: true,
+      target: 'linux-x64',
+    });
+    expect(result).toMatchObject({ status: 'updated', alias: null });
+    expect(readFileSync(join(binary, '..', 'eile'), 'utf8')).toBe('mine');
   });
 
   it('--check только сообщает: бинарник не меняется', async () => {

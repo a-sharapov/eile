@@ -21,8 +21,10 @@ let {
   found = 'Найдено: {n}',
   /** Текст, если ничего не нашлось */
   empty = 'Ничего не нашлось. Попробуйте другие слова или более короткий запрос.',
+  /** Выдача по запросу с исправленной опечаткой: {q} — исправленный запрос */
+  corrected = 'По вашему запросу ничего нет. Показаны результаты по запросу «{q}».',
   /** Текст до запроса */
-  hint = 'Введите слово или фразу — поиск найдёт и другие их формы.',
+  hint = 'Введите слово или фразу — поиск найдёт и другие их формы. Точную фразу возьмите в кавычки.',
 }: {
   perPage?: number;
   parent?: number | null;
@@ -31,6 +33,7 @@ let {
   button?: string;
   found?: string;
   empty?: string;
+  corrected?: string;
   hint?: string;
 } = $props();
 
@@ -56,7 +59,11 @@ const results =
   {:else if results.items.length === 0}
     <p class="note" role="status">{empty}</p>
   {:else}
-    <p class="note" role="status">{found.replaceAll('{n}', String(results.total))}</p>
+    {#if results.corrected}
+      <p class="note" role="status">{corrected.replaceAll('{q}', results.corrected)}</p>
+    {:else}
+      <p class="note" role="status">{found.replaceAll('{n}', String(results.total))}</p>
+    {/if}
     <ol class="found">
       {#each results.items as item (item.id)}
         <li>

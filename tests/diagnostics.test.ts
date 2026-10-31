@@ -11,7 +11,7 @@ const ids = (): string[] =>
   app.diagnostics.report(true).findings.map((_) => _.id);
 
 const finding = (id: string) =>
-  app.diagnostics.report(true).findings.find((_) => _.id === id);
+  app.diagnostics.report(true, 'ru').findings.find((_) => _.id === id);
 
 const pageId = (path: string): number => app.content.published.byPath(path)!.id;
 
@@ -141,6 +141,25 @@ describe('отчёт', () => {
     expect(app.diagnostics.report()).not.toBe(first);
     const second = app.diagnostics.report();
     expect(app.diagnostics.report(true)).not.toBe(second);
+  });
+
+  it('тексты находок — на языке менеджера, у каждого языка свой отчёт', () => {
+    app = createApp({ scaffold: DEMO });
+    app.site.settings.update({ siteUrl: '' });
+    const title = (language: 'en' | 'de' | 'ru') =>
+      app.diagnostics
+        .report(false, language)
+        .findings.find((_) => _.id === 'settings.no_site_url')?.title;
+    expect(title('en')).toBe('Site address not set');
+    expect(title('de')).toBe('Adresse der Website nicht angegeben');
+    expect(title('ru')).toBe('Не задан адрес сайта');
+    expect(
+      JSON.stringify(
+        app.diagnostics
+          .report(true, 'en')
+          .findings.map(({ title, hint }) => ({ title, hint }))
+      )
+    ).not.toMatch(/[А-Яа-яЁё]/);
   });
 
   it('свои проверки регистрируются, упавшая — тоже находка, число проблем без info', () => {

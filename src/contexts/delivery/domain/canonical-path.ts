@@ -5,7 +5,7 @@ const _unsafe = (segment: string): boolean =>
 
 /** Единственный адрес страницы: без пустых сегментов и завершающего `/`. null — путь не может вести на страницу. */
 export var canonicalPath = (path: string): string | null =>
-  pipe<string, string | null>(
+  pipe(
     (_: string) => _.split('/').filter(Boolean),
     (segments: string[]) =>
       segments.some(_unsafe) ? null : `/${segments.join('/')}`

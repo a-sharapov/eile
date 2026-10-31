@@ -121,4 +121,13 @@ export var contentMigrations: readonly Migration[] = [
       CREATE INDEX content_revisions_page ON content_revisions (page_id, id);
     `,
   },
+  {
+    // Набор переводов: перевод указывает на исходную страницу (hreflang, переключатель языка).
+    id: 'content/009_translations',
+    sql: `
+      ALTER TABLE content_pages ADD COLUMN translation_of INTEGER;
+      CREATE INDEX content_pages_translation ON content_pages (translation_of)
+        WHERE translation_of IS NOT NULL;
+    `,
+  },
 ];

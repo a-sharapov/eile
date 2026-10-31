@@ -117,7 +117,7 @@ export var defineRedirectsService = ({
 
   // Проверка и запись без события: импорт шлёт одно событие на весь файл.
   const write = (input: RuleInput, id: number | null): SavedRule =>
-    pipe<RuleInput, SavedRule>(
+    pipe(
       parseRule,
       (draft: RuleDraft) => refuseTaken(draft, id),
       (draft: RuleDraft) => (

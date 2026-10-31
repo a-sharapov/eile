@@ -47,13 +47,13 @@ export var defineDesignService = ({
       : null;
 
   const assertAcyclic = (change: ElementChange): ElementChange =>
-    pipe<Element, ElementChange>(cycleOf, (cycle: ElementName[] | null) =>
+    pipe(cycleOf, (cycle: ElementName[] | null) =>
       cycle
         ? fail('design.import_cycle', `Import cycle: ${cycle.join(' → ')}`)
         : change
     )(change.state);
 
-  const persist = pipe<ElementChange, void>(
+  const persist = pipe(
     assertAcyclic,
     (_: ElementChange) => (compiler.check(_.state), _),
     (_: ElementChange) => (elements.save(_.state), _),
@@ -82,7 +82,7 @@ export var defineDesignService = ({
   const save =
     (kind: ElementKind) =>
     (name: string, source: string): void =>
-      pipe<string, void>(
+      pipe(
         parseElementName,
         (_: ElementName) =>
           _changeOrCreate(elements.get(kind, _), kind, _, source),
@@ -106,7 +106,7 @@ export var defineDesignService = ({
       .map((_) => _.name);
 
   const remove = (kind: ElementKind, name: string): void =>
-    pipe<Element, void>(
+    pipe(
       (_: Element) =>
         kind === 'component' && importers(_.name).length > 0
           ? fail(

@@ -34,8 +34,25 @@ describe('aliasFromTitle', () => {
     ['Щука и ёж', 'schuka-i-ezh'],
     ['Café — Menu!', 'cafe-menu'],
     ['  Hello,   World  ', 'hello-world'],
+    ['Straße', 'strasse'],
+    ['Łódź', 'lodz'],
+    ['Smørrebrød', 'smorrebrod'],
+    ['Ærø', 'aero'],
+    ['İstanbul ılık', 'istanbul-ilik'],
+    ['Đorđe', 'dorde'],
+    ['Œuvre', 'oeuvre'],
+    ['Über uns', 'uber-uns'],
   ])('%p → %p', (title, alias) => {
     expect(aliasFromTitle(title) as string).toBe(alias);
+  });
+
+  it('у немецкой страницы умлауты — с e, у остальных — без точек', () => {
+    expect(aliasFromTitle('Über uns: Größe', 'de') as string).toBe(
+      'ueber-uns-groesse'
+    );
+    expect(aliasFromTitle('Ärzte', 'de-AT') as string).toBe('aerzte');
+    expect(aliasFromTitle('Ürünler', 'tr') as string).toBe('urunler');
+    expect(aliasFromTitle('Hämeenlinna', 'fi') as string).toBe('hameenlinna');
   });
 
   it('отказывает, если в заголовке нет букв и цифр', () => {

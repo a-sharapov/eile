@@ -1,7 +1,7 @@
 import { api } from './api.ts';
 import { ask } from './dialog.svelte.ts';
 import { pageRef } from './format.ts';
-import { t } from './i18n.ts';
+import { quoted, t } from './i18n.ts';
 import { notify } from './notices.svelte.ts';
 import type { FormSummary, PageRef } from './types.ts';
 
@@ -23,7 +23,7 @@ export var removeForm = (form: {
     .get<{ pages: PageRef[] }>(`/forms/${form.name}/usage`)
     .then(({ pages }) =>
       ask({
-        title: `${t('formEditor.removeTitle')} «${form.title}»`,
+        title: `${t('formEditor.removeTitle')} ${quoted(form.title)}`,
         body: t(
           pages.length > 0
             ? 'formEditor.removeUsedBody'

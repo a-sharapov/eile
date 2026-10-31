@@ -22,6 +22,9 @@ Biome (`biome.json`): 2 пробела, 80 колонок, одинарные к
 - Если над значением выполняется два шага или больше, это `pipe(a, b, c)(x)` из `shared/kernel/pipe.ts`.
   Шаг, который вернул Promise, переводит остаток цепочки на `.then`. `null`, `0` и `''` передаются дальше как
   значения.
+- `pipe` проверяет каждый стык: шаг получает ответ предыдущего (после Promise — его значение), ответ
+  цепочки — Promise, если хоть один шаг асинхронный. Аргументы типа не пишутся, аннотируется только
+  параметр первого шага-лямбды.
 - Шаг — одно преобразование без мутации. Лямбда с одним параметром пишется как `(_) => …`. Имя параметра
   даётся, только если он используется больше одного раза или без имени шаг читается хуже.
 - Шаги называют глаголами: `assertAliasFree`, `rewrite`, `register`. В `pipe` они читаются сверху вниз
@@ -31,7 +34,7 @@ Biome (`biome.json`): 2 пробела, 80 колонок, одинарные к
 - Побочный эффект ставится на краю цепочки или пишется шагом `(_) => (effect(_), _)`.
 
 ```ts
-const store = pipe<PageChange, PageId>(
+const store = pipe(
   assertAliasFree,
   (_: PageChange) => (pages.save(_.state), _),
   (_: PageChange) => (_.events.forEach(bus.publish), _.state.id)
@@ -55,6 +58,22 @@ const store = pipe<PageChange, PageId>(
 
 - Асинхронные цепочки пишутся как `.then(_handle, _catch)` с именованными шагами, а не через
   `async`/`await` с `try`/`catch`.
+- Сценарий из нескольких шагов — один `.then` с `pipe`, а не цепочка `.then(a).then(b).then(c)`: шаги
+  читаются списком, как синхронные, и tsc проверяет стыки. Отдельный `.then` нужен для ответа на отказ и на
+  границе, где Promise приходит снаружи.
+
+```ts
+login: (email: string, password: string, client = ''): Promise<Login> =>
+  Promise.resolve(email).then(
+    pipe(
+      parseEmail,
+      (_) => reserve(_, client),
+      verify(String(password), client),
+      openSession
+    )
+  ),
+```
+
 - Код, который может бросить синхронно, заворачивается в `Promise.resolve(x).then(step)`, чтобы ошибка
   стала отказом Promise (см. `views.template`, `delivery.deliver`).
 - `async`/`await` допустим только в тестах.

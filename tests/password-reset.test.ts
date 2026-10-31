@@ -48,7 +48,8 @@ const json = (response: Response) => response.json() as Promise<any>;
 const forgot = (email: string, client?: string) =>
   call('POST', '/password/forgot', { email }, { client });
 
-const configureEmail = () =>
+// Сброс работает, когда настроена почта и задан адрес сайта: ссылка в письме строится от него.
+const configureEmail = () => (
   app.notify.settings.save({
     email: {
       host: 'smtp.example.com',
@@ -57,7 +58,9 @@ const configureEmail = () =>
       from: 'site@example.com',
       to: 'boss@example.com',
     },
-  });
+  }),
+  app.site.settings.update({ siteUrl: 'http://localhost' })
+);
 
 const tokenOf = (letter: { message: Message }): string =>
   new URL(letter.message.link!.url).searchParams.get('token')!;
@@ -108,6 +111,29 @@ describe('«Забыли пароль?»', () => {
     );
   });
 
+  it('без адреса сайта сброса нет: ссылку не собрать из подделанного Host', async () => {
+    configureEmail();
+    app.site.settings.update({ siteUrl: '' });
+    expect((await json(await call('GET', '/session'))).passwordReset).toBe(
+      false
+    );
+    const response = await forgot('admin@example.com');
+    expect((await json(response)).error.code).toBe('manager.reset_unavailable');
+    app.site.settings.update({ siteUrl: 'https://site.example' });
+    await app.fetch(
+      new Request('http://attacker.example/manager/api/password/forgot', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'admin@example.com' }),
+      }),
+      from('10.0.0.9')
+    );
+    await settle();
+    expect(letters.at(-1)!.message.link!.url).toStartWith(
+      'https://site.example/manager/reset?token='
+    );
+  });
+
   it('адрес сайта из настроек — в ссылке письма', async () => {
     configureEmail();
     app.site.settings.update({ siteUrl: 'https://site.example' });
@@ -116,6 +142,30 @@ describe('«Забыли пароль?»', () => {
     expect(letters[0]!.message.link!.url).toStartWith(
       'https://site.example/manager/reset?token='
     );
+  });
+
+  it('письмо — на языке страницы, с которой попросили сброс', async () => {
+    configureEmail();
+    const ask = (language: string) =>
+      app.fetch(
+        new Request('http://localhost/manager/api/password/forgot', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'accept-language': language,
+          },
+          body: JSON.stringify({ email: 'admin@example.com' }),
+        }),
+        from(`10.0.0.${language.length}`)
+      );
+    await ask('de');
+    await settle();
+    expect(letters.at(-1)!.message.title).toBe(
+      'Neues Passwort für den Website-Manager'
+    );
+    await ask('ru-RU,ru;q=0.9');
+    await settle();
+    expect(letters.at(-1)!.message.link!.label).toBe('Задать новый пароль');
   });
 
   it('ответ одинаковый, есть такая почта или нет', async () => {

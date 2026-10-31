@@ -46,13 +46,16 @@ describe('промпт', () => {
       _site,
       'Пишем на «вы»'
     );
-    expect(prompt.system).toContain('«Кухни на заказ»');
-    expect(prompt.system).toContain('Поле: «Заголовок»');
-    expect(prompt.system).toContain('Не длиннее 60 знаков');
+    expect(prompt.system).toContain('"Кухни на заказ"');
+    expect(prompt.system).toContain('Write in the site language (ru)');
+    expect(prompt.system).toContain('Field: "Заголовок"');
+    expect(prompt.system).toContain('At most 60 characters');
     expect(prompt.system).toContain('- Путь: /o-nas');
-    expect(prompt.system).toContain('Указания владельца сайта: Пишем на «вы»');
-    expect(prompt.user).toContain('Запрос: сделай живее');
-    expect(prompt.user).toContain('Текущее значение поля:\nКухни');
+    expect(prompt.system).toContain(
+      "The site owner's instructions: Пишем на «вы»"
+    );
+    expect(prompt.user).toContain('Request: сделай живее');
+    expect(prompt.user).toContain('Current field value:\nКухни');
   });
 
   it('для шаблона — правила шаблонов и ответ целым файлом', () => {
@@ -63,7 +66,8 @@ describe('промпт', () => {
       ''
     );
     expect(prompt.system).toContain('let { page, site } = $props();');
-    expect(prompt.system).toContain('Верни файл целиком');
+    expect(prompt.system).toContain('<Content of={page} />');
+    expect(prompt.system).toContain('Return the whole file');
     expect(prompt.temperature).toBeLessThan(0.5);
   });
 

@@ -1,3 +1,5 @@
+import type { ManagerLanguage } from '../../../shared/kernel/manager-language.ts';
+
 /** Канал уведомлений: бот Telegram или почта. */
 export type ChannelKind = 'telegram' | 'email';
 
@@ -37,6 +39,8 @@ export type Message = {
   /** Ответить на письмо — этому адресу: почта посетителя. */
   readonly replyTo: string | null;
   readonly severity: Severity | null;
+  /** Язык подписей; в очереди со старых версий его нет — те собраны по-русски. */
+  readonly language?: ManagerLanguage;
 };
 
 export var message = (
@@ -52,17 +56,33 @@ export var message = (
   ...input,
 });
 
-const _SEVERITY_LABEL: Readonly<Record<Severity, string>> = {
-  critical: 'Критично',
-  error: 'Ошибка',
-  warning: 'Внимание',
-  info: 'Для сведения',
+const _SEVERITY_LABEL: Readonly<
+  Record<ManagerLanguage, Readonly<Record<Severity, string>>>
+> = {
+  en: {
+    critical: 'Critical',
+    error: 'Error',
+    warning: 'Warning',
+    info: 'For your information',
+  },
+  de: {
+    critical: 'Kritisch',
+    error: 'Fehler',
+    warning: 'Achtung',
+    info: 'Zur Information',
+  },
+  ru: {
+    critical: 'Критично',
+    error: 'Ошибка',
+    warning: 'Внимание',
+    info: 'Для сведения',
+  },
 };
 
 /** Заголовок с важностью: «Критично: сайт отвечает 500». */
 export var headline = (item: Message): string =>
   item.severity
-    ? `${_SEVERITY_LABEL[item.severity]}: ${item.title}`
+    ? `${_SEVERITY_LABEL[item.language ?? 'ru'][item.severity]}: ${item.title}`
     : item.title;
 
 /** Ссылка в уведомлении — только http(s): `javascript:` из заявки в письмо не попадёт. */

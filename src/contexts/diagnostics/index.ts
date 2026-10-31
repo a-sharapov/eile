@@ -11,6 +11,7 @@ import {
   type SiteFacts,
   settingsChecks,
 } from './domain/site-checks.ts';
+import { CHECK_TEXTS } from './domain/texts.ts';
 
 export type { DiagnosticsService } from './application/diagnostics-service.ts';
 export type {
@@ -47,13 +48,13 @@ export var defineDiagnostics = ({
   // Один снимок на все встроенные проверки: сайт читается один раз за отчёт.
   service.register({
     id: 'site',
-    run: () =>
-      ((index) => [
-        ...linkChecks(index),
-        ...pageChecks(index),
-        ...mediaChecks(index),
-        ...settingsChecks(index),
-      ])(indexFacts(facts())),
+    run: (language) =>
+      ((index, say) => [
+        ...linkChecks(index, say),
+        ...pageChecks(index, say),
+        ...mediaChecks(index, say, language),
+        ...settingsChecks(index, say),
+      ])(indexFacts(facts()), CHECK_TEXTS[language]),
   });
   return service;
 };

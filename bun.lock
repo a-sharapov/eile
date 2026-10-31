@@ -5,6 +5,7 @@
     "": {
       "name": "cms",
       "dependencies": {
+        "acorn": "8.19.0",
         "svelte": "5.57.3",
       },
       "devDependencies": {

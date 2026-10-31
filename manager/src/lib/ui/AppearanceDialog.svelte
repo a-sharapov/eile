@@ -68,10 +68,10 @@ const save = (event: SubmitEvent) => (
         <legend class="label">{t('appearance.accent')}</legend>
         <div class="swatches">
           {#each PRESETS as preset (preset.accent)}
-            <label class="swatch" title={preset.label}>
+            <label class="swatch" title={t(preset.label)}>
               <input type="radio" name="accent" value={preset.accent} checked={draft.accent === preset.accent} onchange={() => pick({ accent: preset.accent })} />
               <span class="chip" style:background={preset.accent}></span>
-              <span class="sr-only">{preset.label}</span>
+              <span class="sr-only">{t(preset.label)}</span>
             </label>
           {/each}
           <label class="custom">

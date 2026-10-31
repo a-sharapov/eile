@@ -75,8 +75,16 @@ export var defineNotify = ({
         service.incidents.report({
           kind: 'server.recovered',
           severity: 'warning',
-          title: 'Сервер перезапущен без штатной остановки',
-          detail: `Прошлый запуск — ${crashed}: процесс завершился без остановки (сбой, нехватка памяти или kill -9).`,
+          title: {
+            en: 'The server restarted without a clean shutdown',
+            de: 'Der Server wurde ohne ordnungsgemäßes Herunterfahren neu gestartet',
+            ru: 'Сервер перезапущен без штатной остановки',
+          },
+          detail: {
+            en: `Previous start: ${crashed}. The process ended without stopping (a crash, out of memory or kill -9).`,
+            de: `Letzter Start: ${crashed}. Der Prozess endete ohne Herunterfahren (Absturz, Speichermangel oder kill -9).`,
+            ru: `Прошлый запуск — ${crashed}: процесс завершился без остановки (сбой, нехватка памяти или kill -9).`,
+          },
         })
       );
       return () => (

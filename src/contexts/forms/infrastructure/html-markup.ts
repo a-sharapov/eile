@@ -1,6 +1,13 @@
 import { HONEYPOT } from '../domain/form.ts';
 import type { FormMarkup, FormView } from '../domain/ports.ts';
-import type { FieldKind, FieldSpec, Option } from '../domain/schema.ts';
+import {
+  FILE_LIMITS,
+  type FieldKind,
+  type FieldSpec,
+  type FormTexts,
+  type Option,
+  parseShowIf,
+} from '../domain/schema.ts';
 import { ENHANCE_URL } from './enhance.ts';
 import styles from './form.css' with { type: 'text' };
 
@@ -42,18 +49,12 @@ type Wrapper = {
   readonly kind: string;
   label: string;
   readonly message: string;
+  readonly showIf: string;
 };
 type Box = { text: string; readonly target: string };
 
-// Кнопки и файлы — не поля заявки.
-const _SKIPPED = new Set([
-  'submit',
-  'button',
-  'reset',
-  'image',
-  'file',
-  'password',
-]);
+// Кнопки и пароли — не поля заявки.
+const _SKIPPED = new Set(['submit', 'button', 'reset', 'image', 'password']);
 
 const _INPUT_KINDS: Readonly<Record<string, FieldKind>> = {
   email: 'email',
@@ -65,7 +66,14 @@ const _INPUT_KINDS: Readonly<Record<string, FieldKind>> = {
   'datetime-local': 'datetime-local',
   range: 'range',
   hidden: 'hidden',
+  file: 'file',
 };
+
+// Предел файла из data-max-size в мегабайтах; больше потолка не бывает, иначе заявка — склад.
+const _maxSize = (value: string | undefined): number | null =>
+  value !== undefined && /^\d+(?:\.\d+)?$/.test(value)
+    ? Math.min(FILE_LIMITS.ceiling, Math.round(Number(value) * 1024 * 1024))
+    : null;
 
 const _number = (value: string | undefined): number | null =>
   value !== undefined && /^\d+$/.test(value) ? Number(value) : null;
@@ -87,6 +95,7 @@ const _scan = (source: string) => {
           kind: el.getAttribute('data-field') ?? '',
           label: _clean(el.getAttribute('data-label') ?? ''),
           message: _clean(el.getAttribute('data-message') ?? ''),
+          showIf: decodeEntities(el.getAttribute('data-show-if') ?? ''),
         };
         wrappers.push(wrapper);
         el.onEndTag(() => void wrappers.pop());
@@ -232,6 +241,17 @@ const _field = (
           : [],
     source: attributes['data-source'] ?? null,
     message: first.wrapper?.message || attributes['data-message'] || null,
+    showIf: parseShowIf(
+      first.wrapper?.showIf || attributes['data-show-if'] || ''
+    ),
+    accept:
+      kind === 'file'
+        ? (attributes.accept ?? '')
+            .split(',')
+            .map((_) => _.trim().toLowerCase())
+            .filter(Boolean)
+        : [],
+    maxSize: kind === 'file' ? _maxSize(attributes['data-max-size']) : null,
   };
 };
 
@@ -335,6 +355,7 @@ const _filled = (view: FormView, prefix: string): string => {
                 ? el.setInnerContent(postedOf(name)[0] ?? '')
                 : el.tagName === 'input' &&
                   type !== 'hidden' &&
+                  type !== 'file' &&
                   el.setAttribute('value', _attr(postedOf(name)[0] ?? '')),
             el.tagName === 'select' &&
               ((select = postedOf(name)),
@@ -355,6 +376,32 @@ const _filled = (view: FormView, prefix: string): string => {
   );
 };
 
+// Файлы уходят только в multipart: без него браузер пришлёт одно имя файла.
+const _hasFiles = (source: string): boolean =>
+  /<input\b[^>]*\btype\s*=\s*["']?file\b/i.test(source);
+
+const _hasSteps = (source: string): boolean => /\bdata-step\s*=/i.test(source);
+
+// Тексты для скрипта — атрибутами формы: ошибки отправки всегда, кнопки шагов — если шаги есть.
+const _data = (texts: FormTexts, steps: boolean): string =>
+  [
+    ['failed', texts.failed],
+    ['offline', texts.offline],
+    ['too-large', texts.tooLarge],
+    ...(steps
+      ? [
+          ['next', texts.next],
+          ['back', texts.back],
+          ['progress', texts.progress],
+        ]
+      : []),
+  ]
+    .map(({ 0: name, 1: value }) => ` data-${name}="${Bun.escapeHTML(value!)}"`)
+    .join('');
+
+// Стили форм встраиваются в каждую страницу с формой: без комментариев — короче и без чужого языка.
+const _STYLES = (styles as unknown as string).replace(/\/\*[\s\S]*?\*\//g, '');
+
 const _hasSubmit = (source: string): boolean =>
   /<button\b(?![^>]*\btype\s*=\s*["']?(?:button|reset)\b)|<input\b[^>]*\btype\s*=\s*["']?submit\b/i.test(
     source
@@ -366,13 +413,13 @@ export var htmlMarkup: FormMarkup = {
   render: (view) => {
     const body = _filled(view, `${view.name}-`);
     return [
-      `<form class="cms-form" id="form-${Bun.escapeHTML(view.name)}" data-cms-form="${Bun.escapeHTML(view.name)}" data-goal="${Bun.escapeHTML(view.goal)}" method="post" action="${Bun.escapeHTML(view.action)}">`,
+      `<form class="cms-form" id="form-${Bun.escapeHTML(view.name)}" data-cms-form="${Bun.escapeHTML(view.name)}" data-goal="${Bun.escapeHTML(view.goal)}" method="post" action="${Bun.escapeHTML(view.action)}"${_hasFiles(view.source) ? ' enctype="multipart/form-data"' : ''}${_data(view.texts, _hasSteps(view.source))}>`,
       _hidden('_page', view.pageId === null ? '' : String(view.pageId)),
       _hidden('_stamp', view.stamp.token),
       _hidden('_iat', String(view.stamp.iat)),
       _hidden('_utm', view.utm),
       _hidden('_ref', view.referrer),
-      `<div class="cms-trap" aria-hidden="true"><label>Оставьте пустым <input name="${HONEYPOT}" tabindex="-1" autocomplete="off"></label></div>`,
+      `<div class="cms-trap" aria-hidden="true"><label>${Bun.escapeHTML(view.texts.trap)} <input name="${HONEYPOT}" tabindex="-1" autocomplete="off"></label></div>`,
       view.message
         ? `<p class="cms-form-message" role="alert">${Bun.escapeHTML(view.message)}</p>`
         : '',
@@ -385,5 +432,5 @@ export var htmlMarkup: FormMarkup = {
   },
   sent: (name, text) =>
     `<div class="cms-form cms-form-sent" id="form-${Bun.escapeHTML(name)}" role="status"><p>${Bun.escapeHTML(text)}</p></div>`,
-  head: `<style data-cms-form>${styles as unknown as string}</style><script type="module" src="${ENHANCE_URL}"></script>`,
+  head: `<style data-cms-form>${_STYLES}</style><script type="module" src="${ENHANCE_URL}"></script>`,
 };

@@ -102,9 +102,9 @@ const fitNote = $derived(
   ((size, file) =>
     size && file?.width && file.height
       ? Math.abs(file.width / file.height - size.width / size.height) > 0.05
-        ? `${t('picker.ratioOff')} ${size.width}×${size.height}.`
+        ? t('picker.ratioOff', { size: `${size.width}×${size.height}` })
         : file.width < size.width
-          ? `${t('picker.tooSmall')} ${size.width}×${size.height}.`
+          ? t('picker.tooSmall', { size: `${size.width}×${size.height}` })
           : null
       : null)(picker.current?.size, chosen)
 );
@@ -167,7 +167,7 @@ const pickFile = (file: MediaFile) => (
       <label class="upload">
         <span class="button">{@html icons.upload}{t(uploading ? 'picker.uploading' : 'picker.upload')}</span>
         <input class="sr-only" type="file" multiple accept={current.images ? 'image/*' : undefined} disabled={uploading} aria-label={t('picker.upload')} aria-describedby="picker-upload-hint" onchange={(e) => send(e.currentTarget.files)} />
-        <span id="picker-upload-hint" class="muted">{t('picker.uploadHint')} {folder || uploadFolder()}</span>
+        <span id="picker-upload-hint" class="muted">{t('picker.uploadHint', { folder: folder || uploadFolder() })}</span>
       </label>
       {#if current.describe}
         <label>

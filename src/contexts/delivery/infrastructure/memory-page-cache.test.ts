@@ -6,6 +6,7 @@ import { defineMemoryPageCache } from './memory-page-cache.ts';
 const page = (tag: string): CachedPage => ({
   content: { html: 'x'.repeat(100) },
   contentType: 'text/html',
+  pageId: 1,
   tags: new Set([tag]),
 });
 

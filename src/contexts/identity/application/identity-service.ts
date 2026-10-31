@@ -247,17 +247,16 @@ export var defineIdentityService = ({
     };
 
   const create = (input: NewUser & { password: string }): Promise<User> =>
-    Promise.resolve(input.password)
-      .then(checkPassword)
-      .then(hasher.hash)
-      .then((hash) =>
+    Promise.resolve(input.password).then(
+      pipe(checkPassword, hasher.hash, (hash) =>
         users.byEmail(parseEmail(input.email))
           ? fail(
               'identity.email_taken',
               `${input.email} already has an account`
             )
           : store(createUser(users.nextId(), input, hash))
-      );
+      )
+    );
 
   const admins = (): User[] => users.all().filter((_) => _.role === 'admin');
 
@@ -293,17 +292,20 @@ export var defineIdentityService = ({
     },
     /** `client` — адрес посетителя: неудачи считаются на почту с этого адреса. */
     login: (email: string, password: string, client = ''): Promise<Login> =>
-      Promise.resolve(email)
-        .then(parseEmail)
-        .then((_) => reserve(_, client))
-        .then(verify(String(password), client))
-        .then(openSession),
+      Promise.resolve(email).then(
+        pipe(
+          parseEmail,
+          (_) => reserve(_, client),
+          verify(String(password), client),
+          openSession
+        )
+      ),
     logout: (token: string): void => sessions.remove(tokens.hash(token)),
     /** Сброс пароля по ссылке из письма; само письмо отправляет тот, кто знает почту сайта. */
     recovery: {
       /** Ссылка для письма или null, если такой почты нет: отвечать на запрос надо одинаково. */
       request: (email: string, client = ''): ResetLink | null =>
-        pipe<string, ResetLink | null>(
+        pipe(
           parseEmail,
           (_: Email) => reserveReset(_, client),
           (_: Email) =>
@@ -316,19 +318,19 @@ export var defineIdentityService = ({
        * гасится до хеширования: второй такой же запрос её уже не найдёт. Все сеансы закрываются.
        */
       reset: (token: string, password: string): Promise<UserView> =>
-        Promise.resolve(password)
-          .then(checkPassword)
-          .then((valid) =>
-            ((reset) => (resets.removeOf(reset.userId), { reset, valid }))(
-              resetOf(token) ?? _invalidReset()
-            )
+        Promise.resolve(password).then(
+          pipe(
+            checkPassword,
+            (valid) =>
+              ((reset) => (resets.removeOf(reset.userId), { reset, valid }))(
+                resetOf(token) ?? _invalidReset()
+              ),
+            ({ reset, valid }) =>
+              hasher.hash(valid).then((hash) => ({ reset, hash })),
+            ({ reset, hash }) => store(resetPassword(hash)(load(reset.userId))),
+            (user) => (sessions.removeOf(user.id), _view(user))
           )
-          .then(({ reset, valid }) =>
-            hasher
-              .hash(valid)
-              .then((hash) => store(resetPassword(hash)(load(reset.userId))))
-          )
-          .then((user) => (sessions.removeOf(user.id), _view(user))),
+        ),
     },
     account: {
       /**
@@ -341,16 +343,19 @@ export var defineIdentityService = ({
         password: string,
         client = ''
       ): Promise<Login> =>
-        Promise.resolve(load(id).email)
-          .then((_) => reserve(_, client))
-          .then(verify(String(current), client))
-          .then((user) =>
-            Promise.resolve(password)
-              .then(checkPassword)
-              .then(hasher.hash)
-              .then((hash) => store(changePassword(hash)(user)))
+        Promise.resolve(load(id).email).then(
+          pipe(
+            (_) => reserve(_, client),
+            verify(String(current), client),
+            (user) =>
+              Promise.resolve(password).then(
+                pipe(checkPassword, hasher.hash, (hash) =>
+                  store(changePassword(hash)(user))
+                )
+              ),
+            (user) => (sessions.removeOf(user.id), openSession(user))
           )
-          .then((user) => (sessions.removeOf(user.id), openSession(user))),
+        ),
     },
     authenticate: (token: string | null): UserView | null => {
       const session = token === null ? null : sessions.get(tokens.hash(token));
@@ -381,7 +386,7 @@ export var defineIdentityService = ({
       create: (input: NewUser & { password: string }): Promise<UserView> =>
         create(input).then(_view),
       setRole: (id: number, role: string): UserView =>
-        pipe<number, UserView>(
+        pipe(
           load,
           (_: User) => (role === 'admin' ? _ : assertNotLastAdmin(_)),
           changeRole(role),
@@ -389,13 +394,16 @@ export var defineIdentityService = ({
           _view
         )(id),
       setPassword: (id: number, password: string): Promise<UserView> =>
-        Promise.resolve(password)
-          .then(checkPassword)
-          .then(hasher.hash)
-          .then((hash) => store(changePassword(hash)(load(id))))
-          .then((_) => (sessions.removeOf(_.id), _view(_))),
+        Promise.resolve(password).then(
+          pipe(
+            checkPassword,
+            hasher.hash,
+            (hash) => store(changePassword(hash)(load(id))),
+            (_) => (sessions.removeOf(_.id), _view(_))
+          )
+        ),
       remove: (id: number): void =>
-        pipe<number, void>(load, assertNotLastAdmin, (_: User) => {
+        pipe(load, assertNotLastAdmin, (_: User) => {
           sessions.removeOf(_.id);
           users.remove(_.id);
           bus.publish(_removed(_.id));

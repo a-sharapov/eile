@@ -183,7 +183,7 @@ const pick = (next: View) => {
         {/each}
       </ol>
     {:else}
-      <a class="hidden-count" href={href(node)}>{t('overview.hidden')} {descendantsOf(node.id).filter((_) => !inTrash(_)).length}</a>
+      <a class="hidden-count" href={href(node)}>{t('overview.hidden', { n: descendantsOf(node.id).filter((_) => !inTrash(_)).length })}</a>
     {/if}
   {/if}
 {/snippet}
@@ -272,7 +272,7 @@ const pick = (next: View) => {
               <i class="status-node" aria-hidden="true"></i>
               <div>
                 <a href={href(node)}>{node.title}</a>
-                <p class="muted">{t('page.scheduledFor')} {moment(node.publishAt!)}</p>
+                <p class="muted">{t('page.scheduledFor', { when: moment(node.publishAt!) })}</p>
               </div>
             </li>
           {/each}

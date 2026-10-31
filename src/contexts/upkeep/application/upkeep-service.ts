@@ -89,8 +89,16 @@ export var defineUpkeepService = ({
     report({
       kind: 'upkeep.backup_failed',
       severity: 'error',
-      title: 'Не сделалась автоматическая копия сайта',
-      detail: `${message}\nКаталог копий: ${copier.folder(repository.get().schedule)}`,
+      title: {
+        en: 'The automatic site backup failed',
+        de: 'Die automatische Sicherung der Website ist fehlgeschlagen',
+        ru: 'Не сделалась автоматическая копия сайта',
+      },
+      detail: ((folder) => ({
+        en: `${message}\nBackup folder: ${folder}`,
+        de: `${message}\nOrdner der Sicherungen: ${folder}`,
+        ru: `${message}\nКаталог копий: ${folder}`,
+      }))(copier.folder(repository.get().schedule)),
       key: 'upkeep.backup_failed',
     });
     throw domainError('upkeep.backup_failed', message);

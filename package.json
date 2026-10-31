@@ -1,6 +1,6 @@
 {
   "name": "cms",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "Fast, elegant CMS in the spirit of MODX Evo: Bun + SQLite + Svelte, shipped as one binary",
   "license": "GPL-3.0-or-later",
   "type": "module",
@@ -17,9 +17,11 @@
     "check": "bun run lint && bun run typecheck && bun run --cwd manager check && bun run test",
     "build:manager": "bun run --cwd manager build",
     "build": "bun scripts/build.ts",
-    "release": "bun scripts/release.ts"
+    "release": "bun scripts/release.ts",
+    "site": "bun site/build.ts"
   },
   "dependencies": {
+    "acorn": "8.19.0",
     "svelte": "5.57.3"
   },
   "devDependencies": {

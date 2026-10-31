@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { isDomainError } from '../../../shared/kernel/errors.ts';
 import { createForm, editForm, parseFormName } from './form.ts';
-import { checkValues, type FieldSpec } from './schema.ts';
+import { checkValues, type FieldSpec, isShown } from './schema.ts';
 import { resolveSource, type SourceContext, utmOf } from './sources.ts';
 import {
   changeSubmission,
@@ -35,6 +35,9 @@ const field = (patch: Partial<FieldSpec>): FieldSpec => ({
   options: [],
   source: null,
   message: null,
+  showIf: null,
+  accept: [],
+  maxSize: null,
   ...patch,
 });
 
@@ -177,6 +180,102 @@ describe('проверка значений по HTML5', () => {
     expect(check({ pattern: '([' }, ['что угодно']).errors).toEqual({});
     // Под флагом v скобки и дефис в классе экранируются, иначе браузер шаблон пропустит.
     expect(check({ pattern: '[0-9 ()-]{10,}' }, ['12']).errors).toEqual({});
+  });
+});
+
+describe('условные поля и файлы', () => {
+  const delivery = field({
+    name: 'delivery',
+    kind: 'radio',
+    options: [
+      { value: 'courier', label: 'Курьер' },
+      { value: 'pickup', label: 'Самовывоз' },
+    ],
+  });
+  const address = field({
+    name: 'address',
+    required: true,
+    showIf: { field: 'delivery', values: ['courier'] },
+  });
+  const floor = field({
+    name: 'floor',
+    required: true,
+    showIf: { field: 'address', values: [] },
+  });
+
+  it('скрытое условием поле не проверяется и в заявку не идёт, показанное — проверяется', () => {
+    const fields = [delivery, address, floor];
+    const pickup = checkValues(
+      fields,
+      { delivery: ['pickup'], address: ['ул. Ленина'], floor: [''] },
+      'ru'
+    );
+    expect(pickup.errors).toEqual({});
+    expect(pickup.values.map((_) => _.name)).toEqual(['delivery']);
+    const courier = checkValues(fields, { delivery: ['courier'] }, 'ru');
+    // Этаж зависит от адреса, а адрес пуст — этаж скрыт, адрес обязателен.
+    expect(Object.keys(courier.errors)).toEqual(['address']);
+  });
+
+  it('условие на поле-файл: приложили файл — зависимое поле показано и сохраняется', () => {
+    const cv = field({ name: 'cv', kind: 'file' });
+    const note = field({
+      name: 'note',
+      required: true,
+      showIf: { field: 'cv', values: [] },
+    });
+    const checked = checkValues([cv, note], { note: ['см. файл'] }, 'ru', {
+      cv: [{ name: 'cv.pdf', type: 'application/pdf', size: 10 }],
+    });
+    expect(checked.values.map((_) => _.name)).toEqual(['cv', 'note']);
+    expect(checkValues([cv, note], {}, 'ru').errors).toEqual({});
+  });
+
+  it('у поля с multiple проверяется каждое значение', () => {
+    const emails = field({ name: 'x', kind: 'email', multiple: true });
+    expect(
+      checkValues([emails], { x: ['a@b.ru', 'not an email'] }, 'ru').errors
+    ).toEqual({ x: 'Нужен адрес почты: name@example.com' });
+  });
+
+  it('условие на поле, которого нет в форме, не скрывает', () => {
+    expect(
+      isShown([address], {}, field({ showIf: { field: 'nope', values: [] } }))
+    ).toBe(true);
+  });
+
+  it('файл: обязательность, размер, тип по расширению и по типу, один без multiple', () => {
+    const plan = field({
+      name: 'plan',
+      kind: 'file',
+      required: true,
+      accept: ['.pdf', 'image/*'],
+      maxSize: 1000,
+    });
+    const check = (uploads: { name: string; type: string; size: number }[]) =>
+      checkValues([plan], {}, 'ru', { plan: uploads });
+    expect(check([]).errors.plan).toBe('Заполните это поле');
+    expect(check([{ name: 'a.pdf', type: '', size: 2000 }]).errors.plan).toBe(
+      'Файл слишком большой'
+    );
+    expect(
+      check([{ name: 'a.exe', type: 'application/x-msdownload', size: 10 }])
+        .errors.plan
+    ).toBe('Такой файл здесь не подходит');
+    expect(
+      check([
+        { name: 'A.PDF', type: '', size: 10 },
+        { name: 'b.png', type: 'image/png', size: 10 },
+      ]).values
+    ).toEqual([{ name: 'plan', label: 'X', kind: 'file', value: 'A.PDF' }]);
+    expect(
+      checkValues([{ ...plan, multiple: true }], {}, 'ru', {
+        plan: [
+          { name: 'a.pdf', type: '', size: 10 },
+          { name: 'b.png', type: 'image/png', size: 10 },
+        ],
+      }).values[0]!.value
+    ).toBe('a.pdf, b.png');
   });
 });
 

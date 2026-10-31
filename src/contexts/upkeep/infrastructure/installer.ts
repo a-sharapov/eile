@@ -2,8 +2,10 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
+  lstatSync,
   renameSync,
   rmSync,
+  symlinkSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { attempt, fail } from '../../../shared/kernel/errors.ts';
@@ -66,6 +68,8 @@ export type UpdateResult =
       readonly release: Release;
       readonly binary: string;
       readonly previous: string;
+      /** Ссылка `eile`, если её не было и она создана; null — была, чужая или нет прав. */
+      readonly alias: string | null;
     };
 
 const _download = (url: string, version: string): Promise<Uint8Array> =>
@@ -113,7 +117,9 @@ const _replace = (binary: string, bytes: Uint8Array): Promise<string> => {
     .then(() =>
       ((check) =>
         check.exitCode === 0
-          ? (copyFileSync(binary, previous),
+          ? // Что лежит на месте .old — удаляется, а не перезаписывается: ссылку туда copyFile прошёл бы насквозь.
+            (rmSync(previous, { force: true }),
+            copyFileSync(binary, previous),
             chmodSync(previous, 0o755),
             renameSync(fresh, binary),
             previous)
@@ -126,6 +132,24 @@ const _replace = (binary: string, bytes: Uint8Array): Promise<string> => {
       )
     );
 };
+
+/** Второе имя команды — как ставит install.sh. */
+export var ALIAS = 'eile';
+
+// Установка старше второго имени получает ссылку при обновлении. Что-то с этим именем уже есть — не
+// трогаем; нет прав — обновление всё равно удалось.
+const _linkAlias = (binary: string): string | null =>
+  basename(binary) === 'cms'
+    ? ((link) =>
+        attempt(
+          () => (lstatSync(link), null),
+          () =>
+            attempt(
+              () => (symlinkSync(basename(binary), link), link),
+              () => null
+            )
+        ))(join(dirname(binary), ALIAS))
+    : null;
 
 const _install = (
   release: Release,
@@ -196,5 +220,6 @@ export var updateProgram = ({
                   release,
                   binary,
                   previous,
+                  alias: _linkAlias(binary),
                 }))
     );

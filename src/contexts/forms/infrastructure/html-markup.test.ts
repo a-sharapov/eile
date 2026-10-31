@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { HONEYPOT } from '../domain/form.ts';
 import type { FormView } from '../domain/ports.ts';
+import { formTextsFor } from '../domain/schema.ts';
 import { decodeEntities, fieldsOf, htmlMarkup } from './html-markup.ts';
 
 // Форма, какой её собирает редактор блоков: обёртки data-field, подписи, правила HTML5.
@@ -83,12 +84,26 @@ describe('поля по HTML формы', () => {
     ]);
   });
 
-  it('кнопки и файлы — не поля', () => {
+  it('кнопки — не поля; файл — поле с типами, пределом и условием', () => {
+    expect(
+      fieldsOf('<button name="b">x</button><input type="submit" name="s">')
+    ).toEqual([]);
     expect(
       fieldsOf(
-        '<input type="file" name="f"><button name="b">x</button><input type="submit" name="s">'
+        '<div data-field="file" data-show-if="need=yes|maybe"><label for="f">Скан</label><input id="f" type="file" name="f" accept=".PDF, image/*" data-max-size="99" multiple></div>'
       )
-    ).toEqual([]);
+    ).toMatchObject([
+      {
+        name: 'f',
+        kind: 'file',
+        label: 'Скан',
+        multiple: true,
+        accept: ['.pdf', 'image/*'],
+        // Больше потолка не бывает.
+        maxSize: 20 * 1024 * 1024,
+        showIf: { field: 'need', values: ['yes', 'maybe'] },
+      },
+    ]);
   });
 });
 
@@ -107,13 +122,36 @@ describe('форма для посетителя', () => {
     values: {},
     errors: {},
     hidden: { utm: 'utm_source=ya', 'page.title': 'Кухни & шкафы' },
+    texts: formTextsFor('ru'),
     ...patch,
+  });
+
+  it('форма с файлами — multipart, с шагами — тексты кнопок шагов', () => {
+    const html = htmlMarkup.render(
+      view({
+        source:
+          '<fieldset data-step="Один"><legend>Один</legend><input name="a"></fieldset><fieldset data-step="Два"><legend>Два</legend><input type="file" name="f"></fieldset>',
+      })
+    );
+    expect(html).toContain('enctype="multipart/form-data"');
+    expect(html).toContain(
+      'data-next="Далее" data-back="Назад" data-progress="Шаг {n} из {m}"'
+    );
+    expect(htmlMarkup.render(view())).not.toContain('enctype=');
+    expect(htmlMarkup.render(view())).not.toContain('data-next=');
   });
 
   it('обёртка, служебные поля, ловушка и кнопка', () => {
     const html = htmlMarkup.render(view());
     expect(html).toStartWith(
-      '<form class="cms-form" id="form-callback" data-cms-form="callback" data-goal="lead" method="post" action="/_cms/forms/callback">'
+      '<form class="cms-form" id="form-callback" data-cms-form="callback" data-goal="lead" method="post" action="/_cms/forms/callback" data-failed='
+    );
+    // Тексты ошибок для скрипта и подпись ловушки — на языке страницы.
+    expect(htmlMarkup.render(view({ texts: formTextsFor('en') }))).toContain(
+      'data-offline="No connection to the site. Please try again."'
+    );
+    expect(htmlMarkup.render(view({ texts: formTextsFor('en') }))).toContain(
+      '<label>Leave empty <input'
     );
     expect(html).toContain('<input type="hidden" name="_page" value="5">');
     expect(html).toContain('<input type="hidden" name="_stamp" value="tok">');

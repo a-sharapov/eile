@@ -2,7 +2,13 @@
 import { api } from '#lib/api.ts';
 import { ask } from '#lib/dialog.svelte.ts';
 import { ago, moment } from '#lib/format.ts';
-import { type MessageKey, t } from '#lib/i18n.ts';
+import {
+  LANGUAGE_NAMES,
+  LANGUAGES,
+  type Language,
+  type MessageKey,
+  t,
+} from '#lib/i18n.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
 import { describe, failed, notify } from '#lib/notices.svelte.ts';
 import type {
@@ -35,6 +41,8 @@ let routes = $state({
   forms: [] as ChannelKind[],
   incidents: [] as ChannelKind[],
   level: 'error' as Severity,
+  // null — язык сайта.
+  language: null as Language | null,
 });
 let found = $state<Chat[] | null>(null);
 let checks = $state<Partial<Record<ChannelKind, Check>>>({});
@@ -60,7 +68,12 @@ const accept = (next: NotifyStatus): void => {
     from: next.email?.from ?? '',
     to: next.email?.to.join(', ') ?? '',
   };
-  routes = { forms: next.forms, incidents: next.incidents, level: next.level };
+  routes = {
+    forms: next.forms,
+    incidents: next.incidents,
+    level: next.level,
+    language: next.language,
+  };
 };
 
 const refreshJournal = (): Promise<void> =>
@@ -354,6 +367,14 @@ const off = (channel: ChannelKind) =>
         </select>
         <small>{t('notify.levelHint')}</small>
       </label>
+      <label>
+        {t('notify.language')}
+        <select bind:value={routes.language}>
+          <option value={null}>{t('notify.languageSite')}</option>
+          {#each LANGUAGES as language (language)}<option value={language}>{LANGUAGE_NAMES[language]}</option>{/each}
+        </select>
+        <small>{t('notify.languageHint')}</small>
+      </label>
       <div class="row">
         <button class="button primary" aria-disabled={busy}>{t('notify.save')}</button>
       </div>
@@ -374,7 +395,7 @@ const off = (channel: ChannelKind) =>
           {#each undelivered as delivery (delivery.id)}
             <li>
               <strong>{delivery.message.title}</strong>
-              <span class="muted">{t(delivery.channel === 'telegram' ? 'notify.telegram' : 'notify.email')} · {delivery.status === 'failed' ? t('notify.failed') : `${t('notify.nextTry')} ${moment(delivery.nextAt)}`}</span>
+              <span class="muted">{t(delivery.channel === 'telegram' ? 'notify.telegram' : 'notify.email')} · {delivery.status === 'failed' ? t('notify.failed') : t('notify.nextTry', { when: moment(delivery.nextAt) })}</span>
               {#if delivery.lastError}<span class="code error">{delivery.lastError}</span>{/if}
               <button type="button" class="button" onclick={() => retry(delivery)}>{t('notify.retry')}</button>
             </li>

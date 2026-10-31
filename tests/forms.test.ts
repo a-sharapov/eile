@@ -203,6 +203,16 @@ describe('приём заявки', () => {
     });
   });
 
+  it('подписи уведомления — на языке уведомлений, поля — как на сайте', async () => {
+    app.notify.settings.save({ language: 'en' });
+    await post({ ...(await fresh()), ..._GOOD });
+    await app.notify.outbox.run();
+    expect(sent[0]).toMatchObject({ title: 'Звонок: Иван', language: 'en' });
+    expect(sent[0]!.fields.map((_) => _.label)).toEqual(
+      expect.arrayContaining(['Телефон', 'Page'])
+    );
+  });
+
   it('ошибки полей — по правилам HTML5', async () => {
     const response = await post({
       ...(await fresh()),
@@ -464,13 +474,37 @@ describe('заявки и формы в менеджере', () => {
   });
 
   it('CSV для Excel: BOM, точка с запятой, подписи полей столбцами', async () => {
-    const csv = await (await call('GET', '/inbox.csv')).text();
+    const csv = await (await call('GET', '/inbox.csv?lang=ru')).text();
     expect(
       csv.startsWith('﻿№;Дата;Форма;Статус;Имя;Телефон;Комментарий;product')
     ).toBe(true);
+    // Заголовки — на языке менеджера из адреса, подписи полей — как в форме.
+    expect(
+      (await (await call('GET', '/inbox.csv?lang=de')).text()).startsWith(
+        '﻿Nr.;Datum;Formular;Status;Имя;'
+      )
+    ).toBe(true);
+    // Телефон с «+» — текстом: иначе Excel счёл бы его формулой.
     expect(csv).toContain(
-      ';Обратный звонок;new;Иван;+7 900 000-00-00;Перезвоните;Кухни;'
+      ";Обратный звонок;new;Иван;'+7 900 000-00-00;Перезвоните;Кухни;"
     );
+  });
+
+  it('CSV: значение посетителя, похожее на формулу, остаётся текстом', async () => {
+    seconds(200);
+    await post(
+      {
+        ...(await fresh()),
+        name: ['=SUM(1;"x")'],
+        phone: ['+7 900 000-00-01'],
+        text: ['@SUM(1)'],
+      },
+      { 'x-forwarded-for': '203.0.113.40' }
+    );
+    const csv = await (await call('GET', '/inbox.csv?lang=ru')).text();
+    expect(csv).toContain(`"'=SUM(1;""x"")"`);
+    expect(csv).toContain(";'@SUM(1);");
+    expect(csv).not.toMatch(/;=SUM/);
   });
 
   it('редактор разбирает заявки, но формы не правит', async () => {
@@ -484,6 +518,15 @@ describe('заявки и формы в менеджере', () => {
     expect((await call('GET', '/forms')).status).toBe(200);
     expect((await call('GET', '/forms/callback')).status).toBe(403);
     expect((await call('PUT', '/forms/x', { title: 'X' })).status).toBe(403);
+    // Статус и заметку редактор меняет, а удалить заявку навсегда может только администратор.
+    const [first] = (await (await call('GET', '/inbox')).json()) as {
+      id: number;
+    }[];
+    expect(
+      (await call('PATCH', `/inbox/${first!.id}`, { status: 'in_work' })).status
+    ).toBe(200);
+    expect((await call('DELETE', `/inbox/${first!.id}`)).status).toBe(403);
+    expect(app.forms.inbox.list({ limit: 10 })).toHaveLength(1);
   });
 
   it('форма: поля по HTML, «только создать», предпросмотр в песочнице', async () => {
@@ -531,5 +574,192 @@ describe('заявки и формы в менеджере', () => {
       { form: 'callback' },
     ]);
     expect((await call('DELETE', '/forms/callback')).status).toBe(404);
+  });
+});
+
+describe('файлы, условия и шаги', () => {
+  const _DOCS = `<fieldset class="form-step" data-step="Контакты"><legend>Контакты</legend>
+<div class="field" data-field="text"><label for="f-name">Имя</label><input id="f-name" name="name" required></div>
+<fieldset class="field" data-field="radio"><legend>Доставка</legend>
+  <label><input type="radio" name="delivery" value="courier" required> Курьер</label>
+  <label><input type="radio" name="delivery" value="pickup" required> Самовывоз</label>
+</fieldset>
+<div class="field" data-field="text" data-show-if="delivery=courier"><label for="f-address">Адрес</label><input id="f-address" name="address" required></div>
+</fieldset>
+<fieldset class="form-step" data-step="Чертёж"><legend>Чертёж</legend>
+<div class="field" data-field="file"><label for="f-plan">Чертёж</label><input id="f-plan" type="file" name="plan" accept=".pdf" data-max-size="0.001" required></div>
+</fieldset>`;
+  const _PASSWORD = 'correct horse battery';
+  let docsPage = 0;
+  let cookie = '';
+
+  const manager = (path: string) =>
+    app.fetch(
+      new Request(`https://site.test/manager/api${path}`, {
+        headers: { cookie },
+      })
+    );
+
+  const multipart = (fields: Record<string, string>, file: File | null) =>
+    get('/docs')
+      .then((_) => _.text())
+      .then((html) => {
+        seconds(5);
+        const body = new FormData();
+        body.set('_stamp', /name="_stamp" value="([^"]+)"/.exec(html)![1]!);
+        body.set('_iat', /name="_iat" value="([^"]+)"/.exec(html)![1]!);
+        body.set('_page', String(docsPage));
+        Object.entries(fields).forEach(
+          ({ 0: name, 1: value }) => void body.set(name, value)
+        );
+        void (file && body.set('plan', file));
+        return app.fetch(
+          new Request('https://site.test/_cms/forms/docs', {
+            method: 'POST',
+            headers: {
+              accept: 'application/json',
+              origin: 'https://site.test',
+            },
+            body,
+          }),
+          { requestIP: () => ({ address: '203.0.113.9' }) }
+        );
+      });
+
+  beforeEach(async () => {
+    app.forms.forms.save('docs', { title: 'Документы', source: _DOCS });
+    docsPage = app.content.pages.create({
+      title: 'Документы',
+      alias: 'docs',
+      template: 'Base',
+      content: '[#Form:docs]',
+      publish: true,
+    });
+    const setup = await app.fetch(
+      new Request('https://site.test/manager/api/setup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          token: app.identity.setup.token(),
+          email: 'admin@example.com',
+          password: _PASSWORD,
+        }),
+      })
+    );
+    cookie = (setup.headers.get('set-cookie') ?? '').split(';')[0]!;
+  });
+
+  it('скрытое поле с серверным источником решает условие своим значением, а не присланным', async () => {
+    app.forms.forms.save('licence', {
+      title: 'Лицензия',
+      source: `<input type="hidden" name="plan" data-source="page.id">
+<div class="field" data-field="text" data-show-if="plan=${docsPage}"><label for="f-l">Лицензия</label><input id="f-l" name="licence" required></div>`,
+    });
+    app.content.pages.edit(docsPage, { content: '[#Form:licence]' });
+    const html = await (await get('/docs')).text();
+    seconds(5);
+    const response = await app.fetch(
+      new Request('https://site.test/_cms/forms/licence', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json',
+          origin: 'https://site.test',
+        },
+        body: JSON.stringify({
+          _stamp: [/name="_stamp" value="([^"]+)"/.exec(html)![1]!],
+          _iat: [/name="_iat" value="([^"]+)"/.exec(html)![1]!],
+          _page: [String(docsPage)],
+          plan: ['nope'],
+        }),
+      }),
+      { requestIP: () => ({ address: '203.0.113.30' }) }
+    );
+    expect(response.status).toBe(422);
+    expect(Object.keys(((await response.json()) as any).errors)).toEqual([
+      'licence',
+    ]);
+  });
+
+  it('большое тело — только форме с файлами: несуществующей — 404, без файлов — 413', async () => {
+    const big = () => {
+      const body = new FormData();
+      body.set('name', 'x');
+      body.set('f', new File([new Uint8Array(200_000)], 'a.bin'));
+      return body;
+    };
+    const send = (form: string) =>
+      app.fetch(
+        new Request(`https://site.test/_cms/forms/${form}`, {
+          method: 'POST',
+          headers: { origin: 'https://site.test' },
+          body: big(),
+        }),
+        { requestIP: () => ({ address: '203.0.113.20' }) }
+      );
+    expect((await send('nope')).status).toBe(404);
+    expect((await send('callback')).status).toBe(413);
+    // Форма с файлами принимает большое тело — до ограничения частоты.
+    expect((await send('docs')).status).not.toBe(413);
+  });
+
+  it('форма с файлом — multipart и подписи шагов на языке страницы', async () => {
+    const html = await (await get('/docs')).text();
+    expect(html).toContain('enctype="multipart/form-data"');
+    expect(html).toContain('data-next="Далее"');
+  });
+
+  it('заявка с файлом: скрытое условием поле не нужно, файл — в карточке и скачивается', async () => {
+    const pdf = new Uint8Array([37, 80, 68, 70, 45, 49]);
+    const response = await multipart(
+      { name: 'Анна', delivery: 'pickup' },
+      new File([pdf], 'план.pdf', { type: 'application/pdf' })
+    );
+    expect(response.status).toBe(200);
+    const [submission] = app.forms.inbox
+      .list({ limit: 10 })
+      .filter((_) => _.form === 'docs');
+    expect(submission!.values.map((_) => [_.name, _.value])).toEqual([
+      ['name', 'Анна'],
+      ['delivery', 'Самовывоз'],
+      ['plan', 'план.pdf'],
+    ]);
+    const detail = (await (
+      await manager(`/inbox/${submission!.id}`)
+    ).json()) as { files: { id: number; name: string; size: number }[] };
+    expect(detail.files).toMatchObject([{ name: 'план.pdf', size: 6 }]);
+    const file = await manager(
+      `/inbox/${submission!.id}/files/${detail.files[0]!.id}`
+    );
+    expect(file.headers.get('content-type')).toBe('application/octet-stream');
+    expect(file.headers.get('content-disposition')).toContain('attachment');
+    expect(file.headers.get('content-security-policy')).toContain('sandbox');
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(pdf);
+    // Заявка удалена — файла больше нет.
+    app.forms.inbox.remove(submission!.id);
+    expect(
+      (await manager(`/inbox/${submission!.id}/files/${detail.files[0]!.id}`))
+        .status
+    ).toBe(404);
+  });
+
+  it('показанное поле обязательно; файл больше предела или чужого типа — ошибка поля', async () => {
+    const courier = await multipart(
+      { name: 'Анна', delivery: 'courier' },
+      new File([new Uint8Array(4000)], 'plan.pdf', { type: 'application/pdf' })
+    );
+    expect(courier.status).toBe(422);
+    expect(
+      Object.keys(((await courier.json()) as any).errors).toSorted()
+    ).toEqual(['address', 'plan']);
+    const wrong = await multipart(
+      { name: 'Анна', delivery: 'pickup' },
+      new File([new Uint8Array(10)], 'plan.exe', {
+        type: 'application/x-msdownload',
+      })
+    );
+    expect(((await wrong.json()) as any).errors).toEqual({
+      plan: 'Такой файл здесь не подходит',
+    });
   });
 });

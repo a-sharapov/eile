@@ -6,10 +6,15 @@ let swept = $state(false);
 <script lang="ts">
 import type { Snippet } from 'svelte';
 import { MediaQuery } from 'svelte/reactivity';
-import { appearance, pickScheme } from '#lib/appearance.svelte.ts';
+import {
+  appearance,
+  pickLanguage,
+  pickScheme,
+} from '#lib/appearance.svelte.ts';
 import { t } from '#lib/i18n.ts';
 import { icons, logo } from '#lib/icons.ts';
 import { session } from '#lib/session.svelte.ts';
+import LanguageSelect from './LanguageSelect.svelte';
 
 let { title, children }: { title: string; children: Snippet } = $props();
 
@@ -27,9 +32,12 @@ const site = $derived(
 
 <!-- Вход и первичная настройка: знак, форма на холстине по центру, внизу — версия и лицензия. -->
 <div class="auth">
-  <button type="button" class="ghost theme" aria-label={t(dark ? 'auth.toLight' : 'auth.toDark')} title={t(dark ? 'auth.toLight' : 'auth.toDark')} onclick={() => pickScheme(dark ? 'light' : 'dark')}>
-    {@html dark ? icons.sun : icons.moon}
-  </button>
+  <div class="corner">
+    <LanguageSelect onpick={pickLanguage} />
+    <button type="button" class="ghost theme" aria-label={t(dark ? 'auth.toLight' : 'auth.toDark')} title={t(dark ? 'auth.toLight' : 'auth.toDark')} onclick={() => pickScheme(dark ? 'light' : 'dark')}>
+      {@html dark ? icons.sun : icons.moon}
+    </button>
+  </div>
   <main>
     <span class="logo" class:still={swept} role="img" aria-label={t('app.name')} onanimationend={() => (swept = true)}>{@html logo}</span>
     <section class="panel" aria-labelledby="auth-title">
@@ -70,10 +78,17 @@ const site = $derived(
       var(--bg);
   }
 
-  .theme {
+  /* Язык и схема — в углу: их меняют до входа, но не ради них сюда пришли. */
+  .corner {
     position: absolute;
     top: 1rem;
     right: 1rem;
+    display: flex;
+    gap: 0.25rem;
+    align-items: center;
+  }
+
+  .theme {
     width: var(--control);
     padding: 0;
   }

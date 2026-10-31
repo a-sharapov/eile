@@ -116,8 +116,10 @@ describe('ИИ в менеджере', () => {
     const sent = received.at(-1)!;
     expect(sent.headers.get('authorization')).toBe('Bearer secret-key');
     expect(sent.body.model).toBe('fake-model');
-    expect(sent.body.messages[0].content).toContain('Поле: «Заголовок»');
-    expect(sent.body.messages[0].content).toContain('Указания владельца сайта');
+    expect(sent.body.messages[0].content).toContain('Field: "Заголовок"');
+    expect(sent.body.messages[0].content).toContain(
+      "The site owner's instructions"
+    );
     expect(sent.body.messages[1].content).toContain('сделай живее');
   });
 

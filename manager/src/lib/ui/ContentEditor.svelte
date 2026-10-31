@@ -166,7 +166,7 @@ const kindLabel = (block: Block): string =>
       : block.name;
 
 const position = (index: number): string =>
-  `${t('blocks.block')} ${index + 1} ${t('blocks.of')} ${blocks.length}`;
+  t('blocks.position', { n: index + 1, total: blocks.length });
 </script>
 
 <svelte:window onclick={onWindow} onkeydown={onWindow} />

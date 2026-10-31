@@ -23,6 +23,8 @@ export type SiteSettings = {
   readonly aiTraining: boolean;
   /** Дополнительные строки robots.txt — как есть, в конце файла. */
   readonly robots: string;
+  /** Синонимы для поиска по сайту: строка — группа, варианты через запятую. */
+  readonly searchSynonyms: string;
   /** Слово в адресе порций списка: `page` — `/blog/page-2`. */
   readonly pagingSegment: string;
   /** canonical у порций 2, 3…: на саму порцию (self) или на первую (first). */
@@ -45,6 +47,7 @@ export var DEFAULT_SETTINGS: SiteSettings = {
   aiSearch: true,
   aiTraining: true,
   robots: '',
+  searchSynonyms: '',
   pagingSegment: 'page',
   pagingCanonical: 'self',
   pageCacheMb: 64,
@@ -62,7 +65,7 @@ const _validPageId = (id: number | null): boolean =>
   id === null || (Number.isSafeInteger(id) && id > 0);
 
 const _name = (settings: SiteSettings): SiteSettings =>
-  pipe<string, SiteSettings>(
+  pipe(
     (_: string) => _.trim(),
     (name: string) =>
       name
@@ -123,7 +126,12 @@ const _discovery = (settings: SiteSettings): SiteSettings =>
             'site.invalid_robots',
             'Extra robots.txt rules are over 5000 characters'
           )
-        : settings;
+        : settings.searchSynonyms.length > 20000
+          ? fail(
+              'site.invalid_synonyms',
+              'Search synonyms are over 20000 characters'
+            )
+          : settings;
 
 // Латиница и цифры через дефис: слово стоит в адресе перед `-N`.
 const _SEGMENT = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
@@ -158,7 +166,7 @@ export var changeSettings = (
   current: SiteSettings,
   patch: Partial<SiteSettings>
 ): SiteSettings =>
-  pipe<Partial<SiteSettings>, SiteSettings>(
+  pipe(
     (_: Partial<SiteSettings>) => ({ ...current, ..._definedOnly(_) }),
     _name,
     _language,

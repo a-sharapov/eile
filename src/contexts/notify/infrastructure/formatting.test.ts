@@ -115,3 +115,14 @@ describe('письмо', () => {
     expect(html).toContain('Иван &lt;script&gt;');
   });
 });
+
+describe('важность в заголовке', () => {
+  it('на языке уведомления; в очереди со старой версии — по-русски', () => {
+    const item = message({ title: 'Boom', severity: 'critical' });
+    expect(subjectOf({ ...item, language: 'de' }, 'Site')).toBe(
+      'Kritisch: Boom — Site'
+    );
+    expect(subjectOf({ ...item, language: 'en' }, '')).toBe('Critical: Boom');
+    expect(subjectOf(item, '')).toBe('Критично: Boom');
+  });
+});

@@ -171,7 +171,7 @@ src/
   cli/                  команды (serve, new, info, users, backup, import-evo), справка, цвет, MOTD
   ambient.d.ts          типы для модулей без деклараций
   shared/kernel/        pipe, Brand, fail/DomainError, Changed/chain, DomainEvent/EventBus
-  platform/             SQLite и миграции, шина событий, копии сайта (archive.ts)
+  platform/             SQLite и миграции, шина событий, копии сайта (archive.ts), пути импортов модулей
   contexts/<context>/   см. «Слои внутри контекста»
   scaffolds/            каркасы сайтов (блог, портфолио, компания, витрина, магазин) и приветствие
   kit/                  набор компонентов: меню, крошки, лента, окна — ставятся в элементы сайта

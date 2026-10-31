@@ -2,7 +2,7 @@
 import { api } from '#lib/api.ts';
 import { ask } from '#lib/dialog.svelte.ts';
 import { ago, moment } from '#lib/format.ts';
-import { errorMessage, type MessageKey, t } from '#lib/i18n.ts';
+import { errorMessage, type MessageKey, number, t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
 import { describe, failed, notify } from '#lib/notices.svelte.ts';
@@ -171,7 +171,7 @@ const upload = (event: Event) =>
 
 const lastHit = (rule: RedirectRule): string =>
   rule.lastHitAt
-    ? `${t('redirects.lastHit')} ${moment(rule.lastHitAt)}`
+    ? t('redirects.lastHit', { when: moment(rule.lastHitAt) })
     : t('redirects.never');
 </script>
 
@@ -189,7 +189,7 @@ const lastHit = (rule: RedirectRule): string =>
   <label class="path">
     {t('redirects.to')}
     <input class="code" required placeholder="/new-page" list="redirect-pages" autocomplete="off" spellcheck="false" bind:value={draft.to} />
-    <small>{titleOf(draft.to) ? `${t('redirects.toPage')} «${titleOf(draft.to)}»` : t('redirects.toHint')}</small>
+    <small>{((title) => (title ? t('redirects.toPage', { title }) : t('redirects.toHint')))(titleOf(draft.to))}</small>
   </label>
   <label class="code-field">
     {t('redirects.code')}
@@ -225,7 +225,7 @@ const lastHit = (rule: RedirectRule): string =>
       <p>{t('redirects.skipped')}:</p>
       <ul>
         {#each imported.skipped as row (row.line)}
-          <li><span class="line">{t('redirects.line')} {row.line}</span> {errorMessage(row.code) ?? row.message}</li>
+          <li><span class="line">{t('redirects.line', { n: row.line })}</span> {errorMessage(row.code) ?? row.message}</li>
         {/each}
       </ul>
     </div>
@@ -280,7 +280,7 @@ const lastHit = (rule: RedirectRule): string =>
                 </td>
                 <td>{rule.status}</td>
                 <td class="num" title={lastHit(rule)}>
-                  {rule.hits.toLocaleString('ru')}
+                  {number(rule.hits)}
                   {#if rule.lastHitAt}<small class="muted">{ago(rule.lastHitAt)}</small>{/if}
                 </td>
                 <td class="row-actions">

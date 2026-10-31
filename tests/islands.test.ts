@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { brotliDecompressSync } from 'node:zlib';
 import { type App, createApp } from '../src/app.ts';
 import { DEMO } from './fixtures/demo.ts';
 
@@ -49,6 +50,25 @@ describe('острова', () => {
     expect((await response.text()).length).toBeGreaterThan(100);
   });
 
+  it('рантайм и модуль острова уходят сжатыми, если браузер умеет', async () => {
+    const html = await (await get('/kontakty')).text();
+    const code = await (await get(islandOf(html)![1]!)).text();
+    const runtime = /'(\/_cms\/runtime\/[a-z0-9]+\/internal-client\.js)'/.exec(
+      code
+    )![1]!;
+    const plain = await (await get(runtime)).text();
+    const packed = await app.fetch(
+      new Request(`http://localhost${runtime}`, {
+        headers: { 'accept-encoding': 'gzip, deflate, br' },
+      })
+    );
+    expect(packed.headers.get('content-encoding')).toBe('br');
+    expect(packed.headers.get('vary')).toBe('accept-encoding');
+    const bytes = new Uint8Array(await packed.arrayBuffer());
+    expect(bytes.byteLength).toBeLessThan(plain.length / 2);
+    expect(new TextDecoder().decode(brotliDecompressSync(bytes))).toBe(plain);
+  });
+
   it('страница без островов — без скриптов', async () => {
     app.design.templates.save(
       'Base',
@@ -68,6 +88,16 @@ describe('острова', () => {
     const html = await (await get('/kontakty')).text();
     expect(html).toContain('<h1>Контакты</h1>');
     expect(islandOf(html)).toBeNull();
+  });
+
+  it('текст со словами import и from в острове — не импорт', async () => {
+    app.design.components.save(
+      'Counter',
+      "<script>let { start = 0 } = $props(); const word = 'import';</script><button class=\"counter\">{word} {start} from 'svelte'</button>"
+    );
+    const html = await (await get('/kontakty')).text();
+    const code = await (await get(islandOf(html)![1]!)).text();
+    expect(code).toContain("from 'svelte'");
   });
 
   it('неизвестный файл — 404', async () => {

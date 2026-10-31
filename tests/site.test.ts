@@ -115,6 +115,20 @@ describe('правка элементов', () => {
     );
   });
 
+  it('код со словами import и from в тексте компонента выводится как есть', async () => {
+    app.design.components.save(
+      'Sample',
+      "<script>const word = 'import';</script><pre>import Menu from '$components/Nope';</pre><code>{word} x from'y'</code>"
+    );
+    app.design.templates.save(
+      'Base',
+      "<script>import Sample from '$components/Sample'; let { page } = $props();</script><h1>{page.title}</h1><Sample />"
+    );
+    const page = await html('/kontakty');
+    expect(page).toContain("<pre>import Menu from '$components/Nope';</pre>");
+    expect(page).toContain("<code>import x from'y'</code>");
+  });
+
   it('некомпилируемый исходник отклоняется, сайт работает', async () => {
     expect(
       errorCode(() =>

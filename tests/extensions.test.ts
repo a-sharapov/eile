@@ -42,6 +42,16 @@ describe('плагины', () => {
     expect((await get('/missing')).status).toBe(404);
   });
 
+  it('строки плагина со словами import и from не трогаются', async () => {
+    app.extensions.plugins.save(
+      'Words',
+      `export default {
+        render: (html: string) => html.replace('</h1>', "</h1><i>import x from 'y'</i>"),
+      };`
+    );
+    expect(await html('/kontakty')).toContain("</h1><i>import x from 'y'</i>");
+  });
+
   it('получает доменные события и читает $core', async () => {
     const seen: string[] = [];
     (globalThis as Record<string, unknown>).__cmsSeen = seen;

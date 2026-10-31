@@ -25,4 +25,6 @@ export type PageRepository = {
   readonly mentioning: (text: string) => PageId[];
   /** Страницы, где встречается путь файла медиатеки: текст, значения полей, картинка для соцсетей. */
   readonly referencingMedia: (path: string) => PageId[];
+  /** Переводы этой страницы: страницы, у которых она исходная, включая корзину. */
+  readonly translationsOf: (id: PageId) => PageId[];
 };
