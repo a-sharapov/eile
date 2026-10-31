@@ -51,8 +51,10 @@ import {
   IDENTITY_SERVER_TABLES,
   type IdentityService,
   identityMigrations,
+  type UserView,
 } from './contexts/identity/index.ts';
 import {
+  type AgentSession,
   defineManager,
   MANAGER_PATH,
   managerMigrations,
@@ -62,6 +64,7 @@ import {
   MEDIA_PREFIX,
   type Media,
   mediaMigrations,
+  stemOf,
 } from './contexts/media/index.ts';
 import {
   defineNotify,
@@ -176,6 +179,16 @@ export type App = {
   readonly archive: () => Archive;
   /** Восстановить сайт из копии — файла .db или JSON. */
   readonly restore: (bytes: Uint8Array) => Promise<RestoreReport>;
+  /** MCP от имени пользователя: сообщение JSON-RPC → ответ, у уведомления — null. */
+  readonly mcp: (
+    message: unknown,
+    user: UserView,
+    session: AgentSession
+  ) => Promise<unknown | null>;
+  /** Подхватить то, что записал в базу другой процесс; `fetch` делает это сам. */
+  readonly follow: () => void;
+  /** Всё или ничего: исключение внутри `run` откатывает каждую запись в базу. */
+  readonly transaction: <T>(run: () => T) => T;
   readonly close: () => void;
 };
 
@@ -243,6 +256,11 @@ const _AUDIT: Readonly<Record<string, Localized>> = {
     de: 'Ein Manager-Benutzer wurde gelöscht',
     ru: 'Пользователь менеджера удалён',
   },
+  'identity.token_issued': {
+    en: 'A new API token for agents and scripts',
+    de: 'Neuer API-Schlüssel für Agenten und Skripte',
+    ru: 'Выпущен ключ API для агентов и скриптов',
+  },
 };
 
 const _USER: Localized = { en: 'User', de: 'Benutzer', ru: 'Пользователь' };
@@ -250,7 +268,10 @@ const _USER: Localized = { en: 'User', de: 'Benutzer', ru: 'Пользовате
 const _isManager = (path: string): boolean =>
   path === MANAGER_PATH || path.startsWith(`${MANAGER_PATH}/`);
 
-type Parts = Omit<App, 'backup' | 'archive' | 'restore' | 'close'>;
+type Parts = Omit<
+  App,
+  'backup' | 'archive' | 'restore' | 'follow' | 'transaction' | 'close'
+>;
 
 type Backup = {
   readonly database: () => Promise<Uint8Array>;
@@ -260,7 +281,12 @@ type Backup = {
 
 // Контексты на открытой базе. Восстановление копии собирает их заново: кэши страниц, шаблонов и
 // плагинов не переживают замену записей.
-const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
+const _compose = (
+  db: Database,
+  options: AppOptions,
+  backup: Backup,
+  setup: string | null = null
+): Parts => {
   const clock = options.clock ?? (() => new Date());
   const bus = defineEventBus();
 
@@ -330,7 +356,7 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
         synonyms: _.searchSynonyms,
       }))(settings()),
   });
-  const identity = defineIdentity({ db, bus, clock });
+  const identity = defineIdentity({ db, bus, clock, setup });
   const scope = defineRenderScope();
   const media = defineMedia({ db, bus });
   // Переводы и свои настройки — для `{i18n.key}`, `[@key]`, `t()` и `setting()` в шаблонах и контенте.
@@ -354,8 +380,26 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
     builtins: BUILTIN_COMPONENTS,
   });
   const extensions = defineExtensions({ db, bus, runtime, report });
+  // Картинка для модели, которая видит: вариант 960 px, иначе сам файл до 4 МБ; SVG и прочее — нет.
+  const imageFor = (path: string) =>
+    ((found) => found && { data: found.data(), type: found.meta.contentType })(
+      [`${stemOf(path)}@960.webp`, path]
+        .map((_) =>
+          attempt(
+            () => media.files.read(_),
+            () => null
+          )
+        )
+        .find(
+          (_) =>
+            _ !== null &&
+            /^image\/(png|jpeg|webp|gif)/.test(_.meta.contentType) &&
+            _.meta.size <= 4 * 1024 * 1024
+        ) ?? null
+    );
   const assistant = defineAssistant({
     db,
+    images: imageFor,
     site: () =>
       ((_) => ({
         name: _.name,
@@ -512,6 +556,7 @@ const _compose = (db: Database, options: AppOptions, backup: Backup): Parts => {
     certificates,
     redirects,
     diagnostics,
+    mcp: manager.mcp,
   };
 };
 
@@ -583,9 +628,7 @@ export var createApp = (options: AppOptions = {}): App => {
           .map((_) => ({ id: _.id, email: _.email }));
         restoreDatabase(db, source, _DERIVED);
         clearSearchIndex(db);
-        stopBackground();
-        parts = _compose(db, { ...options, scaffold: undefined }, backup);
-        stopBackground = startBackground();
+        recompose();
         parts.identity.sessions.closeChanged(before);
         return { pages: parts.content.drafts.tree().length, savedTo };
       })
@@ -622,8 +665,35 @@ export var createApp = (options: AppOptions = {}): App => {
       : () => undefined;
   let stopBackground = startBackground();
 
+  const recompose = (): void => {
+    stopBackground();
+    parts = _compose(
+      db,
+      { ...options, scaffold: undefined },
+      backup,
+      parts.identity.setup.token()
+    );
+    stopBackground = startBackground();
+    seen = version();
+  };
+
+  // В ту же базу пишет другой процесс (cms elements push, cms mcp): SQLite меняет data_version, и
+  // контексты собираются заново — иначе виды, плагины и кэш страниц остались бы прежними.
+  const dataVersion = db.query<{ data_version: number }, []>(
+    'PRAGMA data_version'
+  );
+  const version = (): number => dataVersion.get()!.data_version;
+  let seen = version();
+  const follow = (): void =>
+    void (
+      options.databasePath !== undefined &&
+      version() !== seen &&
+      recompose()
+    );
+
   return {
-    fetch: (request, server) =>
+    fetch: (request, server) => (
+      follow(),
       options.trustProxy
         ? parts.fetch(_forwarded(request), {
             requestIP: () => ({
@@ -633,7 +703,12 @@ export var createApp = (options: AppOptions = {}): App => {
               ),
             }),
           })
-        : parts.fetch(request, server),
+        : parts.fetch(request, server)
+    ),
+    follow,
+    mcp: (message, user, session) => (
+      follow(), parts.mcp(message, user, session)
+    ),
     get content() {
       return parts.content;
     },
@@ -679,6 +754,7 @@ export var createApp = (options: AppOptions = {}): App => {
     backup: (target) => backupDatabase(db, target, _SERVER_ONLY),
     archive: backup.archive,
     restore,
+    transaction: (run) => db.transaction(run)(),
     close: () => (stopBackground(), db.close()),
   };
 };

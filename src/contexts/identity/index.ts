@@ -4,13 +4,16 @@ import { defineIdentityService } from './application/identity-service.ts';
 import {
   bunPasswordHasher,
   cryptoTokens,
+  defineApiTokenRepository,
   definePasswordResetRepository,
   defineSessionRepository,
   defineUserRepository,
 } from './infrastructure/sqlite-identity.ts';
 
 export type {
+  ApiTokenView,
   IdentityService,
+  IssuedToken,
   Login,
   ResetLink,
   UserView,
@@ -27,17 +30,21 @@ export var defineIdentity = ({
   db,
   bus,
   clock,
+  setup,
 }: {
   db: Database;
   bus: EventBus;
   clock: () => Date;
+  setup?: string | null;
 }) =>
   defineIdentityService({
     users: defineUserRepository(db),
     sessions: defineSessionRepository(db),
     resets: definePasswordResetRepository(db),
+    apiTokens: defineApiTokenRepository(db),
     hasher: bunPasswordHasher,
     tokens: cryptoTokens,
     bus,
     clock,
+    setup,
   });

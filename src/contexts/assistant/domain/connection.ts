@@ -10,6 +10,8 @@ export type Connection = {
   readonly model: string;
   readonly key: string;
   readonly instructions: string;
+  /** Модель принимает картинки: описание картинки она пишет, глядя на неё. DeepSeek — нет. */
+  readonly vision: boolean;
 };
 
 export type ConnectionInput = {
@@ -18,6 +20,7 @@ export type ConnectionInput = {
   /** Пусто — ключ остаётся прежним (в форму он не возвращается), если адрес API тот же. */
   readonly key?: unknown;
   readonly instructions?: unknown;
+  readonly vision?: unknown;
 };
 
 const _URL = /^https?:\/\/[^\s/$.?#][^\s]*$/i;
@@ -54,6 +57,7 @@ export var parseConnection = (
             'assistant.long_instructions',
             `Instructions are longer than ${_MAX_INSTRUCTIONS}`
           ),
+    vision: input.vision === true,
   }))(
     _text(input.url),
     _text(input.model),

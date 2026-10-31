@@ -93,7 +93,7 @@ const _RU: readonly CommandHelp[] = [
       'Размер файла, версия схемы, сколько страниц опубликовано и лежит в корзине, сколько шаблонов, компонентов, плагинов, полей, файлов медиатеки и пользователей.',
       'База открывается так же, как при запуске сервера: если бинарник новее, сначала применяются миграции.',
     ],
-    options: [_DB],
+    options: [['--json', 'Сводка в JSON: для скриптов и агентов'], _DB],
     examples: [['Что лежит в базе сайта', 'cms info --db site.db']],
   },
   {
@@ -114,6 +114,7 @@ const _RU: readonly CommandHelp[] = [
       ['--name <имя>', 'Имя в менеджере; по умолчанию — часть почты до @'],
       ['--role <роль>', 'admin — всё, editor — страницы и медиатека'],
       _PASSWORD_STDIN,
+      ['--json', 'Список в JSON'],
       _DB,
     ],
     examples: [
@@ -126,6 +127,71 @@ const _RU: readonly CommandHelp[] = [
       [
         'Пароль из переменной в скрипте',
         'printf %s "$PASS" | cms users password a@b.ru --password-stdin',
+      ],
+    ],
+  },
+  {
+    name: 'elements',
+    summary: 'Элементы сайта файлами: для редактора кода и ИИ-агентов',
+    usage: [
+      'cms elements pull [<папка>] [--db <файл>]',
+      'cms elements check [<папка>] [--db <файл>] [--json]',
+      'cms elements push [<папка>] [--prune] [--watch] [--json]',
+    ],
+    details: [
+      'pull выкладывает шаблоны, компоненты, плагины, формы и поля файлами: templates/, components/, plugins/, forms/, fields.json. Рядом — AGENTS.md: правила CMS и что есть на сайте, для Claude Code, Codex, Cursor. Отличающиеся файлы переписываются — держите папку в git.',
+      'check компилирует всё и печатает ошибки как файл:строка:столбец. Ничего не сохраняет.',
+      'push сохраняет изменённые файлы в сайт — все или ни одного. Сервер на этой базе подхватывает правку сам, перезапуск не нужен.',
+      '--prune удаляет из сайта то, чего нет в папке (поля — никогда), --watch отправляет каждый сохранённый файл. Папка по умолчанию — текущая.',
+    ],
+    options: [
+      ['--prune', 'Удалить из сайта то, чего нет в папке'],
+      ['--watch', 'Отправлять каждый сохранённый файл'],
+      ['--json', 'Итог в JSON: для скриптов и агентов'],
+      _DB,
+    ],
+    examples: [
+      ['Элементы — в папку site', 'cms elements pull site --db site.db'],
+      ['Проверить правки', 'cms elements check site --db site.db'],
+      ['Отправить в сайт', 'cms elements push site --db site.db'],
+    ],
+  },
+  {
+    name: 'diagnose',
+    summary: 'Диагностика сайта: ссылки, страницы, медиа, настройки',
+    usage: ['cms diagnose [--db <файл>] [--json]'],
+    details: [
+      'То же, что вкладка «Диагностика» в менеджере: битые ссылки, страницы без описания, пропавшие файлы медиатеки, настройки и сервер.',
+      'Если есть ошибки, код выхода 1 — проверку можно поставить в cron или CI. --json — отчёт целиком, для скриптов и агентов.',
+    ],
+    options: [['--json', 'Отчёт в JSON'], _DB],
+    examples: [
+      ['Проверить сайт', 'cms diagnose --db site.db'],
+      [
+        'Каждую ночь, с письмом от cron',
+        '0 3 * * * cms diagnose --db /srv/site.db',
+      ],
+    ],
+  },
+  {
+    name: 'mcp',
+    summary: 'MCP-сервер для ИИ-агентов: Claude, Cursor, Codex',
+    usage: ['cms mcp [--db <файл>] [--user <почта>]'],
+    details: [
+      'Говорит по протоколу MCP через stdin и stdout. Агент читает и правит страницы, элементы, формы, заявки и медиатеку инструментами — теми же маршрутами, что и менеджер: права роли, чистка HTML, история правок и журнал действий.',
+      'Агент работает от имени пользователя: --user, иначе первого администратора. Нужен хотя бы один пользователь — cms users add.',
+      'Claude Code: claude mcp add site -- cms mcp --db /srv/site.db. Claude Desktop, Cursor и другие: команда cms, аргументы mcp --db <файл>.',
+      'Сервер сайта на той же базе видит правки агента сразу, перезапуск не нужен.',
+    ],
+    options: [['--user <почта>', 'От чьего имени и с какими правами'], _DB],
+    examples: [
+      [
+        'Подключить к Claude Code',
+        'claude mcp add site -- cms mcp --db site.db',
+      ],
+      [
+        'Агент с правами редактора',
+        'cms mcp --db site.db --user ed@example.com',
       ],
     ],
   },
@@ -300,7 +366,10 @@ const _EN: readonly CommandHelp[] = [
       'File size, schema version, how many pages are published and in the trash, and how many templates, components, plugins, fields, media files and users there are.',
       'The database opens the same way as when the server starts: if the binary is newer, migrations run first.',
     ],
-    options: [_DB_EN],
+    options: [
+      ['--json', 'The summary as JSON: for scripts and agents'],
+      _DB_EN,
+    ],
     examples: [['What the site database holds', 'cms info --db site.db']],
   },
   {
@@ -327,6 +396,7 @@ const _EN: readonly CommandHelp[] = [
         'admin can do everything, editor edits pages and media',
       ],
       ['--password-stdin', 'Read the password from stdin (for scripts)'],
+      ['--json', 'The list as JSON'],
       _DB_EN,
     ],
     examples: [
@@ -339,6 +409,71 @@ const _EN: readonly CommandHelp[] = [
       [
         'Password from a variable in a script',
         'printf %s "$PASS" | cms users password a@b.com --password-stdin',
+      ],
+    ],
+  },
+  {
+    name: 'elements',
+    summary: 'Site elements as files: for code editors and AI agents',
+    usage: [
+      'cms elements pull [<folder>] [--db <file>]',
+      'cms elements check [<folder>] [--db <file>] [--json]',
+      'cms elements push [<folder>] [--prune] [--watch] [--json]',
+    ],
+    details: [
+      'pull writes templates, components, plugins, forms and fields as files: templates/, components/, plugins/, forms/, fields.json. Next to them goes AGENTS.md: the CMS rules and what the site has, for Claude Code, Codex and Cursor. Files that differ are overwritten, so keep the folder in git.',
+      'check compiles everything and prints problems as file:line:column. Nothing is saved.',
+      'push saves the changed files to the site, all of them or none. A server on this database picks the change up by itself, no restart needed.',
+      '--prune deletes from the site what has no file (never fields), --watch sends every saved file. The folder is the current one by default.',
+    ],
+    options: [
+      ['--prune', 'Delete from the site what has no file'],
+      ['--watch', 'Send every saved file'],
+      ['--json', 'The result as JSON: for scripts and agents'],
+      _DB_EN,
+    ],
+    examples: [
+      ['Elements into the folder site', 'cms elements pull site --db site.db'],
+      ['Check the edits', 'cms elements check site --db site.db'],
+      ['Send them to the site', 'cms elements push site --db site.db'],
+    ],
+  },
+  {
+    name: 'diagnose',
+    summary: 'Site diagnostics: links, pages, media, settings',
+    usage: ['cms diagnose [--db <file>] [--json]'],
+    details: [
+      'The same as the Diagnostics tab in the manager: broken links, pages without a description, missing media files, settings and the server.',
+      'With errors, the exit code is 1, so the check can run from cron or CI. --json prints the whole report for scripts and agents.',
+    ],
+    options: [['--json', 'The report as JSON'], _DB_EN],
+    examples: [
+      ['Check the site', 'cms diagnose --db site.db'],
+      [
+        'Every night, cron mails the output',
+        '0 3 * * * cms diagnose --db /srv/site.db',
+      ],
+    ],
+  },
+  {
+    name: 'mcp',
+    summary: 'An MCP server for AI agents: Claude, Cursor, Codex',
+    usage: ['cms mcp [--db <file>] [--user <email>]'],
+    details: [
+      'Speaks MCP over stdin and stdout. The agent reads and changes pages, elements, forms, submissions and the media library with tools, the same routes the manager uses: the role rights, HTML cleaning, page history and the activity log.',
+      'The agent works as a user: --user, otherwise the first administrator. At least one user is needed: cms users add.',
+      'Claude Code: claude mcp add site -- cms mcp --db /srv/site.db. Claude Desktop, Cursor and others: the command cms with the arguments mcp --db <file>.',
+      'A site server on the same database sees the changes right away, no restart needed.',
+    ],
+    options: [
+      ['--user <email>', 'Whose name and rights the agent uses'],
+      _DB_EN,
+    ],
+    examples: [
+      ['Connect to Claude Code', 'claude mcp add site -- cms mcp --db site.db'],
+      [
+        'An agent with editor rights',
+        'cms mcp --db site.db --user ed@example.com',
       ],
     ],
   },

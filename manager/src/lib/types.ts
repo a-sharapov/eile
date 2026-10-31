@@ -22,6 +22,7 @@ export type Session = {
   site: { name: string; url: string };
   /** Подключён ИИ — у полей есть «Сгенерировать с ИИ». */
   ai: boolean;
+  aiVision: boolean;
   /** Версия программы — в меню профиля. */
   version: string;
   /** Почта уведомлений настроена: на входе есть «Забыли пароль?». */

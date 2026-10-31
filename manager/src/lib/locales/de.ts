@@ -930,6 +930,9 @@ export var messages: Dictionary['messages'] = {
   'aiSettings.instructions': 'Anweisungen für die KI',
   'aiSettings.instructionsPlaceholder':
     'Zum Beispiel: Wir siezen, schreiben kurz und ohne Behördendeutsch; den Markennamen nie übersetzen',
+  'aiSettings.vision': 'Das Modell sieht Bilder',
+  'aiSettings.visionHint':
+    'Einschalten, wenn das Modell Bilder annimmt: Dann schreibt es die Beschreibung eines Bildes der Mediathek, indem es das Bild selbst ansieht. Modelle ohne Bildverständnis antworten mit einem Fehler.',
   'aiSettings.instructionsHint':
     'Ton, Stil, zu vermeidende Wörter: Sie gehen mit jedem Auftrag an die KI.',
   'aiSettings.connect': 'Verbinden',
@@ -1141,6 +1144,48 @@ export var messages: Dictionary['messages'] = {
   'common.copied': 'Kopiert:',
   'common.copy': 'Kopieren',
   'users.title': 'Benutzer des Managers',
+  'agent.open': 'KI-Assistent',
+  'agent.title': 'Assistent',
+  'agent.new': 'Neues Gespräch',
+  'agent.intro':
+    'Bitten Sie um etwas auf der Website: Der Assistent findet die Seiten und Elemente selbst und ändert sie. Er arbeitet mit Ihren Rechten, Änderungen an Seiten bleiben in ihrem Verlauf.',
+  'agent.example1':
+    'Finde Seiten ohne Beschreibung und schreibe die Beschreibungen',
+  'agent.example2': 'Lege einen Entwurf „Angebote“ im Bereich Neuigkeiten an',
+  'agent.example3':
+    'Prüfe die Website mit der Diagnose und sag mir, was zu tun ist',
+  'agent.placeholder': 'Was soll auf der Website passieren?',
+  'agent.hint': 'Enter sendet, Umschalt+Enter fügt eine Zeile ein',
+  'agent.send': 'Senden',
+  'agent.working': 'Arbeite…',
+  'agent.steps': 'Was der Assistent getan hat',
+  'agent.stopped':
+    'Nach {n} Schritten angehalten. Schreiben Sie „weiter“, um fertig zu werden.',
+  'tokens.title': 'API-Schlüssel',
+  'tokens.body':
+    'Ein Schlüssel gibt einem KI-Agenten oder Skript Ihre Rechte im Manager. Agenten wie Claude, Cursor und Codex verbinden sich damit per MCP mit der Website.',
+  'tokens.name': 'Wofür der Schlüssel ist',
+  'tokens.namePlaceholder': 'Claude Code auf dem Laptop',
+  'tokens.issue': 'Erstellen',
+  'tokens.issued':
+    'Der Schlüssel ist erstellt. Kopieren Sie ihn jetzt: Er wird nicht noch einmal angezeigt.',
+  'tokens.copyToken': 'Schlüssel kopieren',
+  'tokens.address': 'MCP-Adresse',
+  'tokens.copyAddress': 'Adresse kopieren',
+  'tokens.claudeCode': 'Befehl für Claude Code',
+  'tokens.copyCommand': 'Befehl kopieren',
+  'tokens.copiedNotice': 'Kopiert',
+  'tokens.empty': 'Noch keine Schlüssel.',
+  'tokens.created': 'erstellt {when}',
+  'tokens.used': 'zuletzt genutzt {when}',
+  'tokens.unused': 'noch nicht genutzt',
+  'tokens.revoke': 'Widerrufen',
+  'tokens.revokeTitle': 'Schlüssel {name} widerrufen?',
+  'tokens.revokeBody':
+    'Agenten und Skripte mit diesem Schlüssel verlieren sofort den Zugriff auf die Website.',
+  'tokens.revoked': 'Schlüssel widerrufen',
+  'tokens.limits':
+    'Mit einem Schlüssel lassen sich keine weiteren Schlüssel erstellen, das Passwort ändern, Benutzer verwalten oder eine Kopie der Website herunterladen: Dafür melden Sie sich im Manager an.',
   'password.title': 'Passwort ändern',
   'password.body':
     'Danach müssen Sie sich auf anderen Geräten neu anmelden; hier bleiben Sie im Manager angemeldet.',
@@ -1487,6 +1532,13 @@ export var errors: Dictionary['errors'] = {
   'upkeep.backup_failed': 'Die Sicherung ist fehlgeschlagen: {detail}',
   'upkeep.releases_unavailable':
     'Die Release-Seite hat nicht geantwortet – versuchen Sie es später erneut.',
+  'identity.token_name': 'Benennen Sie den Schlüssel: wofür er ist.',
+  'identity.too_many_tokens':
+    'Es gibt bereits 20 Schlüssel: Widerrufen Sie die, die Sie nicht brauchen.',
+  'identity.token_not_found':
+    'Diesen Schlüssel gibt es nicht: Vielleicht wurde er schon widerrufen.',
+  'identity.session_required':
+    'Dafür müssen Sie sich im Manager anmelden, ein API-Schlüssel reicht nicht.',
   'identity.forbidden': 'Für Ihre Rolle ist das nicht verfügbar.',
   'identity.setup_closed':
     'Der Einrichtungslink wurde bereits verwendet oder ist ungültig.',

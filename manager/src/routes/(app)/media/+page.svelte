@@ -9,6 +9,7 @@ import { icons } from '#lib/icons.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
 import { fileSize, folderOf, originals, previewUrl } from '#lib/media.ts';
 import { failed, notify } from '#lib/notices.svelte.ts';
+import { session } from '#lib/session.svelte.ts';
 import type { MediaFile, PageRef } from '#lib/types.ts';
 import LoadState from '#lib/ui/LoadState.svelte';
 import PageHeader from '#lib/ui/PageHeader.svelte';
@@ -122,7 +123,7 @@ $effect(() => {
   );
 });
 
-// Для описания картинки ИИ видит не саму картинку, а её имя, размеры и страницы, где она стоит.
+// Для описания картинки ИИ получает её имя, размеры и страницы, где она стоит; модель, которая видит, — и саму картинку.
 $effect(() =>
   aiScope({
     area: t('aiFacts.media'),
@@ -135,7 +136,7 @@ $effect(() =>
         t('aiFacts.usedOn', {
           pages: usage.pages.map((_) => _.title).join(', '),
         }),
-      selected && t('aiFacts.blindImage'),
+      selected && !session.aiVision && t('aiFacts.blindImage'),
     ]),
   })
 );
@@ -324,7 +325,7 @@ const remove = (file: MediaFile) =>
           {#key selected.path}
             <label>
               {t('media.alt')}
-              <textarea rows="2" value={selected.alt} onchange={(e) => describeFile(selected!, e.currentTarget.value)}></textarea>
+              <textarea rows="2" value={selected.alt} data-ai-image={selected.path} onchange={(e) => describeFile(selected!, e.currentTarget.value)}></textarea>
               <small>{t('media.altHint')}</small>
             </label>
           {/key}

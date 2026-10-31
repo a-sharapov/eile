@@ -298,6 +298,23 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
     </p>
     <p>Die KI weiß, um welche Website es geht, welches Feld es ist und wo es steht – deshalb darf der Auftrag ganz kurz sein. Lesen Sie den Text vor dem Veröffentlichen noch einmal durch.</p>
   </section>
+  <section id="speed-agent" data-topic hidden={!shown('speed-agent')}>
+    <h3>Assistent</h3>
+    <p>
+      Der Zauberstab {@html icons.wand} in der Kopfleiste öffnet ein Gespräch mit der KI. Bitten Sie um etwas auf der Website, etwa
+      „finde Seiten ohne Beschreibung und ergänze sie“ oder „lege einen Entwurf mit unseren Angeboten an“: Der Assistent findet die
+      Seiten, ändert sie und sagt, was er getan hat. Die Schritte sehen Sie, während er arbeitet.
+    </p>
+    <p>
+      Der Assistent arbeitet mit Ihren Rechten, auch über ihn kann ein Redakteur keinen Code ändern. Neue Seiten legt er als Entwürfe
+      an, frühere Fassungen bleiben im Reiter „Verlauf“: Jede Änderung lässt sich zurücknehmen.
+    </p>
+    <p>
+      Hat der Assistent Formulareinsendungen gelesen, ändert er bis zur nächsten Anfrage weder Code noch Formulare, Felder
+      oder Einstellungen: Einsendungen schreiben Besucher, und eine geschickt formulierte darf ihm nichts befehlen. Plugins,
+      Passwörter, Benutzer und die Adresse der Website ändert der Assistent nie.
+    </p>
+  </section>
   <section id="speed-tree" data-topic hidden={!shown('speed-tree')}>
     <h3>Suche im Baum</h3>
     <p>Die Taste <kbd>/</kbd> setzt den Cursor in die Suche über dem Baum: Seiten finden Sie nach Titel, Adresse oder Nummer.</p>
@@ -351,6 +368,16 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
       Benutzer hat seine eigene Einstellung. „Passwort ändern“ fragt nach dem aktuellen und einem neuen Passwort – mindestens 10 Zeichen. „Abmelden“ beendet
       die Sitzung auf diesem Gerät. Dort wählen Sie auch die Sprache des Managers: Englisch, Deutsch oder Russisch; vor der Anmeldung
       unten auf dem Anmeldebildschirm, danach bleibt sie bei Ihrem Konto.
+    </p>
+  </section>
+  <section id="account-keys" data-topic hidden={!shown('account-keys')}>
+    <h3>API-Schlüssel für Agenten</h3>
+    <p>
+      „API-Schlüssel“ im selben Menü erstellt einen Schlüssel für einen KI-Agenten oder ein Skript: Claude Code, Cursor und Codex
+      verbinden sich damit per MCP mit der Website und arbeiten mit Ihren Rechten. Der Schlüssel wird einmal angezeigt – kopieren
+      Sie ihn zusammen mit dem fertigen Verbindungsbefehl. Einen nicht mehr benötigten Schlüssel widerrufen Sie: Agenten verlieren
+      sofort den Zugriff. Mit einem Schlüssel lassen sich keine weiteren Schlüssel erstellen, das Passwort ändern, Benutzer
+      verwalten oder eine Kopie der Website herunterladen.
     </p>
   </section>
 
@@ -447,6 +474,8 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         <li><code>cms backup</code> – Sicherung der ganzen Website in einer Datei, <code>cms backup site.json</code> – als Datensätze in JSON;</li>
         <li><code>cms restore datei</code> – die Website aus einer Sicherung wiederherstellen;</li>
         <li><code>cms update</code> – das Programm auf die neue Version aktualisieren, <code>--check</code> – nur prüfen;</li>
+        <li><code>cms elements pull ordner</code> – Vorlagen, Komponenten, Plugins, Formulare und Felder als Dateien, mit einer Anleitung AGENTS.md für KI-Agenten; <code>cms elements push ordner</code> – zurück in die Website;</li>
+        <li><code>cms mcp</code> – ein MCP-Server für einen Agenten auf diesem Server, <code>cms diagnose</code> – die Diagnose der Website im Terminal;</li>
         <li><code>cms users password email</code> – neues Passwort, falls ein Administrator seins vergessen hat.</li>
       </ul>
     </section>

@@ -100,6 +100,7 @@ describe('ИИ в менеджере', () => {
       url: `http://localhost:${model.port}`,
       model: 'fake-model',
       instructions: 'Пишем на «вы»',
+      vision: false,
     });
     expect((await json(await call('GET', '/session'))).ai).toBe(true);
 
@@ -261,5 +262,58 @@ describe('ИИ: аудит', () => {
       )
     );
     expect(statuses.filter((_) => _ === 429)).toHaveLength(1);
+  });
+});
+
+describe('ИИ видит картинку', () => {
+  // PNG 1×1: модель, которая видит, получает его частью сообщения.
+  const PNG = Uint8Array.fromBase64(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  );
+
+  it('с флажком «видит картинки» — картинка в сообщении, без него — только текст', async () => {
+    app.media.files.save({
+      path: 'photos/cat.png',
+      data: PNG,
+      width: 1,
+      height: 1,
+    });
+    const target = {
+      kind: 'text',
+      label: 'Описание картинки',
+      image: 'photos/cat.png',
+    };
+    await connect();
+    await generate(target, 'опиши');
+    expect(typeof received.at(-1)!.body.messages[1].content).toBe('string');
+
+    await call('PUT', '/assistant', {
+      url: `http://localhost:${model.port}`,
+      model: 'fake-model',
+      vision: true,
+    });
+    expect((await json(await call('GET', '/session'))).aiVision).toBe(true);
+    await generate(target, 'опиши');
+    const sent = received.at(-1)!.body.messages;
+    expect(sent[0].content).toContain('The image itself is attached');
+    expect(sent[1].content[0]).toEqual({
+      type: 'text',
+      text: expect.stringContaining('опиши'),
+    });
+    expect(sent[1].content[1].image_url.url).toStartWith(
+      'data:image/png;base64,iVBOR'
+    );
+
+    // SVG модели не отправляется: его не примет ни одна модель.
+    app.media.files.save({
+      path: 'logo.svg',
+      data: new TextEncoder().encode(
+        '<svg xmlns="http://www.w3.org/2000/svg"/>'
+      ),
+      width: null,
+      height: null,
+    });
+    await generate({ ...target, image: 'logo.svg' }, 'опиши');
+    expect(typeof received.at(-1)!.body.messages[1].content).toBe('string');
   });
 });

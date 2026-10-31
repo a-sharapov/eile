@@ -25,6 +25,14 @@ export type Options = {
   readonly acmeStaging?: boolean;
   /** Свой каталог ACME — для проверки на стенде. */
   readonly acmeDirectory?: string;
+  /** `cms elements push --prune`: удалить из сайта то, чего нет в папке. */
+  readonly prune?: boolean;
+  /** `cms elements push --watch`: отправлять при каждом сохранении файла. */
+  readonly watch?: boolean;
+  /** Итог в JSON — для скриптов и агентов. */
+  readonly json?: boolean;
+  /** `cms mcp --user <почта>`: от чьего имени и с чьими правами работает агент. */
+  readonly user?: string;
 };
 
 /** Разобранная строка вызова: команда, её аргументы и параметры; или ошибка для человека. */
@@ -51,6 +59,10 @@ const _OPTIONS = {
   email: { type: 'string' },
   'https-port': { type: 'string' },
   'acme-staging': { type: 'boolean' },
+  prune: { type: 'boolean' },
+  watch: { type: 'boolean' },
+  json: { type: 'boolean' },
+  user: { type: 'string' },
 } as const;
 
 // parseArgs говорит длинно: «Unknown option '--prot'…» — самое частое говорим коротко и на языке CLI.
@@ -108,6 +120,10 @@ export var parseInvocation = (argv: readonly string[], env: Env): Invocation =>
             ...(email ? { email } : {}),
             ...(httpsPort ? { httpsPort } : {}),
             ...(parsed.values['acme-staging'] ? { acmeStaging: true } : {}),
+            ...(parsed.values.prune ? { prune: true } : {}),
+            ...(parsed.values.watch ? { watch: true } : {}),
+            ...(parsed.values.json ? { json: true } : {}),
+            ...(parsed.values.user ? { user: parsed.values.user } : {}),
             ...(env.CMS_ACME_DIRECTORY
               ? { acmeDirectory: env.CMS_ACME_DIRECTORY }
               : {}),

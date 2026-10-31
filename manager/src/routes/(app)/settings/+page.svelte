@@ -53,6 +53,7 @@ type AiStatus = {
   url: string;
   model: string;
   instructions: string;
+  vision: boolean;
 };
 
 let aiStatus = $state<AiStatus>({
@@ -60,8 +61,15 @@ let aiStatus = $state<AiStatus>({
   url: '',
   model: '',
   instructions: '',
+  vision: false,
 });
-let aiForm = $state({ url: '', model: '', key: '', instructions: '' });
+let aiForm = $state({
+  url: '',
+  model: '',
+  key: '',
+  instructions: '',
+  vision: false,
+});
 let aiBusy = $state(false);
 let aiCheck = $state<{ ok: boolean; text: string } | null>(null);
 
@@ -69,6 +77,7 @@ function acceptAi(next: AiStatus) {
   aiStatus = next;
   aiForm = { ...next, key: '' };
   session.ai = next.connected;
+  session.aiVision = next.connected && next.vision;
 }
 
 const saveAi = (event: SubmitEvent) => {
@@ -121,6 +130,7 @@ const disconnectAi = () =>
                 url: '',
                 model: '',
                 instructions: '',
+                vision: false,
               })
             )
             .then(
@@ -476,6 +486,10 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
         {t('aiSettings.instructions')}
         <textarea rows="4" maxlength="2000" bind:value={aiForm.instructions} placeholder={t('aiSettings.instructionsPlaceholder')} data-ai="off"></textarea>
         <small>{t('aiSettings.instructionsHint')}</small>
+      </label>
+      <label class="option">
+        <input type="checkbox" bind:checked={aiForm.vision} />
+        <span><strong>{t('aiSettings.vision')}</strong><small class="help">{t('aiSettings.visionHint')}</small></span>
       </label>
       <div class="ai-actions">
         <button class="primary" aria-disabled={aiBusy}>{t(aiStatus.connected ? 'aiSettings.update' : 'aiSettings.connect')}</button>

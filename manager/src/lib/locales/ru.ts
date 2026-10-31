@@ -906,6 +906,9 @@ export var messages = {
   'aiSettings.instructions': 'Указания для ИИ',
   'aiSettings.instructionsPlaceholder':
     'Например: пишем на «вы», коротко и без канцелярита; бренд пишется латиницей',
+  'aiSettings.vision': 'Модель видит картинки',
+  'aiSettings.visionHint':
+    'Включите, если модель принимает картинки: тогда описание картинки в медиатеке она пишет, глядя на саму картинку. Модели без зрения ответят ошибкой.',
   'aiSettings.instructionsHint':
     'Тон, стиль, слова, которых избегать: они уходят с каждым запросом.',
   'aiSettings.connect': 'Подключить',
@@ -1113,6 +1116,46 @@ export var messages = {
   'common.copied': 'Скопировано:',
   'common.copy': 'Скопировать',
   'users.title': 'Пользователи менеджера',
+  'agent.open': 'Ассистент ИИ',
+  'agent.title': 'Ассистент',
+  'agent.new': 'Новый разговор',
+  'agent.intro':
+    'Попросите сделать что-нибудь на сайте — ассистент сам найдёт страницы и элементы и поправит их. Он работает с вашими правами, правки страниц остаются в их истории.',
+  'agent.example1': 'Найди страницы без описания и допиши описания',
+  'agent.example2': 'Создай черновик страницы «Акции» в разделе с новостями',
+  'agent.example3': 'Проверь сайт диагностикой и расскажи, что поправить',
+  'agent.placeholder': 'Что сделать на сайте?',
+  'agent.hint': 'Enter — отправить, Shift+Enter — новая строка',
+  'agent.send': 'Отправить',
+  'agent.working': 'Работаю…',
+  'agent.steps': 'Что сделал ассистент',
+  'agent.stopped':
+    'Остановился после {n} шагов. Напишите «продолжай», чтобы закончить.',
+  'tokens.title': 'Ключи API',
+  'tokens.body':
+    'Ключ даёт ИИ-агенту или скрипту ваши права в менеджере. Агенты — Claude, Cursor, Codex — подключаются по нему к сайту через MCP.',
+  'tokens.name': 'Для чего ключ',
+  'tokens.namePlaceholder': 'Claude Code на ноутбуке',
+  'tokens.issue': 'Выпустить',
+  'tokens.issued':
+    'Ключ выпущен. Скопируйте его сейчас: больше он не покажется.',
+  'tokens.copyToken': 'Скопировать ключ',
+  'tokens.address': 'Адрес MCP',
+  'tokens.copyAddress': 'Скопировать адрес',
+  'tokens.claudeCode': 'Команда для Claude Code',
+  'tokens.copyCommand': 'Скопировать команду',
+  'tokens.copiedNotice': 'Скопировано',
+  'tokens.empty': 'Ключей пока нет.',
+  'tokens.created': 'выпущен {when}',
+  'tokens.used': 'в работе {when}',
+  'tokens.unused': 'ещё не использовался',
+  'tokens.revoke': 'Отозвать',
+  'tokens.revokeTitle': 'Отозвать ключ {name}?',
+  'tokens.revokeBody':
+    'Агенты и скрипты с этим ключом сразу потеряют доступ к сайту.',
+  'tokens.revoked': 'Ключ отозван',
+  'tokens.limits':
+    'Ключом нельзя выпустить другой ключ, сменить пароль, управлять пользователями и скачать копию сайта — для этого нужно войти в менеджер.',
   'password.title': 'Сменить пароль',
   'password.body':
     'После смены на других устройствах придётся войти заново; здесь вы останетесь в менеджере.',
@@ -1442,6 +1485,11 @@ export var errors = {
   'upkeep.backup_failed': 'Копия не сделалась: {detail}',
   'upkeep.releases_unavailable':
     'Страница релизов не ответила — попробуйте позже.',
+  'identity.token_name': 'Назовите ключ: для чего он.',
+  'identity.too_many_tokens': 'Ключей уже 20 — отзовите ненужные.',
+  'identity.token_not_found': 'Такого ключа нет — возможно, его уже отозвали.',
+  'identity.session_required':
+    'Это можно сделать, только войдя в менеджер, а не ключом API.',
   'identity.forbidden': 'Для вашей роли это недоступно.',
   'identity.setup_closed': 'Ссылка настройки уже использована или неверна.',
   'identity.weak_password': 'Пароль — не короче 10 символов.',

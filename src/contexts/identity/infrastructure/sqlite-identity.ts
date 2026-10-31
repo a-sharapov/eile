@@ -1,5 +1,7 @@
 import type { Database, Migration } from '../../../platform/database.ts';
 import type {
+  ApiToken,
+  ApiTokenRepository,
   PasswordHasher,
   PasswordResetRepository,
   SessionRepository,
@@ -44,12 +46,29 @@ export var identityMigrations: readonly Migration[] = [
       CREATE INDEX identity_password_resets_user ON identity_password_resets (user_id);
     `,
   },
+  {
+    id: 'identity/003_api_tokens',
+    sql: `
+      CREATE TABLE identity_api_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES identity_users (id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        hint TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        used_at TEXT
+      );
+      CREATE INDEX identity_api_tokens_user ON identity_api_tokens (user_id);
+    `,
+  },
 ];
 
 /** Таблицы этого сервера, а не сайта: в копию не попадают, при восстановлении остаются свои. */
 export var IDENTITY_SERVER_TABLES = [
   'identity_sessions',
   'identity_password_resets',
+  // Ключи агентов — как сеансы: из копии они ожили бы на чужом сервере.
+  'identity_api_tokens',
 ] as const;
 
 type UserRow = {
@@ -174,6 +193,63 @@ export var definePasswordResetRepository = (
       void insert.run(reset.tokenHash, reset.userId, reset.expiresAt),
     removeOf: (userId) => void removeOf.run(userId),
     removeExpired: (at) => void removeExpired.run(at),
+  };
+};
+
+type ApiTokenRow = {
+  id: number;
+  user_id: number;
+  name: string;
+  token_hash: string;
+  hint: string;
+  created_at: string;
+  used_at: string | null;
+};
+
+const _apiToken = (row: ApiTokenRow): ApiToken => ({
+  id: row.id,
+  userId: parseUserId(row.user_id),
+  name: row.name,
+  tokenHash: row.token_hash,
+  hint: row.hint,
+  createdAt: row.created_at,
+  usedAt: row.used_at,
+});
+
+export var defineApiTokenRepository = (db: Database): ApiTokenRepository => {
+  const byHash = db.query<ApiTokenRow, [string]>(
+    'SELECT * FROM identity_api_tokens WHERE token_hash = ?'
+  );
+  const of = db.query<ApiTokenRow, [number]>(
+    'SELECT * FROM identity_api_tokens WHERE user_id = ? ORDER BY id DESC'
+  );
+  const insert = db.query<
+    { id: number },
+    [number, string, string, string, string]
+  >(
+    `INSERT INTO identity_api_tokens (user_id, name, token_hash, hint, created_at)
+     VALUES (?, ?, ?, ?, ?) RETURNING id`
+  );
+  const touch = db.query(
+    'UPDATE identity_api_tokens SET used_at = ? WHERE id = ?'
+  );
+  const remove = db.query(
+    'DELETE FROM identity_api_tokens WHERE id = ? AND user_id = ?'
+  );
+  return {
+    byHash: (hash) =>
+      ((row) => (row ? _apiToken(row) : null))(byHash.get(hash)),
+    of: (userId) => of.all(userId).map(_apiToken),
+    add: (token) =>
+      insert.get(
+        token.userId,
+        token.name,
+        token.tokenHash,
+        token.hint,
+        token.createdAt
+      )!.id,
+    touch: (id, at) => void touch.run(at, id),
+    remove: (id, userId) => remove.run(id, userId).changes > 0,
   };
 };
 

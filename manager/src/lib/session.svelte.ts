@@ -8,6 +8,7 @@ export var session = $state<Session & { loaded: boolean }>({
   appearance: null,
   site: { name: '', url: '' },
   ai: false,
+  aiVision: false,
   version: '',
   passwordReset: false,
   update: null,

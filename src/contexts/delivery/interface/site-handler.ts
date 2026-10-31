@@ -14,6 +14,7 @@ import type { Discovered, Discovery } from '../application/discovery.ts';
 import type { Delivery, PageDelivery } from '../application/page-delivery.ts';
 import type { EditBar, RequestInfo } from '../application/ports.ts';
 import { isHtml, responseType } from '../domain/content-type.ts';
+import { prefersMarkdown } from '../domain/discovery.ts';
 
 const _METHODS = ['GET', 'HEAD'];
 
@@ -140,6 +141,22 @@ const _discovered = (request: Request, found: Discovered): Response =>
     },
   });
 
+// Markdown по Accept — на том же адресе, что HTML: кэш различает ответы по Accept. noindex не ставим:
+// это адрес самой страницы, а не её копия /путь.md.
+const _negotiated = (request: Request, found: Discovered): Response =>
+  new Response(request.method === 'HEAD' ? null : found.body, {
+    status: found.status,
+    headers: {
+      'content-type': found.contentType,
+      'cache-control': 'no-cache',
+      vary: 'accept',
+      'x-content-type-options': 'nosniff',
+    },
+  });
+
+const _markdownPath = (path: string): string =>
+  path === '/' ? '/index.md' : `${path}.md`;
+
 export var defineSiteHandler = (
   delivery: PageDelivery,
   compression: CompressionCache,
@@ -208,7 +225,10 @@ export var defineSiteHandler = (
       'content-type': responseType(page.contentType),
       'x-content-type-options': 'nosniff',
       'cache-control': 'no-cache',
-      vary: 'accept-encoding',
+      // Тот же адрес отдаёт Markdown агенту, который просит его заголовком Accept.
+      vary: isHtml(page.contentType)
+        ? 'accept-encoding, accept'
+        : 'accept-encoding',
       etag,
       'x-cache': page.cache,
       ...(encoding && { 'content-encoding': encoding }),
@@ -260,7 +280,18 @@ export var defineSiteHandler = (
                     discovery
                       .respond(info)
                       ?.then((_) => _discovered(request, _)) ??
-                    delivery.deliver(info).then(respond(request, url))
+                    (prefersMarkdown(request.headers.get('accept'))
+                      ? (discovery
+                          .respond({ ...info, path: _markdownPath(path) })
+                          ?.then((_) =>
+                            _.status === 200
+                              ? _negotiated(request, _)
+                              : delivery
+                                  .deliver(info)
+                                  .then(respond(request, url))
+                          ) ??
+                        delivery.deliver(info).then(respond(request, url)))
+                      : delivery.deliver(info).then(respond(request, url)))
                   ).then(undefined, _serverError(report, path)))(
                   _requestInfo(request, url, path)
                 ),

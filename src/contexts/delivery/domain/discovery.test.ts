@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { llmsTxt, robotsTxt, seoHead, sitemapXml } from './discovery.ts';
+import {
+  llmsTxt,
+  prefersMarkdown,
+  robotsTxt,
+  seoHead,
+  sitemapXml,
+} from './discovery.ts';
 
 const site = {
   name: 'Сайт',
@@ -117,4 +123,21 @@ describe('находимость', () => {
     expect([website!['@type'], website!.inLanguage]).toEqual(['WebSite', 'ru']);
     expect([webpage!['@type'], webpage!.inLanguage]).toEqual(['WebPage', 'en']);
   });
+});
+
+it('Markdown по Accept: только если text/markdown не ниже text/html', () => {
+  expect(prefersMarkdown('text/markdown')).toBe(true);
+  expect(prefersMarkdown('text/markdown, text/html;q=0.9, */*;q=0.8')).toBe(
+    true
+  );
+  expect(prefersMarkdown('text/markdown, text/html')).toBe(true);
+  expect(prefersMarkdown('text/html, text/markdown;q=0.5')).toBe(false);
+  expect(
+    prefersMarkdown(
+      'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    )
+  ).toBe(false);
+  expect(prefersMarkdown('*/*')).toBe(false);
+  expect(prefersMarkdown('text/markdown;q=0')).toBe(false);
+  expect(prefersMarkdown(null)).toBe(false);
 });

@@ -64,6 +64,8 @@ import {
 } from '../domain/appearance.ts';
 import { inertType, isHtmlType } from '../domain/content-policy.ts';
 import { sanitizeHtml } from '../infrastructure/html-sanitizer.ts';
+import type { ToolRequest } from './agent-tools.ts';
+import { defineAgentSession, defineToolbox, type Toolbox } from './toolbox.ts';
 
 /** Копия сайта: снимок базы, записи текстом и восстановление — их даёт корень приложения. */
 export type SiteBackup = {
@@ -139,6 +141,8 @@ type Context = {
   readonly params: Readonly<Record<string, string>>;
   readonly user: UserView | null;
   readonly body: () => Promise<any>;
+  /** Запрос агента или скрипта (ключ API, инструмент): HTML от него чистится, как у редактора. */
+  readonly agent: boolean;
 };
 
 type Handler = (context: Context) => Response | Promise<Response>;
@@ -254,6 +258,27 @@ const _API_HEADERS = {
   'x-content-type-options': 'nosniff',
 };
 
+const _encoder = new TextEncoder();
+
+/** Ответ строками JSON по мере готовности: `send` пишет строку, поток закрывается, когда `run` закончит. */
+const _ndjson = (
+  run: (send: (line: unknown) => void) => Promise<unknown>
+): Response =>
+  new Response(
+    new ReadableStream<Uint8Array>({
+      start: (controller) =>
+        void run((line) =>
+          controller.enqueue(_encoder.encode(`${JSON.stringify(line)}\n`))
+        ).finally(() => controller.close()),
+    }),
+    {
+      headers: {
+        'content-type': 'application/x-ndjson; charset=utf-8',
+        ..._API_HEADERS,
+      },
+    }
+  );
+
 const _json = (status: number, body: unknown, headers = {}): Response =>
   Response.json(body, { status, headers: { ..._API_HEADERS, ...headers } });
 
@@ -322,6 +347,25 @@ const _signedIn = (request: Request) => (login: Login) =>
     { user: login.user },
     { 'set-cookie': _cookie(request, login.token, _SESSION_SECONDS) }
   );
+
+/** Ключ API из `Authorization: Bearer …`: агенты и скрипты входят им, а не cookie. */
+export var bearerToken = (request: Request): string | null =>
+  /^Bearer\s+(\S+)$/i.exec(request.headers.get('authorization') ?? '')?.[1] ??
+  null;
+
+// Ключом API этого не сделать — только войдя в менеджер: утёкший ключ не выпустит новых, не сменит
+// пароль, не заведёт пользователя и не унесёт копию сайта с хэшами паролей.
+const _SESSION_ONLY: ReadonlySet<string> = new Set([
+  'GET /tokens',
+  'POST /tokens',
+  'DELETE /tokens/:id',
+  'PUT /session/password',
+  'POST /users',
+  'PATCH /users/:id',
+  'DELETE /users/:id',
+  'GET /backup',
+  'POST /backup',
+]);
 
 export var sessionToken = (request: Request): string | null =>
   (request.headers.get('cookie') ?? '')
@@ -399,29 +443,32 @@ const _kitDescription = (source: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
-const _routes = ({
-  content,
-  design,
-  site,
-  identity,
-  extensions,
-  media,
-  preview,
-  appearance,
-  activity,
-  backup,
-  assistant,
-  kit,
-  notify,
-  forms,
-  pageCache,
-  report,
-  upkeep,
-  https,
-  redirects,
-  diagnostics,
-  version,
-}: ApiServices): readonly Route[] => {
+const _routes = (
+  {
+    content,
+    design,
+    site,
+    identity,
+    extensions,
+    media,
+    preview,
+    appearance,
+    activity,
+    backup,
+    assistant,
+    kit,
+    notify,
+    forms,
+    pageCache,
+    report,
+    upkeep,
+    https,
+    redirects,
+    diagnostics,
+    version,
+  }: ApiServices,
+  toolbox: Toolbox
+): readonly Route[] => {
   const searchOf = (request: Request) => new URL(request.url).searchParams;
   // Сброс пароля по почте — когда почта настроена и задан адрес сайта: ссылка в письме строится от него.
   const resetReady = (): boolean =>
@@ -565,14 +612,19 @@ const _routes = ({
         ])
       ))(richFields());
 
+  // Право писать любой HTML — у человека с правом на код. Агенту и ключу API — нет, даже администраторскому:
+  // хитро составленная заявка или текст страницы не вставят через агента скрипт на сайт (ADR 0034).
+  const codeAllowed = ({ user, agent }: Pick<Context, 'user' | 'agent'>) =>
+    !agent && user !== null && can(user.role, 'design.edit');
+
   // Без права на код (domain/content-policy.ts): HTML страницы, анонса и полей чистится, а типы, которые
   // браузер исполняет, не выбрать и не править. Сменил тип на HTML — чистится и прежний текст страницы.
   const guardPage = <T extends PageChanges & { fields?: FieldValues }>(
-    user: UserView,
+    code: boolean,
     current: { contentType: string; content: string } | null,
     input: T
   ): T =>
-    can(user.role, 'design.edit')
+    code
       ? input
       : ((type) =>
           !inertType(type) &&
@@ -642,6 +694,19 @@ const _routes = ({
           domainError('assistant.unavailable', 'The AI service failed'))
         : error;
     };
+
+  // Сбой ИИ в потоке разговора — строкой {error}, как в JSON-ответе: подробность — только администратору.
+  const aiError =
+    (user: UserView) =>
+    (error: unknown): { readonly code: string; readonly message: string } =>
+      attempt(
+        () => aiFailure(user)(error),
+        (shown) =>
+          isDomainError(shown)
+            ? { code: shown.code, message: shown.message }
+            : (console.error(shown),
+              { code: 'manager.internal', message: 'Internal Server Error' })
+      );
 
   // Удачная правка страницы попадает в журнал «Обзора». id новой страницы или копии — из ответа.
   const logged =
@@ -762,6 +827,8 @@ const _routes = ({
           appearance: user ? appearanceOf(user.id) : null,
           // Подключён ли ИИ: у полей появляется «Сгенерировать с ИИ». Адрес и ключ — только в настройках.
           ai: user !== null && assistant.connection.status().connected,
+          // Модель видит картинки: описанию картинки не нужно «ИИ её не видит».
+          aiVision: user !== null && assistant.connection.status().vision,
           // Название сайта видно и до входа: экран входа говорит, куда входишь (оно и так на сайте).
           site: ((settings) => ({
             name: settings.name,
@@ -981,6 +1048,44 @@ const _routes = ({
         ),
     ],
     [
+      // Разговор с агентом: шаги идут строками NDJSON по мере работы, последняя — ответ или ошибка.
+      'POST',
+      '/assistant/agent',
+      'content.edit',
+      ({ user, body, request }) =>
+        body().then((_: { messages?: unknown; place?: unknown }) =>
+          _ndjson((send, session = defineAgentSession()) =>
+            withQuota(user!.id, () =>
+              assistant.agent({
+                turns: _.messages,
+                user: { name: user!.name, role: user!.role },
+                language: languageOf(request),
+                place: typeof _.place === 'string' ? _.place : '',
+                tools: {
+                  specs: toolbox.list(user!).map((tool) => ({
+                    name: tool.name,
+                    description: tool.description,
+                    parameters: tool.input,
+                  })),
+                  execute: (name, args) =>
+                    ((tool) =>
+                      tool
+                        ? toolbox.run(user!, tool, args, session)
+                        : Promise.resolve({
+                            text: `Unknown tool "${name}"`,
+                            ok: false,
+                          }))(toolbox.find(name)),
+                },
+                onStep: (step) => send({ step }),
+              })
+            ).then(
+              (reply) => send({ reply }),
+              (error) => send({ error: aiError(user!)(error) })
+            )
+          )
+        ),
+    ],
+    [
       'GET',
       '/backup',
       'site.edit',
@@ -1035,9 +1140,13 @@ const _routes = ({
       'content.edit',
       logged(
         () => 'created',
-        ({ user, body }) =>
+        ({ user, body, agent }) =>
           body().then((_: CreatePageInput) =>
-            _json(201, { id: content.pages.create(guardPage(user!, null, _)) })
+            _json(201, {
+              id: content.pages.create(
+                guardPage(codeAllowed({ user, agent }), null, _)
+              ),
+            })
           )
       ),
     ],
@@ -1053,14 +1162,18 @@ const _routes = ({
       'content.edit',
       logged(
         () => 'edited',
-        ({ params, user, body }) =>
+        ({ params, user, body, agent }) =>
           body().then((_: PageChanges) =>
             _json(
               200,
               pageDetails(
                 content.pages.edit(
                   Number(params.id),
-                  guardPage(user!, content.drafts.page(Number(params.id)), _),
+                  guardPage(
+                    codeAllowed({ user, agent }),
+                    content.drafts.page(Number(params.id)),
+                    _
+                  ),
                   authorOf(user!)
                 )
               )
@@ -1074,14 +1187,14 @@ const _routes = ({
       'content.edit',
       logged(
         () => 'edited',
-        ({ params, user, body }) =>
+        ({ params, user, body, agent }) =>
           body().then((_: FieldValues) =>
             _json(
               200,
               pageDetails(
                 content.pages.setFields(
                   Number(params.id),
-                  can(user!.role, 'design.edit') ? _ : cleanFields(_),
+                  codeAllowed({ user, agent }) ? _ : cleanFields(_),
                   authorOf(user!)
                 )
               )
@@ -1129,7 +1242,7 @@ const _routes = ({
       'content.edit',
       logged(
         () => 'edited',
-        ({ params, user }) =>
+        ({ params, user, agent }) =>
           _json(
             200,
             pageDetails(
@@ -1140,10 +1253,14 @@ const _routes = ({
                   author: authorOf(user!),
                   prepare: (input) =>
                     (({ fields = {}, ...changes }) => ({ changes, fields }))(
-                      guardPage(user!, content.drafts.page(Number(params.id)), {
-                        ...input.changes,
-                        fields: input.fields,
-                      })
+                      guardPage(
+                        codeAllowed({ user, agent }),
+                        content.drafts.page(Number(params.id)),
+                        {
+                          ...input.changes,
+                          fields: input.fields,
+                        }
+                      )
                     ),
                 }
               )
@@ -1967,6 +2084,29 @@ const _routes = ({
     ],
     ['GET', '/settings', 'user', () => _json(200, site.settings.get())],
     [
+      'GET',
+      '/tokens',
+      'user',
+      ({ user }) => _json(200, identity.apiTokens.list(user!.id)),
+    ],
+    [
+      'POST',
+      '/tokens',
+      'user',
+      ({ user, body }) =>
+        body().then((_: { name?: unknown }) =>
+          _json(201, identity.apiTokens.issue(user!.id, _.name))
+        ),
+    ],
+    [
+      'DELETE',
+      '/tokens/:id',
+      'user',
+      ({ user, params }) => (
+        identity.apiTokens.revoke(user!.id, Number(params.id)), _json(200, {})
+      ),
+    ],
+    [
       'PATCH',
       '/settings',
       'site.edit',
@@ -2099,16 +2239,29 @@ const _CSV_HEAD: Readonly<Record<ManagerLanguage, readonly string[]>> = {
   ru: ['№', 'Дата', 'Форма', 'Статус', 'Страница', 'UTM', 'IP'],
 };
 
+const _API_BASE = '/manager/api';
+
 /** JSON API менеджера под `/manager/api`. */
 export var defineManagerApi = (services: ApiServices) => {
-  const routes = _routes(services);
+  // Инструменты агента зовут те же маршруты от имени пользователя: права, чистка HTML и журнал — общие.
+  const toolbox = defineToolbox((user, request) => as(user, request));
+  const routes = _routes(services, toolbox);
 
   const dispatch = (
     request: Request,
     path: string,
-    client: string
+    client: string,
+    actor: UserView | null = null
   ): Promise<Response> => {
-    const user = services.identity.authenticate(sessionToken(request));
+    const session =
+      actor === null
+        ? services.identity.authenticate(sessionToken(request))
+        : null;
+    const key =
+      actor === null && session === null
+        ? services.identity.apiTokens.authenticate(bearerToken(request))
+        : null;
+    const user = actor ?? session ?? key;
     const found = routes
       .filter(({ 0: method }) => method === request.method)
       .map((route) => ({ route, params: _match(route[1], path) }))
@@ -2121,28 +2274,72 @@ export var defineManagerApi = (services: ApiServices) => {
               ? _error(401, 'identity.unauthorized', 'Sign in first')
               : _error(403, 'identity.forbidden', 'Not allowed for your role')
           )
-        : _buffered(request, _limitOf(found.route))
-            .then(
-              pipe(
-                (buffered) => ({
-                  request: buffered,
-                  client,
-                  user,
-                  params: found.params!,
-                  body: () => buffered.json().catch(() => ({})),
-                }),
-                found.route[3]
+        : session === null &&
+            _SESSION_ONLY.has(`${found.route[0]} ${found.route[1]}`)
+          ? Promise.resolve(
+              _error(
+                403,
+                'identity.session_required',
+                'Sign in to the manager for this: an API token cannot do it'
               )
             )
-            .then(undefined, _failure(services.report, request, client));
+          : _buffered(request, _limitOf(found.route))
+              .then(
+                pipe(
+                  (buffered) => ({
+                    request: buffered,
+                    client,
+                    user,
+                    params: found.params!,
+                    body: () => buffered.json().catch(() => ({})),
+                    agent: actor !== null || key !== null,
+                  }),
+                  found.route[3]
+                )
+              )
+              .then(undefined, _failure(services.report, request, client));
   };
 
-  return (request: Request, path: string, client = ''): Promise<Response> =>
-    _foreign(request, services.site.settings.get().siteUrl)
-      ? Promise.resolve(
-          _error(403, 'manager.foreign_origin', 'Cross-site request')
-        )
-      : Promise.resolve()
-          .then(() => dispatch(request, path, client))
-          .then(undefined, _failure(services.report, request, client));
+  // Тот же маршрут от имени пользователя, без сеанса и cookie: так работают инструменты агента. Язык
+  // ответов — английский: их читает модель.
+  const as = (user: UserView, tool: ToolRequest): Promise<Response> =>
+    ((request) =>
+      Promise.resolve()
+        .then(() => dispatch(request, tool.path, '', user))
+        .then(undefined, _failure(services.report, request, '')))(
+      new Request(
+        `${services.site.settings.get().siteUrl.replace(/\/$/, '') || 'http://localhost'}${_API_BASE}${tool.path}${tool.query && Object.keys(tool.query).length > 0 ? `?${new URLSearchParams(tool.query)}` : ''}`,
+        {
+          method: tool.method,
+          headers: {
+            'accept-language': 'en',
+            ...(tool.body === undefined || tool.body instanceof FormData
+              ? {}
+              : { 'content-type': 'application/json' }),
+          },
+          ...(tool.body === undefined
+            ? {}
+            : {
+                body:
+                  tool.body instanceof FormData
+                    ? tool.body
+                    : JSON.stringify(tool.body),
+              }),
+        }
+      )
+    );
+
+  return {
+    handle: (request: Request, path: string, client = ''): Promise<Response> =>
+      _foreign(request, services.site.settings.get().siteUrl)
+        ? Promise.resolve(
+            _error(403, 'manager.foreign_origin', 'Cross-site request')
+          )
+        : Promise.resolve()
+            .then(() => dispatch(request, path, client))
+            .then(undefined, _failure(services.report, request, client)),
+    toolbox,
+  };
 };
+
+export type ManagerApi = ReturnType<typeof defineManagerApi>;

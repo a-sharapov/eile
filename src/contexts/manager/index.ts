@@ -1,10 +1,17 @@
 import { compressBody, negotiate } from '../../platform/compression.ts';
 import type { Database } from '../../platform/database.ts';
+import { attempt } from '../../shared/kernel/errors.ts';
 import { type ManagerAssets, managerAssets } from './infrastructure/assets.ts';
 import { defineActivityLog } from './infrastructure/sqlite-activity.ts';
 import { defineAppearanceRepository } from './infrastructure/sqlite-appearance.ts';
-import { defineManagerApi, type ManagerServices } from './interface/api.ts';
+import {
+  bearerToken,
+  defineManagerApi,
+  type ManagerServices,
+} from './interface/api.ts';
 import { defineEditBar, EDIT_BAR_URL } from './interface/edit-bar.ts';
+import { defineMcp } from './interface/mcp.ts';
+import { type AgentSession, defineAgentSession } from './interface/toolbox.ts';
 
 export var MANAGER_PATH = '/manager';
 
@@ -33,6 +40,58 @@ const _compressed =
       : Promise.resolve(response);
   };
 
+/** MCP по HTTP: агенты не на этом сервере (Claude, Cursor, n8n) входят ключом API. */
+export var MCP_PATH = `${MANAGER_PATH}/mcp`;
+
+// Файл в base64 на треть длиннее: 32 МБ медиатеки — около 43 МБ сообщения.
+const _MCP_LIMIT = 48 * 1024 * 1024;
+
+const _rpcError = (status: number, code: number, message: string) =>
+  Response.json(
+    { jsonrpc: '2.0', id: null, error: { code, message } },
+    { status, headers: { 'cache-control': 'no-store' } }
+  );
+
+const _sameOrigin = (request: Request, siteUrl: string): boolean =>
+  ((origin) =>
+    origin === null ||
+    origin === new URL(request.url).origin ||
+    (siteUrl !== '' && origin === new URL(siteUrl).origin))(
+    request.headers.get('origin')
+  );
+
+// Сессии MCP по HTTP: метка «читал заявки» живёт между запросами одной сессии. Клиент без своего
+// Mcp-Session-Id получает сессию ключа: метку не сбросить, просто не прислав заголовок.
+const _SESSIONS = 1000;
+const _SESSION_MS = 60 * 60_000;
+
+const _defineSessions = () => {
+  const sessions = new Map<string, { session: AgentSession; at: number }>();
+  const fresh = (key: string): AgentSession =>
+    ((session) => (
+      sessions.size >= _SESSIONS &&
+        sessions.delete(sessions.keys().next().value!),
+      sessions.set(key, { session, at: Date.now() }),
+      session
+    ))(defineAgentSession());
+  return {
+    /** Новая сессия при initialize: её id уходит клиенту заголовком. */
+    open: (): { id: string; session: AgentSession } =>
+      ((id) => ({ id, session: fresh(`id:${id}`) }))(crypto.randomUUID()),
+    of: (id: string | null, token: string): AgentSession =>
+      ((found) =>
+        found && Date.now() - found.at < _SESSION_MS
+          ? found.session
+          : ((key) =>
+              ((own) =>
+                own && Date.now() - own.at < _SESSION_MS
+                  ? own.session
+                  : fresh(key))(sessions.get(key)))(
+              `key:${new Bun.CryptoHasher('sha256').update(token).digest('hex')}`
+            ))(id === null ? undefined : sessions.get(`id:${id}`)),
+  };
+};
+
 /** Контекст manager: JSON API и SPA менеджера. */
 export var defineManager = (
   services: ManagerServices & { readonly db: Database },
@@ -45,30 +104,108 @@ export var defineManager = (
     activity: defineActivityLog(services.db),
   });
   const bar = defineEditBar({ identity: services.identity, appearance });
+  const sessions = _defineSessions();
+  const mcp = defineMcp({
+    toolbox: api.toolbox,
+    site: services.site.settings.get,
+    version: services.version,
+  });
+  // Один запрос — одно сообщение JSON-RPC, ответ — JSON; поток событий (GET) не нужен: сервер не пишет первым.
+  const mcpHttp = (request: Request): Promise<Response> =>
+    ((user) =>
+      request.method !== 'POST'
+        ? Promise.resolve(
+            new Response(null, { status: 405, headers: { allow: 'POST' } })
+          )
+        : !_sameOrigin(request, services.site.settings.get().siteUrl)
+          ? Promise.resolve(_rpcError(403, -32600, 'Cross-site request'))
+          : user === null
+            ? Promise.resolve(
+                new Response(
+                  JSON.stringify({
+                    error: 'Send an API token: Authorization: Bearer cms_…',
+                  }),
+                  {
+                    status: 401,
+                    headers: {
+                      'content-type': 'application/json',
+                      'www-authenticate': 'Bearer',
+                    },
+                  }
+                )
+              )
+            : Number(request.headers.get('content-length') ?? 0) > _MCP_LIMIT
+              ? Promise.resolve(_rpcError(413, -32600, 'Message is too large'))
+              : request.text().then((text) =>
+                  text.length > _MCP_LIMIT
+                    ? _rpcError(413, -32600, 'Message is too large')
+                    : ((message) =>
+                        message === undefined
+                          ? _rpcError(400, -32700, 'Parse error')
+                          : ((opened) =>
+                              mcp(
+                                message,
+                                user,
+                                opened?.session ??
+                                  sessions.of(
+                                    request.headers.get('mcp-session-id'),
+                                    bearerToken(request)!
+                                  )
+                              ).then((reply) =>
+                                reply === null
+                                  ? new Response(null, { status: 202 })
+                                  : Response.json(reply, {
+                                      headers: {
+                                        'cache-control': 'no-store',
+                                        ...(opened && {
+                                          'mcp-session-id': opened.id,
+                                        }),
+                                      },
+                                    })
+                              ))(
+                              (message as { method?: unknown }).method ===
+                                'initialize'
+                                ? sessions.open()
+                                : null
+                            ))(
+                        attempt(
+                          () => JSON.parse(text) as unknown,
+                          () => undefined
+                        )
+                      )
+                ))(
+      services.identity.apiTokens.authenticate(bearerToken(request))
+    );
+
   return {
     /** `client` — адрес посетителя из сервера: для счёта неудачных входов. */
     handle: (request: Request, client = ''): Promise<Response> => {
       const url = new URL(request.url);
       const path = url.pathname;
-      return path === _API || path.startsWith(`${_API}/`)
-        ? api(request, path.slice(_API.length) || '/', client).then(
-            _compressed(request)
-          )
-        : path === EDIT_BAR_URL
-          ? Promise.resolve(bar.script())
-          : Promise.resolve(
-              assets.serve(
-                path.slice(MANAGER_PATH.length) || '/',
-                request.headers.get('accept-encoding'),
-                // Редактор для окна полосы правки: встраивается только в свой же сайт.
-                url.searchParams.has('embed')
-              )
-            );
+      return path === MCP_PATH
+        ? mcpHttp(request)
+        : path === _API || path.startsWith(`${_API}/`)
+          ? api
+              .handle(request, path.slice(_API.length) || '/', client)
+              .then(_compressed(request))
+          : path === EDIT_BAR_URL
+            ? Promise.resolve(bar.script())
+            : Promise.resolve(
+                assets.serve(
+                  path.slice(MANAGER_PATH.length) || '/',
+                  request.headers.get('accept-encoding'),
+                  // Редактор для окна полосы правки: встраивается только в свой же сайт.
+                  url.searchParams.has('embed')
+                )
+              );
     },
     /** Полоса правки на сайте для того, кто вошёл в менеджер. */
     editBar: bar.html,
+    /** MCP: сообщение агента от имени пользователя → ответ JSON-RPC или null. */
+    mcp,
   };
 };
 
 export { managerMigrations } from './infrastructure/migrations.ts';
+export { type AgentSession, defineAgentSession } from './interface/toolbox.ts';
 export type { ManagerServices };

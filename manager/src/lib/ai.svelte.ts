@@ -18,6 +18,8 @@ export type AiTarget = {
   readonly value: string;
   readonly maxLength?: number | null;
   readonly pattern?: string;
+  /** Путь картинки медиатеки, которую описывают: модель, которая видит, получит её саму. */
+  readonly image?: string;
 };
 
 /** Где человек работает: страница, шаблон, настройки — и факты о месте для системного промпта. */

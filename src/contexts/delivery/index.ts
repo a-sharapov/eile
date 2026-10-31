@@ -56,6 +56,7 @@ export {
   defineRenderScope,
   type RenderScope,
 } from './application/render-scope.ts';
+export { htmlToMarkdown } from './domain/markdown.ts';
 
 const _previewRequest = (path: string): RequestInfo => ({
   path,

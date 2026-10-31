@@ -915,6 +915,9 @@ export var messages: Dictionary['messages'] = {
   'aiSettings.instructions': 'Instructions for AI',
   'aiSettings.instructionsPlaceholder':
     'For example: friendly and direct, short, no jargon; the brand name is always capitalized',
+  'aiSettings.vision': 'The model sees images',
+  'aiSettings.visionHint':
+    'Turn it on if the model accepts images: then it writes the description of a media image by looking at the image itself. Models without vision answer with an error.',
   'aiSettings.instructionsHint':
     'Tone, style, words to avoid: they’re sent with every request.',
   'aiSettings.connect': 'Connect',
@@ -1125,6 +1128,45 @@ export var messages: Dictionary['messages'] = {
   'common.copied': 'Copied:',
   'common.copy': 'Copy',
   'users.title': 'Manager users',
+  'agent.open': 'AI assistant',
+  'agent.title': 'Assistant',
+  'agent.new': 'New conversation',
+  'agent.intro':
+    'Ask for something on the site: the assistant finds the pages and elements and changes them itself. It works with your rights, and changes of pages stay in their history.',
+  'agent.example1':
+    'Find pages without a description and write the descriptions',
+  'agent.example2': 'Create a draft page “Offers” in the news section',
+  'agent.example3': 'Run the diagnostics and tell me what to fix',
+  'agent.placeholder': 'What should be done on the site?',
+  'agent.hint': 'Enter sends, Shift+Enter adds a line',
+  'agent.send': 'Send',
+  'agent.working': 'Working…',
+  'agent.steps': 'What the assistant did',
+  'agent.stopped': 'Stopped after {n} steps. Write “go on” to finish.',
+  'tokens.title': 'API keys',
+  'tokens.body':
+    'A key gives an AI agent or a script your rights in the manager. Agents such as Claude, Cursor and Codex use it to connect to the site over MCP.',
+  'tokens.name': 'What the key is for',
+  'tokens.namePlaceholder': 'Claude Code on my laptop',
+  'tokens.issue': 'Create',
+  'tokens.issued': 'The key is ready. Copy it now: it will not be shown again.',
+  'tokens.copyToken': 'Copy the key',
+  'tokens.address': 'MCP address',
+  'tokens.copyAddress': 'Copy the address',
+  'tokens.claudeCode': 'Command for Claude Code',
+  'tokens.copyCommand': 'Copy the command',
+  'tokens.copiedNotice': 'Copied',
+  'tokens.empty': 'No keys yet.',
+  'tokens.created': 'created {when}',
+  'tokens.used': 'last used {when}',
+  'tokens.unused': 'not used yet',
+  'tokens.revoke': 'Revoke',
+  'tokens.revokeTitle': 'Revoke the key {name}?',
+  'tokens.revokeBody':
+    'Agents and scripts with this key lose access to the site at once.',
+  'tokens.revoked': 'Key revoked',
+  'tokens.limits':
+    'A key cannot create other keys, change the password, manage users or download a copy of the site: for that, sign in to the manager.',
   'password.title': 'Change password',
   'password.body':
     'After the change, you’ll need to sign in again on your other devices; here you’ll stay signed in to the manager.',
@@ -1460,6 +1502,13 @@ export var errors: Dictionary['errors'] = {
   'upkeep.backup_failed': 'The backup failed: {detail}',
   'upkeep.releases_unavailable':
     'The releases page didn’t respond — try again later.',
+  'identity.token_name': 'Name the key: what it is for.',
+  'identity.too_many_tokens':
+    'There are already 20 keys: revoke the ones you do not need.',
+  'identity.token_not_found':
+    'There is no such key: perhaps it was already revoked.',
+  'identity.session_required':
+    'This needs a sign-in to the manager, not an API key.',
   'identity.forbidden': 'Your role doesn’t allow this.',
   'identity.setup_closed':
     'This setup link has already been used or is invalid.',

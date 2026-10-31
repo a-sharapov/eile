@@ -12,6 +12,8 @@ const _PRAGMAS = [
   'PRAGMA journal_mode = WAL',
   'PRAGMA synchronous = NORMAL',
   'PRAGMA foreign_keys = ON',
+  // Сервер и CLI пишут в одну базу: вторая запись ждёт первую, а не падает с SQLITE_BUSY.
+  'PRAGMA busy_timeout = 5000',
 ];
 
 export var openDatabase = (path: string): Database =>

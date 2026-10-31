@@ -298,6 +298,23 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
     </p>
     <p>The AI knows which site this is, which field it’s working on and where it is, so the request can be very short. Reread the text before publishing.</p>
   </section>
+  <section id="speed-agent" data-topic hidden={!shown('speed-agent')}>
+    <h3>Assistant</h3>
+    <p>
+      The wand button {@html icons.wand} in the header opens a conversation with the AI. Ask for something on the site, such as
+      “find pages without a description and write them” or “create a draft page with our offers”: the assistant finds the pages,
+      changes them and tells you what it did. You see the steps as it works.
+    </p>
+    <p>
+      The assistant works with your rights, so an editor cannot change code through it either. It creates new pages as drafts, and
+      previous versions stay on the History tab: any change can be undone.
+    </p>
+    <p>
+      After reading form submissions, the assistant does not change code, forms, fields or settings until the next request:
+      visitors write those submissions, and a crafted one must not give it orders. Plugins, passwords, users and the site
+      address are never changed by the assistant.
+    </p>
+  </section>
   <section id="speed-tree" data-topic hidden={!shown('speed-tree')}>
     <h3>Search the tree</h3>
     <p>The <kbd>/</kbd> key puts the cursor in the search box above the tree: you can find a page by its title, address or number.</p>
@@ -350,6 +367,15 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
       user has their own. “Change password” asks for your current password and a new one — at least 10 characters. “Sign out” ends
       your session on this device. The manager language is there too: English, German or Russian; before you sign in, pick it
       at the bottom of the sign-in screen, and after that it stays with your account.
+    </p>
+  </section>
+  <section id="account-keys" data-topic hidden={!shown('account-keys')}>
+    <h3>API keys for agents</h3>
+    <p>
+      “API keys” in the same menu creates a key for an AI agent or a script: Claude Code, Cursor and Codex use it to connect to the
+      site over MCP and work with your rights. The key is shown once, so copy it together with the ready-made connection command.
+      Revoke a key you no longer need: agents with it lose access at once. A key cannot create other keys, change the password,
+      manage users or download a copy of the site.
     </p>
   </section>
 
@@ -444,6 +470,8 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         <li><code>cms backup</code> — a backup of the whole site in one file, <code>cms backup site.json</code> — as records in JSON;</li>
         <li><code>cms restore file</code> — restore the site from a backup;</li>
         <li><code>cms update</code> — update the program to a new version, <code>--check</code> — only check for one;</li>
+        <li><code>cms elements pull folder</code> — templates, components, plugins, forms and fields as files, with an AGENTS.md guide for AI agents; <code>cms elements push folder</code> — back to the site;</li>
+        <li><code>cms mcp</code> — an MCP server for an agent on this server, <code>cms diagnose</code> — the site diagnostics in the terminal;</li>
         <li><code>cms users password email</code> — a new password if an administrator forgot theirs.</li>
       </ul>
     </section>

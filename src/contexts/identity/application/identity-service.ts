@@ -3,6 +3,8 @@ import type { EventBus } from '../../../shared/kernel/events.ts';
 import { pipe } from '../../../shared/kernel/pipe.ts';
 import type { IdentityEvent } from '../domain/events.ts';
 import type {
+  ApiToken,
+  ApiTokenRepository,
   PasswordHasher,
   PasswordReset,
   PasswordResetRepository,
@@ -59,6 +61,36 @@ const _RESET_REQUESTS: Readonly<Record<'pair' | 'email' | 'client', number>> = {
   client: 20,
 };
 
+/** Токен API в списке: целиком его показывают один раз, при выпуске. */
+export type ApiTokenView = {
+  readonly id: number;
+  readonly name: string;
+  readonly hint: string;
+  readonly createdAt: string;
+  readonly usedAt: string | null;
+};
+
+export type IssuedToken = ApiTokenView & { readonly token: string };
+
+// Префикс отличает ключ API от cookie сеанса и помогает сканерам секретов найти утёкший.
+const _TOKEN_PREFIX = 'cms_';
+const _MAX_TOKENS = 20;
+const _MAX_TOKEN_NAME = 80;
+// Отметка «когда пользовались» — не чаще раза в пять минут: агент шлёт запросы пачками.
+const _TOUCH_MS = 5 * 60_000;
+
+const _tokenView = (token: ApiToken): ApiTokenView => ({
+  id: token.id,
+  name: token.name,
+  hint: token.hint,
+  createdAt: token.createdAt,
+  usedAt: token.usedAt,
+});
+
+const _tokenEvent =
+  (type: 'identity.token_issued' | 'identity.token_revoked') =>
+  (userId: UserId): IdentityEvent => ({ type, userId });
+
 const _removed = (userId: UserId): IdentityEvent => ({
   type: 'identity.user_removed',
   userId,
@@ -75,21 +107,27 @@ export var defineIdentityService = ({
   users,
   sessions,
   resets,
+  apiTokens,
   hasher,
   tokens,
   bus,
   clock,
+  setup = null,
 }: {
   users: UserRepository;
   sessions: SessionRepository;
   resets: PasswordResetRepository;
+  apiTokens: ApiTokenRepository;
   hasher: PasswordHasher;
   tokens: Tokens;
   bus: EventBus;
   clock: () => Date;
+  /** Токен настройки прежней сборки контекстов: ссылка из журнала сервера остаётся рабочей. */
+  setup?: string | null;
 }) => {
   // Пока пользователей нет, менеджер открывает только настройку по этому токену из журнала сервера.
-  let setupToken: string | null = users.count() === 0 ? tokens.issue() : null;
+  let setupToken: string | null =
+    users.count() === 0 ? (setup ?? tokens.issue()) : null;
   const attempts = new Map<string, { count: number; since: number }>();
   const resetRequests = new Map<string, { count: number; since: number }>();
   let inFlight = 0;
@@ -364,6 +402,62 @@ export var defineIdentityService = ({
           ? users.get(session.userId)
           : null;
       return user && _view(user);
+    },
+    apiTokens: {
+      list: (userId: number): ApiTokenView[] =>
+        apiTokens.of(parseUserId(userId)).map(_tokenView),
+      issue: (userId: number, name: unknown): IssuedToken =>
+        ((user, label) =>
+          label === ''
+            ? fail('identity.token_name', 'Name the token: what it is for')
+            : apiTokens.of(user).length >= _MAX_TOKENS
+              ? fail(
+                  'identity.too_many_tokens',
+                  `At most ${_MAX_TOKENS} tokens per user`
+                )
+              : ((token) =>
+                  ((id) => (
+                    bus.publish(_tokenEvent('identity.token_issued')(user)),
+                    {
+                      ..._tokenView(apiTokens.byHash(tokens.hash(token))!),
+                      id,
+                      token,
+                    }
+                  ))(
+                    apiTokens.add({
+                      userId: user,
+                      name: label,
+                      tokenHash: tokens.hash(token),
+                      hint: token.slice(-4),
+                      createdAt: clock().toISOString(),
+                      usedAt: null,
+                    })
+                  ))(`${_TOKEN_PREFIX}${tokens.issue()}`))(
+          parseUserId(userId),
+          typeof name === 'string' ? name.trim().slice(0, _MAX_TOKEN_NAME) : ''
+        ),
+      revoke: (userId: number, id: number): void =>
+        apiTokens.remove(id, parseUserId(userId))
+          ? bus.publish(
+              _tokenEvent('identity.token_revoked')(parseUserId(userId))
+            )
+          : fail('identity.token_not_found', `There is no token ${id}`),
+      /** Пользователь по заголовку `Authorization: Bearer cms_…`; чужой формат — null. */
+      authenticate: (token: string | null): UserView | null =>
+        ((found) =>
+          found &&
+          ((user) =>
+            user &&
+            (void (
+              (found.usedAt === null ||
+                clock().getTime() - Date.parse(found.usedAt) > _TOUCH_MS) &&
+              apiTokens.touch(found.id, clock().toISOString())
+            ),
+            _view(user)))(users.get(found.userId)))(
+          token?.startsWith(_TOKEN_PREFIX)
+            ? apiTokens.byHash(tokens.hash(token))
+            : null
+        ),
     },
     sessions: {
       /**

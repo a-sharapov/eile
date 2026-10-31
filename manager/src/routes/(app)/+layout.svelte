@@ -1,5 +1,6 @@
 <script lang="ts">
 import { tick } from 'svelte';
+import { agent } from '#lib/agent.svelte.ts';
 import { aiWands } from '#lib/ai-wands.ts';
 import { chooseLanguage } from '#lib/appearance.svelte.ts';
 import { embedded } from '#lib/embed.ts';
@@ -10,6 +11,7 @@ import { failed } from '#lib/notices.svelte.ts';
 import { openPalette, palette, rememberPage } from '#lib/palette.svelte.ts';
 import { loadSession, session, signOut } from '#lib/session.svelte.ts';
 import type { Role } from '#lib/types.ts';
+import AgentPanel from '#lib/ui/AgentPanel.svelte';
 import AiPrompt from '#lib/ui/AiPrompt.svelte';
 import AppearanceDialog from '#lib/ui/AppearanceDialog.svelte';
 import CommandPalette from '#lib/ui/CommandPalette.svelte';
@@ -18,6 +20,7 @@ import InboxBell from '#lib/ui/InboxBell.svelte';
 import LanguageSelect from '#lib/ui/LanguageSelect.svelte';
 import LoadState from '#lib/ui/LoadState.svelte';
 import PasswordDialog from '#lib/ui/PasswordDialog.svelte';
+import TokensDialog from '#lib/ui/TokensDialog.svelte';
 import { afterNavigate, goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import { page } from '$app/state';
@@ -212,6 +215,7 @@ let open = $state(_stored(_OPEN_KEY, 'true') === 'true');
 let drawer = $state(false);
 let appearanceOpen = $state(false);
 let passwordOpen = $state(false);
+let tokensOpen = $state(false);
 const brand = $derived(session.site.name || t('app.name'));
 // Название сайта не меняли — в шапке знак программы.
 const branded = $derived(brand === t('app.name'));
@@ -408,6 +412,9 @@ const closeAccount = (event: Event) =>
       <button type="button" class="jump" aria-keyshortcuts="Control+K Meta+K" onclick={openPalette}>
         {@html icons.search}<span class="jump-label">{t('palette.open')}</span><kbd>{shortcut}</kbd>
       </button>
+      {#if session.ai}
+        <button type="button" class="ghost icon" aria-label={t('agent.open')} title={t('agent.open')} aria-pressed={agent.open} onclick={() => (agent.open = !agent.open)}>{@html icons.wand}</button>
+      {/if}
       <a class="button ghost icon site" href="/" target="_blank" rel="noopener" aria-label={t('nav.site')} title={t('nav.site')}>{@html icons.external}</a>
       <InboxBell />
       <div class="account">
@@ -421,6 +428,7 @@ const closeAccount = (event: Event) =>
             <p><strong>{session.user.name}</strong><span>{session.user.email}</span></p>
             <button type="button" onclick={() => ((accountOpen = false), (appearanceOpen = true))}>{@html icons.palette}{t('appearance.title')}</button>
             <button type="button" onclick={() => ((accountOpen = false), (passwordOpen = true))}>{@html icons.key}{t('password.title')}</button>
+            <button type="button" onclick={() => ((accountOpen = false), (tokensOpen = true))}>{@html icons.plug}{t('tokens.title')}</button>
             <LanguageSelect labelled onpick={(_) => chooseLanguage(_).then(undefined, failed)} />
             <button type="button" onclick={leave}>{@html icons.logout}{t('nav.signOut')}</button>
             <p class="about">{t('app.name')} {session.version}</p>
@@ -474,6 +482,8 @@ const closeAccount = (event: Event) =>
   <AiPrompt />
   <AppearanceDialog bind:open={appearanceOpen} onclose={() => accountButton?.focus()} />
   <PasswordDialog bind:open={passwordOpen} onclose={() => accountButton?.focus()} />
+  <TokensDialog bind:open={tokensOpen} onclose={() => accountButton?.focus()} />
+  <AgentPanel />
 {:else}
   <div class="loading"><LoadState load={sessionLoad} /></div>
 {/if}

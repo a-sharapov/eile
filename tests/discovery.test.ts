@@ -108,3 +108,33 @@ describe('ИИ', () => {
     expect(await text('/llms.txt')).toContain('[Связь]');
   });
 });
+
+describe('Markdown по заголовку Accept', () => {
+  it('агенту — Markdown на адресе страницы, браузеру — HTML; скрытая от поиска — HTML', async () => {
+    const app = createApp({ scaffold: DEMO });
+    const get = (path: string, accept: string) =>
+      app.fetch(
+        new Request(`http://localhost${path}`, { headers: { accept } })
+      );
+    const agent = await get('/o-proekte', 'text/markdown, text/html;q=0.9');
+    expect(agent.headers.get('content-type')).toStartWith('text/markdown');
+    expect(agent.headers.get('vary')).toBe('accept');
+    expect(agent.headers.get('x-robots-tag')).toBeNull();
+    expect(await agent.text()).toStartWith('# ');
+    const browser = await get(
+      '/o-proekte',
+      'text/html,application/xhtml+xml,*/*;q=0.8'
+    );
+    expect(browser.headers.get('content-type')).toStartWith('text/html');
+    expect(browser.headers.get('vary')).toContain('accept');
+    const home = await get('/', 'text/markdown');
+    expect(home.headers.get('content-type')).toStartWith('text/markdown');
+    const id = app.content.drafts
+      .tree()
+      .find((_) => _.alias === 'o-proekte')!.id;
+    app.content.pages.edit(id, { searchable: false });
+    const hidden = await get('/o-proekte', 'text/markdown');
+    expect(hidden.headers.get('content-type')).toStartWith('text/html');
+    app.close();
+  });
+});

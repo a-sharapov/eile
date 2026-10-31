@@ -50,6 +50,7 @@ export var targetOf = (field: Field): AiTarget => ({
   value: field.value,
   maxLength: field.maxLength > 0 ? field.maxLength : null,
   pattern: field.getAttribute('pattern') ?? '',
+  image: field.dataset.aiImage ?? '',
 });
 
 // Значение — как набранное: input для привязок Svelte, change для полей, что сохраняются сразу.

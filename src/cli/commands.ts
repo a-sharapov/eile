@@ -1,6 +1,11 @@
 import { Database } from 'bun:sqlite';
+import { watch } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import { type App, createApp } from '../app.ts';
 import { LETS_ENCRYPT, parseDomains } from '../contexts/certificates/index.ts';
+import type { Finding } from '../contexts/diagnostics/index.ts';
+import type { UserView } from '../contexts/identity/index.ts';
+import { defineAgentSession } from '../contexts/manager/index.ts';
 import {
   defineReleases,
   type UpdateResult,
@@ -18,8 +23,18 @@ import {
   WELCOME,
   WELCOME_EN,
 } from '../scaffolds/index.ts';
-import { isDomainError } from '../shared/kernel/errors.ts';
+import { attempt, isDomainError } from '../shared/kernel/errors.ts';
 import { pipe } from '../shared/kernel/pipe.ts';
+import {
+  agentsGuide,
+  CLAUDE_MD,
+  type Files,
+  type Problem,
+  type PushReport,
+  pull,
+  push,
+  readFolder,
+} from '../workspace/index.ts';
 import type { Options } from './args.ts';
 import { COMMANDS, commandHelp, overview, unknownText } from './help.ts';
 import { httpsUrl, type ServeBase, serveSecure } from './https.ts';
@@ -213,6 +228,31 @@ const _SAY = {
     alias: 'Второе имя',
     restartServer:
       'Перезапустите сервер: новая версия заработает после перезапуска.',
+    pulled: 'Элементы сайта — в папке',
+    written: (n: number) => `записано файлов ${n}`,
+    unchanged: (n: number) => `без изменений ${n}`,
+    agentsMd: 'правила CMS и этого сайта для ИИ-агентов',
+    onlyInFolder: 'Только в папке',
+    pushed: (n: number) => `В сайт — файлов ${n}`,
+    inSync: 'Папка и сайт совпадают',
+    checked: (n: number) => `Всё в порядке; при отправке изменится файлов ${n}`,
+    notInFolder: 'Нет в папке, в сайте остались',
+    pruneHint: 'удалить из сайта — --prune',
+    notSaved: (n: number) => `Ничего не сохранено: ошибок ${n}`,
+    found: (n: number) => `Найдено ошибок: ${n}`,
+    noElementsCommand: (name: string | undefined) =>
+      `Нет подкоманды elements ${name ?? ''}. Есть: pull, check, push — cms help elements`,
+    noFolder: (dir: string) =>
+      `Нет папки ${dir}. Выложить в неё элементы: cms elements pull ${dir}`,
+    watching: (dir: string) =>
+      `Слежу за ${dir}: сохранённый файл уходит в сайт. Остановить — Ctrl+C`,
+    healthy: 'Диагностика ничего не нашла',
+    andMore: (n: number) => `и ещё ${n}`,
+    siteErrors: (n: number) => `На сайте ошибок: ${n}`,
+    noAgentUser:
+      'Агент работает от имени пользователя, а их нет. Создайте администратора: cms users add <почта> --role admin',
+    mcpReady: (site: string, who: string, role: string) =>
+      `MCP: сайт «${site}», агент работает как ${who} (${role}). Сообщения — в stdin, ответы — в stdout.`,
   },
   en: {
     kb: 'KB',
@@ -299,6 +339,31 @@ const _SAY = {
     previous: 'Previous',
     alias: 'Second name',
     restartServer: 'Restart the server: the new version runs after a restart.',
+    pulled: 'Site elements are in',
+    written: (n: number) => `${n} files written`,
+    unchanged: (n: number) => `${n} unchanged`,
+    agentsMd: 'CMS and site rules for AI agents',
+    onlyInFolder: 'Only in the folder',
+    pushed: (n: number) => `${n} files saved to the site`,
+    inSync: 'The folder matches the site',
+    checked: (n: number) => `All good; a push would change ${n} files`,
+    notInFolder: 'Not in the folder, kept on the site',
+    pruneHint: 'delete them from the site with --prune',
+    notSaved: (n: number) => `Nothing saved; problems found: ${n}`,
+    found: (n: number) => `Problems found: ${n}`,
+    noElementsCommand: (name: string | undefined) =>
+      `No subcommand elements ${name ?? ''}. There are pull, check, push: cms help elements`,
+    noFolder: (dir: string) =>
+      `No folder ${dir}. Put the elements there first: cms elements pull ${dir}`,
+    watching: (dir: string) =>
+      `Watching ${dir}: a saved file goes to the site. Stop with Ctrl+C`,
+    healthy: 'Diagnostics found nothing',
+    andMore: (n: number) => `and ${n} more`,
+    siteErrors: (n: number) => `Errors on the site: ${n}`,
+    noAgentUser:
+      'The agent works as a user, and there are none. Add an administrator: cms users add <email> --role admin',
+    mcpReady: (site: string, who: string, role: string) =>
+      `MCP: site "${site}", the agent works as ${who} (${role}). Messages go to stdin, answers come from stdout.`,
   },
 } satisfies Record<Language, unknown>;
 
@@ -555,6 +620,26 @@ const _info = (ctx: Context): Promise<void> =>
     const kinds = (kind: string) =>
       elements.filter((_) => _.kind === kind).length;
     return {
+      facts: {
+        site: { name: settings.name, language: settings.language },
+        pages: {
+          total: tree.length,
+          published: tree.filter((_) => _.published && !_.trashed).length,
+          trashed: tree.filter((_) => _.trashed).length,
+        },
+        elements: {
+          templates: kinds('template'),
+          components: kinds('component'),
+          plugins: app.extensions.plugins.list().length,
+          fields: app.content.fields.list().length,
+        },
+        media: app.media.files.list().filter((_) => !_VARIANT.test(_.path))
+          .length,
+        users: {
+          total: users.length,
+          admins: users.filter((_) => _.role === 'admin').length,
+        },
+      },
       lines: [
         _row(
           paint,
@@ -594,25 +679,39 @@ const _info = (ctx: Context): Promise<void> =>
         ),
       ],
     };
-  }).then(({ lines }) =>
+  }).then(({ facts, lines }) =>
     Promise.resolve(_schema(ctx.options.db)).then((schema) =>
       ((say) =>
         ctx.out(
-          [
-            '',
-            _row(
-              ctx.paint,
-              say.db,
-              `${ctx.paint.path(ctx.options.db)}${_dot(ctx.paint)}${_size(_dbSize(ctx.options.db), say)}`
-            ),
-            _row(
-              ctx.paint,
-              say.schema,
-              `${say.migrations(schema.count)}${_dot(ctx.paint)}${say.last} ${ctx.paint.dim(schema.last)}`
-            ),
-            ...lines,
-            '',
-          ].join('\n')
+          ctx.options.json
+            ? JSON.stringify(
+                {
+                  db: {
+                    path: ctx.options.db,
+                    bytes: _dbSize(ctx.options.db),
+                    migrations: schema.count,
+                    last: schema.last,
+                  },
+                  ...facts,
+                },
+                null,
+                2
+              )
+            : [
+                '',
+                _row(
+                  ctx.paint,
+                  say.db,
+                  `${ctx.paint.path(ctx.options.db)}${_dot(ctx.paint)}${_size(_dbSize(ctx.options.db), say)}`
+                ),
+                _row(
+                  ctx.paint,
+                  say.schema,
+                  `${say.migrations(schema.count)}${_dot(ctx.paint)}${say.last} ${ctx.paint.dim(schema.last)}`
+                ),
+                ...lines,
+                '',
+              ].join('\n')
         ))(_say(ctx))
     )
   );
@@ -625,21 +724,23 @@ const _list = (ctx: Context): Promise<void> =>
   _withApp(ctx, (app) => app.identity.users.list()).then((users) =>
     ((say) =>
       ctx.out(
-        users.length === 0
-          ? `${say.noUsers} ${ctx.paint.bold(PROGRAM)} ${ctx.paint.command('users add')} ${ctx.paint.dim(say.email)}`
-          : [
-              ctx.paint.dim(
-                `  ${padEnd('id', 5)}${padEnd(say.columns[0], 30)}${padEnd(say.columns[1], 22)}${say.columns[2]}`
-              ),
-              ...users.map(
-                (_) =>
-                  `  ${padEnd(String(_.id), 5)}${padEnd(_.email, 30)}${padEnd(_.name, 22)}${
-                    _.role === 'admin'
-                      ? ctx.paint.accent(_role(say, _.role))
-                      : _role(say, _.role)
-                  }`
-              ),
-            ].join('\n')
+        ctx.options.json
+          ? JSON.stringify(users, null, 2)
+          : users.length === 0
+            ? `${say.noUsers} ${ctx.paint.bold(PROGRAM)} ${ctx.paint.command('users add')} ${ctx.paint.dim(say.email)}`
+            : [
+                ctx.paint.dim(
+                  `  ${padEnd('id', 5)}${padEnd(say.columns[0], 30)}${padEnd(say.columns[1], 22)}${say.columns[2]}`
+                ),
+                ...users.map(
+                  (_) =>
+                    `  ${padEnd(String(_.id), 5)}${padEnd(_.email, 30)}${padEnd(_.name, 22)}${
+                      _.role === 'admin'
+                        ? ctx.paint.accent(_role(say, _.role))
+                        : _role(say, _.role)
+                    }`
+                ),
+              ].join('\n')
       ))(_say(ctx))
   );
 
@@ -717,6 +818,284 @@ const _users = (ctx: Context): Promise<void> =>
     _USERS[ctx.args[0] ?? 'list'] ??
     (() => _reject(_say(ctx).noSubcommand(ctx.args[0])))
   )(ctx);
+
+// --- elements ------------------------------------------------------------
+
+const _folderOf = (ctx: Context): string => ctx.args[1] ?? '.';
+
+const _folder = (ctx: Context, dir: string): Promise<Files> =>
+  readFolder(dir).then(undefined, () => _reject(_say(ctx).noFolder(dir)));
+
+const _where = (problem: Problem): string =>
+  problem.line === undefined
+    ? problem.file
+    : `${problem.file}:${problem.line}:${problem.column ?? 1}`;
+
+const _pushLines = (ctx: Context, report: PushReport): string[] =>
+  ((say, paint, count) => [
+    ...(report.problems.length > 0
+      ? report.problems.map(
+          (_) =>
+            `${paint.error('✗')} ${paint.path(_where(_))}  ${_.message.replace(/\s*\n\s*/g, ' ')} ${paint.dim(_.code)}`
+        )
+      : [
+          `${paint.ok('✓')} ${count === 0 ? say.inSync : report.saved ? say.pushed(count) : say.checked(count)}`,
+          ...report.added.map((_) => `  ${paint.ok('+')} ${_}`),
+          ...report.changed.map((_) => `  ${paint.warn('~')} ${_}`),
+          ...report.removed.map((_) => `  ${paint.error('-')} ${_}`),
+        ]),
+    ...(report.missing.length > 0
+      ? [
+          `  ${paint.dim(`${say.notInFolder}: ${report.missing.join(', ')}; ${say.pruneHint}`)}`,
+        ]
+      : []),
+  ])(
+    _say(ctx),
+    ctx.paint,
+    report.added.length + report.changed.length + report.removed.length
+  );
+
+// Ошибки — в stdout вместе с итогом, код выхода 1: так их видят и человек, и агент.
+const _reported =
+  (ctx: Context, dryRun: boolean) =>
+  (report: PushReport): Promise<void> => (
+    ctx.out(
+      ctx.options.json
+        ? JSON.stringify(report, null, 2)
+        : _pushLines(ctx, report).join('\n')
+    ),
+    report.problems.length > 0
+      ? _reject(
+          (dryRun ? _say(ctx).found : _say(ctx).notSaved)(
+            report.problems.length
+          )
+        )
+      : Promise.resolve()
+  );
+
+const _send = (ctx: Context, dryRun: boolean): Promise<void> =>
+  ((dir) =>
+    _withApp(ctx, (app) =>
+      _folder(ctx, dir).then((folder) =>
+        push(app, folder, { prune: ctx.options.prune, dryRun })
+      )
+    ).then(_reported(ctx, dryRun)))(_folderOf(ctx));
+
+// Сохранённый файл — в сайт; молчим, если отправлять нечего. Сервер на той же базе подхватит сам.
+const _watching = (ctx: Context): Promise<void> =>
+  ((dir) =>
+    _existingDb(ctx).then((path) =>
+      _folder(ctx, dir).then(
+        () =>
+          new Promise<void>(() => {
+            const app = createApp({ databasePath: path });
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const run = (): Promise<void> =>
+              readFolder(dir)
+                .then(
+                  (folder) => (app.follow(), push(app, folder, ctx.options))
+                )
+                .then(
+                  (report) =>
+                    void (
+                      (report.problems.length > 0 ||
+                        report.added.length +
+                          report.changed.length +
+                          report.removed.length >
+                          0) &&
+                      ctx.out(
+                        [
+                          ctx.paint.dim(new Date().toLocaleTimeString()),
+                          ..._pushLines(ctx, report),
+                        ].join('\n')
+                      )
+                    ),
+                  (error) => ctx.out(explain(error, ctx.language))
+                );
+            ctx.out(_say(ctx).watching(dir));
+            void run();
+            watch(dir, { recursive: true }, () => {
+              clearTimeout(timer);
+              timer = setTimeout(run, 150);
+            });
+          })
+      )
+    ))(_folderOf(ctx));
+
+const _pull = (ctx: Context): Promise<void> =>
+  ((dir) =>
+    _withApp(ctx, (app) =>
+      Bun.file(join(dir, 'CLAUDE.md'))
+        .exists()
+        .then((claude) =>
+          pull(
+            app,
+            dir,
+            new Map([
+              [
+                'AGENTS.md',
+                agentsGuide(app, {
+                  db: relative(resolve(dir), resolve(ctx.options.db)),
+                  program: PROGRAM,
+                }),
+              ],
+              ...(claude ? [] : [['CLAUDE.md', CLAUDE_MD] as const]),
+            ])
+          )
+        )
+    ).then((report) =>
+      ((say, paint) =>
+        ctx.out(
+          ctx.options.json
+            ? JSON.stringify(report, null, 2)
+            : [
+                `${paint.ok('✓')} ${say.pulled} ${paint.path(dir)}: ${say.written(report.written.length)}${_dot(paint)}${say.unchanged(report.same)}`,
+                `  ${paint.bold('AGENTS.md')} ${paint.dim(`— ${say.agentsMd}`)}`,
+                ...(report.extra.length > 0
+                  ? [
+                      `  ${paint.dim(`${say.onlyInFolder}: ${report.extra.join(', ')}`)}`,
+                    ]
+                  : []),
+              ].join('\n')
+        ))(_say(ctx), ctx.paint)
+    ))(_folderOf(ctx));
+
+const _ELEMENTS: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
+  pull: _pull,
+  check: (ctx) => _send(ctx, true),
+  push: (ctx) => (ctx.options.watch ? _watching(ctx) : _send(ctx, false)),
+};
+
+const _elements = (ctx: Context): Promise<void> =>
+  (
+    _ELEMENTS[ctx.args[0] ?? ''] ??
+    (() => _reject(_say(ctx).noElementsCommand(ctx.args[0])))
+  )(ctx);
+
+// --- diagnose --------------------------------------------------------------
+
+const _SEVERITY: Readonly<Record<string, (paint: Paint) => string>> = {
+  error: (paint) => paint.error('✗'),
+  warning: (paint) => paint.warn('!'),
+  info: (paint) => paint.dim('i'),
+};
+
+const _ITEMS_SHOWN = 5;
+
+const _findingLines = (paint: Paint, say: _Say, finding: Finding): string[] => [
+  `${(_SEVERITY[finding.severity] ?? _SEVERITY.info!)(paint)} ${paint.bold(finding.title)}${finding.count > 1 ? paint.dim(` · ${finding.count}`) : ''}`,
+  `  ${paint.dim(finding.hint)}`,
+  ...finding.items
+    .slice(0, _ITEMS_SHOWN)
+    .map(
+      (_) =>
+        `  ${paint.dim('•')} ${_.label}${_.detail ? paint.dim(` — ${_.detail}`) : ''}`
+    ),
+  ...(finding.count > _ITEMS_SHOWN
+    ? [`  ${paint.dim(say.andMore(finding.count - _ITEMS_SHOWN))}`]
+    : []),
+];
+
+// Ошибки — код выхода 1: проверку можно поставить в CI или cron.
+const _diagnose = (ctx: Context): Promise<void> =>
+  _withApp(ctx, (app) => app.diagnostics.report(true, ctx.language)).then(
+    (report) =>
+      ((say, errors) => (
+        ctx.out(
+          ctx.options.json
+            ? JSON.stringify(report, null, 2)
+            : report.findings.length === 0
+              ? `${ctx.paint.ok('✓')} ${say.healthy}`
+              : report.findings
+                  .flatMap((_) => ['', ..._findingLines(ctx.paint, say, _)])
+                  .slice(1)
+                  .join('\n')
+        ),
+        errors > 0 ? _reject(say.siteErrors(errors)) : Promise.resolve()
+      ))(
+        _say(ctx),
+        report.findings.filter((_) => _.severity === 'error').length
+      )
+  );
+
+// --- mcp -------------------------------------------------------------------
+
+// От чьего имени агент: --user, иначе первый администратор.
+const _agentUser = (ctx: Context, app: App): Promise<UserView> =>
+  ((users) =>
+    ((user) =>
+      user
+        ? Promise.resolve(user)
+        : _reject(
+            ctx.options.user
+              ? _say(ctx).noUser(ctx.options.user)
+              : _say(ctx).noAgentUser
+          ))(
+      ctx.options.user
+        ? users.find((_) => _.email === ctx.options.user!.trim().toLowerCase())
+        : users.find((_) => _.role === 'admin')
+    ))(app.identity.users.list());
+
+// Сообщения MCP по stdio — строками JSON; кусок без перевода строки ждёт продолжения.
+const _lines = (): TransformStream<string, string> => {
+  let rest = '';
+  return new TransformStream({
+    transform: (chunk, controller) =>
+      ((parts) => (
+        (rest = parts.pop() ?? ''),
+        parts
+          .filter((_) => _.trim() !== '')
+          .forEach((_) => void controller.enqueue(_))
+      ))(`${rest}${chunk}`.split('\n')),
+    flush: (controller) => void (rest.trim() && controller.enqueue(rest)),
+  });
+};
+
+const _PARSE_ERROR = {
+  jsonrpc: '2.0',
+  id: null,
+  error: { code: -32700, message: 'Parse error' },
+};
+
+// stdout — только ответы протокола: всё для человека идёт в stderr.
+const _answer = (reply: unknown): void =>
+  void (reply !== null && process.stdout.write(`${JSON.stringify(reply)}\n`));
+
+const _mcp = (ctx: Context): Promise<void> =>
+  _existingDb(ctx).then((path) => {
+    const app = createApp({ databasePath: path });
+    return (
+      _agentUser(ctx, app)
+        // Один процесс — один сеанс агента: прочитал заявки — код и настройки до конца процесса закрыты.
+        .then((user) => ({ user, session: defineAgentSession() }))
+        .then(
+          ({ user, session }) => (
+            process.stderr.write(
+              `${named(PROGRAM)(_say(ctx).mcpReady(app.site.settings.get().name, user.email, user.role))}\n`
+            ),
+            Bun.stdin
+              .stream()
+              .pipeThrough(new TextDecoderStream())
+              .pipeThrough(_lines())
+              .pipeTo(
+                new WritableStream({
+                  write: (line) =>
+                    ((message) =>
+                      message === _PARSE_ERROR
+                        ? _answer(_PARSE_ERROR)
+                        : app.mcp(message, user, session).then(_answer))(
+                      attempt(
+                        () => JSON.parse(line) as unknown,
+                        () => _PARSE_ERROR
+                      )
+                    ),
+                })
+              )
+          )
+        )
+        .finally(() => app.close())
+    );
+  });
 
 // --- backup и import-evo ---------------------------------------------------
 
@@ -905,6 +1284,9 @@ export var RUN: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
   backup: _backup,
   restore: _restore,
   'import-evo': _import,
+  elements: _elements,
+  mcp: _mcp,
+  diagnose: _diagnose,
   update: _update,
   help: (ctx) => helpFor(ctx.paint, ctx.args[0], ctx.language).then(ctx.out),
   version: (ctx) => Promise.resolve(ctx.out(`${PRODUCT} ${VERSION}`)),

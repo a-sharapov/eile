@@ -292,3 +292,26 @@ export var seoHead = (
     .map((_) => _[1])
     .join('');
 };
+
+// Вес типа в Accept: `text/markdown;q=0.9` → 0,9; без q — 1; не назван — 0.
+const _quality = (accept: string, type: string): number =>
+  accept
+    .split(',')
+    .map((_) => _.trim().split(';'))
+    .filter((_) => _[0]!.trim().toLowerCase() === type)
+    .map((_) =>
+      ((q) => (q === undefined ? 1 : Number(q.trim().slice(2)) || 0))(
+        _.slice(1).find((part) => part.trim().startsWith('q='))
+      )
+    )
+    .reduce((best, _) => Math.max(best, _), 0);
+
+/**
+ * Агент просит Markdown заголовком Accept: text/markdown назван и не ниже text/html. Браузеры его не
+ * называют, `*\/*` у curl — тоже нет: им по-прежнему HTML.
+ */
+export var prefersMarkdown = (accept: string | null): boolean =>
+  ((markdown) =>
+    markdown > 0 && markdown >= _quality(accept ?? '', 'text/html'))(
+    _quality(accept ?? '', 'text/markdown')
+  );

@@ -1,0 +1,73 @@
+// Памятка для моделей — одна на палочку, AGENTS.md папки элементов и MCP: правило меняется в одном месте.
+// По-английски: модели точнее всего следуют английским указаниям, а пишут на языке сайта.
+
+const _CORE_LIST =
+  'link(id), page(id), children(parentId), current(), ancestors(id), listing(parentId, options), translations() → [{ language, url, title, current }] for a language switcher, site(), media(path), image(path) → { src, srcset, width, height, alt }, t(key), setting(key), search(query, options)';
+
+const _TEMPLATE = `This is a site template: a Svelte 5 component in runes mode (\`export let\` does not work) that renders the whole page.
+- Props: \`let { page, site } = $props();\`
+- page: title, longTitle, menuTitle, description, introText, content, path, kind, linkTo, language, publishedAt, createdAt, updatedAt, fields (the page's field values: \`page.fields.name\`).
+- The page text is rendered with \`import Content from '$core/Content';\` and \`<Content of={page} />\`: it draws the components, forms and page links inside the text. \`{@html page.content}\` would show them as raw tags.
+- site: name, language and the other settings; \`site.i18n.key\` is a translation into the page language, \`site.custom.key\` a custom site setting. The tags \`{i18n.key}\` and \`[@key]\` are not allowed in a template.
+- As in Evo: \`<svelte:head><title>{page.longTitle || page.title} — {site.name}</title></svelte:head>\`; menu items show \`{item.menuTitle || item.title}\`.
+- Site components are imported like \`import Menu from '$components/Menu';\`. The '$core' module: ${_CORE_LIST}.
+- Built-in components: \`$core/Form\` (\`<Form name="callback" />\`), \`$core/Uncached\` (\`<Uncached name="Cart" props={{ currency: 'EUR' }} />\` renders on every request while the page stays cached), \`$core/Island\` (\`<Island name="Counter" props={{ start: 2 }} />\` hydrates in the browser).
+- Only $components/*, $core and svelte can be imported. Styles go in this file's <style>.`;
+
+const _COMPONENT = `This is a site component: Svelte 5 in runes mode. Editors insert it into the page text as a block and fill in a form of its parameters.
+- The file starts with a description: \`<!-- @component\nWhat it is, in one line.\n-->\`.
+- Parameters are \`$props()\` with TypeScript types; above each one, a JSDoc with the form label: \`/** Title */\`. Options of a string union are labelled like this: \`/** Tone: note=Note, success=Success */\`. Optional parameters have a default value. Write the labels in the site language.
+- Site data comes from '$core': ${_CORE_LIST}. In an island and inside Uncached, current() is null.
+- Only $components/*, $core and svelte can be imported. Styles go in this file's <style>.`;
+
+const _PLUGIN = `This is a site plugin, a TypeScript module:
+\`export default { render?(html: string, { path, status }): string, notFound?(path: string): string | null, on?: { [event type]: (event) => void } }\`.
+- render changes the finished HTML of a page, notFound returns a redirect address or null, on listens to site events.
+- Only '$core' can be imported.`;
+
+const _TEXT = `This is the page text: return an HTML fragment. Allowed: <p>, <h2>–<h4>, <ul>/<ol>/<li>, <blockquote>, <strong>, <em>, <a href>. Not allowed: <html>, <body>, <h1> (the template prints the title), styles, scripts, classes, images.
+A link to a page of the site is written as [~id~]; substitutions: {i18n.key} is a translation, [@key] a custom site setting.`;
+
+const _TAGS = `Tags inside the page text:
+- \`[[Name prop="text" count=3 wide]]\` puts the site component Name here with these parameters (a bare name is true).
+- \`[#Form:callback]\` puts the form "callback" here; it renders on every request with a fresh stamp.
+- \`[~5~]\` is the address of page 5: it survives renames and moves.
+- \`{i18n.key}\` is a translation into the page language, \`[@key]\` a custom site setting.`;
+
+const _CORE = `The '$core' module (all calls are synchronous):
+- link(id) → address of a published page or the target of a link page; null when there is nowhere to go (Svelte then omits href).
+- page(id) → the page or null; children(parentId | null, { includeHidden }) → pages in menu order; null is the top level.
+- current() → the page being rendered; ancestors(id) → from the root down to the parent, for breadcrumbs.
+- listing(parentId, { perPage, sort: 'published' | 'created' | 'title' | 'menu', depth, includeHidden, paged }) → { items, number, pages, total, url(n), pager(around) }; the page number comes from the address /blog/page-2.
+- translations(id?) → [{ language, url, title, current }] for a language switcher.
+- site() → settings with i18n and custom; t(key) → translation into the page language; setting(key) → custom setting.
+- media(path) → versioned file URL; image(path) → { src, srcset, width, height, alt } from the media library.
+- search(query, { limit, parent, page }) → { query, corrected, items: [{ id, title, url, snippet }], total, number, pages, url(n), pager(around) }; snippet is escaped HTML with <mark>.
+- request() → { path, query, header(name), cookie(name) }; read it only inside Uncached, otherwise the page is not cached.
+Page fields: \`page.fields.name\` is the page's own value, else inherited from an ancestor (fields with inherit), else the default, else null.
+SEO tags (canonical, description, Open Graph, JSON-LD, the Markdown link) are added to <head> by the CMS; a tag the template prints itself is not duplicated.`;
+
+const _FORM = `A form is HTML5 markup: the fields go inside, the CMS adds <form>, the stamp, the honeypot and the submit button. The server checks a submission by the same attributes as the browser.
+- A field is wrapped in \`<div class="field" data-field="text" data-label="Name">\` with \`<label for="f-name">\` and \`<input id="f-name" name="name">\`.
+- Rules are attributes: required, type (email, tel, url, number, date), pattern, min/max/step, minlength/maxlength, <option>s, radio groups; data-message is the error text.
+- \`data-show-if="field=value|value"\` on the wrapper shows it only for these values; \`data-show-if="field"\` — when the field is filled in.
+- Steps: \`<fieldset class="form-step" data-step="Contacts">\`.
+- Files: \`<input type="file" accept=".pdf,image/*" multiple data-max-size="10">\` (megabytes, at most 20).
+- Hidden values filled in by the server: \`<input type="hidden" name="page" data-source="page.title">\`; sources: page.title, page.url, page.id, page.field:name, query:name, setting:key, utm, referrer, site.name, time.
+- A link to a page of the site inside the form is [~id~].`;
+
+const _FIELDS = `Fields are extra values of a page (template variables in Evo): name (camelCase), label, type (text, richtext, number, boolean, date, select, image), options for select, defaultValue, inherit (take the value from the nearest ancestor), templates (the templates whose pages have this field). A template reads them as \`page.fields.name\`.`;
+
+/** Разделы памятки: правила вида элемента, текст страницы, формы, поля и `$core`. */
+export var GUIDE = {
+  template: _TEMPLATE,
+  component: _COMPONENT,
+  plugin: _PLUGIN,
+  text: `${_TEXT}\n${_TAGS}`,
+  form: _FORM,
+  fields: _FIELDS,
+  core: _CORE,
+} as const;
+
+/** HTML текста страницы для палочки: без тегов компонентов — их ставит редактор блоками. */
+export var TEXT_RULES = _TEXT;

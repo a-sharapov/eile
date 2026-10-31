@@ -206,7 +206,7 @@ describe('HTTP', () => {
       )
     ).toBe(plain);
     expect((await get('/kontakty')).headers.get('vary')).toBe(
-      'accept-encoding'
+      'accept-encoding, accept'
     );
   });
 });

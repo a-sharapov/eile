@@ -51,3 +51,25 @@ export type Tokens = {
   readonly issue: () => string;
   readonly hash: (token: string) => string;
 };
+
+/** Токен API: ключ агента или скрипта с правами пользователя; как сеанс, хранится по хэшу. */
+export type ApiToken = {
+  readonly id: number;
+  readonly userId: UserId;
+  /** Для чего токен: «Claude Code на ноутбуке». */
+  readonly name: string;
+  readonly tokenHash: string;
+  /** Последние символы токена — узнать его в списке, не храня целиком. */
+  readonly hint: string;
+  readonly createdAt: string;
+  readonly usedAt: string | null;
+};
+
+export type ApiTokenRepository = {
+  readonly byHash: (tokenHash: string) => ApiToken | null;
+  readonly of: (userId: UserId) => ApiToken[];
+  readonly add: (token: Omit<ApiToken, 'id'>) => number;
+  readonly touch: (id: number, at: string) => void;
+  /** Только свой: чужой токен по id не отозвать. */
+  readonly remove: (id: number, userId: UserId) => boolean;
+};

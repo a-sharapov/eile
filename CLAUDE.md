@@ -17,6 +17,8 @@ dist/cms new blog --db site.db              # сайт из каркаса: blog
 dist/cms import-evo dump.sql --db site.db   # перенос сайта Evo
 dist/cms backup copy.db --db site.db        # бэкап всего сайта одним файлом
 dist/cms --domain example.com --db site.db  # HTTPS без прокси: Let's Encrypt сам
+dist/cms elements pull site --db site.db    # элементы файлами и AGENTS.md; check — проверка, push — в сайт
+dist/cms mcp --db site.db                   # MCP для агентов по stdio; по HTTP — /manager/mcp с ключом API
 dist/cms update                             # новая версия со сверкой SHA256SUMS
 dist/cms help [команда]                     # справка с примерами; info, users — сводка и пользователи
 ```
@@ -27,6 +29,8 @@ dist/cms help [команда]                     # справка с прим�
 - `src/contexts/{content,design,site,delivery,identity,media,extensions,assistant,manager,notify,forms,search,redirects,diagnostics,upkeep,certificates}` — ограниченные контексты. `src/app.ts` — корень
   композиции.
 - `src/scaffolds/` — каркасы сайтов для `cms new` и приветствие новой базы; `tests/fixtures/demo.ts` — демо-сайт тестов.
+- `src/workspace/` — папка элементов `cms elements` и её AGENTS.md; памятка для моделей — `assistant/domain/guide.ts`,
+  инструменты агента и MCP — `manager/interface/{agent-tools,toolbox,mcp}.ts` (ADR 0034).
 - `manager/` — SPA менеджера (SvelteKit 3, TypeScript 6, свой `package.json`); перед правкой — скилл `sveltekit-3`.
 - `scripts/build.ts` — сборка бинарника со встроенной SPA; `scripts/release.ts` — бинарники под платформы релиза.
 - `site/` — промо-сайт Eile (RU + EN), сделанный на Eile; `site/index.ts` — страницы и переводы; `site/cookbook/` —
