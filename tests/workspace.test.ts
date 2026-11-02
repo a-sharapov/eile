@@ -207,3 +207,90 @@ it('AGENTS.md: команды с этой базой, правила CMS и ко
   expect(text).toContain('- Menu');
   expect(text).toMatch(/- \d+ \/ "/);
 });
+
+describe('скрипты в папке элементов', () => {
+  const STAGE = "document.querySelector('[data-stage]')?.remove();\n";
+
+  it('pull кладёт scripts/имя.js, push сохраняет новый и правленый', async () => {
+    app.design.scripts.save('kitchen-stage', STAGE);
+    await pull(app, dir);
+    expect(await read('scripts/kitchen-stage.js')).toBe(STAGE);
+    await write('scripts/kitchen-stage.js', `${STAGE}console.log(1);\n`);
+    await write('scripts/menu.js', 'export const open = () => {};\n');
+    const report = push(app, await readFolder(dir));
+    expect(report).toMatchObject({
+      added: ['scripts/menu.js'],
+      changed: ['scripts/kitchen-stage.js'],
+      problems: [],
+      saved: true,
+    });
+    expect(app.design.elements.get('script', 'kitchen-stage')?.revision).toBe(
+      2
+    );
+    expect(app.design.scripts.url('menu')).toStartWith('/_cms/scripts/menu.');
+  });
+
+  it('check: синтаксис и голый импорт — файл:строка:столбец, ничего не сохраняется', async () => {
+    await pull(app, dir);
+    await write('scripts/broken.js', 'const a = 1;\nexport const b = ;\n');
+    await write(
+      'scripts/bare.js',
+      "// сцена\nimport * as THREE from 'three';\n"
+    );
+    const report = push(app, await readFolder(dir), { dryRun: true });
+    expect(report.saved).toBe(false);
+    expect(report.problems).toEqual([
+      expect.objectContaining({
+        file: 'scripts/bare.js',
+        code: 'design.script_import',
+        line: 2,
+        column: 24,
+      }),
+      expect.objectContaining({
+        file: 'scripts/broken.js',
+        code: 'design.script_syntax',
+        line: 2,
+        column: 18,
+      }),
+    ]);
+    expect(app.design.elements.get('script', 'broken')).toBeNull();
+  });
+
+  it('prune удаляет скрипт без файла, если его не подключает шаблон', async () => {
+    app.design.scripts.save('old-stage', STAGE);
+    app.design.scripts.save('kept-stage', STAGE);
+    app.design.components.save(
+      'Stage',
+      "<script>import { script } from '$core';</script><svelte:head><script type=\"module\" src={script('kept-stage')}></script></svelte:head>"
+    );
+    await pull(app, dir);
+    rmSync(join(dir, 'scripts/old-stage.js'));
+    rmSync(join(dir, 'scripts/kept-stage.js'));
+    const report = push(app, await readFolder(dir), { prune: true });
+    expect(report.problems).toEqual([
+      expect.objectContaining({
+        file: 'scripts/kept-stage.js',
+        code: 'design.element_in_use',
+      }),
+    ]);
+    expect(report.saved).toBe(false);
+    rmSync(join(dir, 'components/Stage.svelte'));
+    const pruned = push(app, await readFolder(dir), { prune: true });
+    expect(pruned.problems).toEqual([]);
+    expect([...pruned.removed].sort()).toEqual([
+      'components/Stage.svelte',
+      'scripts/kept-stage.js',
+      'scripts/old-stage.js',
+    ]);
+    expect(app.design.scripts.url('old-stage')).toBeNull();
+  });
+
+  it('AGENTS.md описывает папку scripts и правило импортов', () => {
+    app.design.scripts.save('kitchen-stage', STAGE);
+    const text = agentsGuide(app, { db: 'site.db', program: 'cms' });
+    expect(text).toContain('`scripts/name.js`');
+    expect(text).toContain('## Scripts');
+    expect(text).toContain('only from https:// URLs');
+    expect(text).toContain('- Scripts: kitchen-stage.');
+  });
+});

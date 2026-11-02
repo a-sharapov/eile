@@ -1,4 +1,5 @@
 import { currentLanguage, type Language, type MessageKey, t } from './i18n.ts';
+import { moveSpan } from './reorder.ts';
 import type { FieldKind } from './types.ts';
 
 /** Поле в редакторе формы: всё, что попадает в атрибуты HTML5 и подписи. */
@@ -52,6 +53,52 @@ export type FormBlock =
 
 let _next = 0;
 export var formBlockId = (): number => ++_next;
+
+/** Сколько блоков переезжает вместе с этим: шаг — со всем, что в нём, до следующего шага. */
+export var blockSpan = (blocks: readonly FormBlock[], index: number): number =>
+  blocks[index]?.kind === 'step'
+    ? ((next) => (next < 0 ? blocks.length - index : next + 1))(
+        blocks.slice(index + 1).findIndex((_) => _.kind === 'step')
+      )
+    : 1;
+
+/**
+ * Куда можно поставить блок: поле и текст — в любой промежуток, в том числе в другой шаг; шаг —
+ * только на границу шагов или в конец, чтобы не разрезать чужой шаг и не забрать поля до шагов.
+ */
+export var blockGaps = (
+  blocks: readonly FormBlock[],
+  index: number
+): number[] =>
+  blocks[index]?.kind === 'step'
+    ? [
+        ...blocks.flatMap((block, i) => (block.kind === 'step' ? [i] : [])),
+        blocks.length,
+      ]
+    : Array.from({ length: blocks.length + 1 }, (_, i) => i);
+
+/** Блок — в промежуток `to` (0…length); недопустимое место ничего не меняет. */
+export var moveBlock = (
+  blocks: readonly FormBlock[],
+  from: number,
+  to: number
+): FormBlock[] =>
+  blockGaps(blocks, from).includes(to)
+    ? moveSpan(blocks, from, blockSpan(blocks, from), to)
+    : [...blocks];
+
+/** Название шага, в котором стоит блок; null — до шагов или после их конца. */
+export var stepOf = (
+  blocks: readonly FormBlock[],
+  index: number
+): string | null =>
+  blocks
+    .slice(0, index + 1)
+    .reduce<string | null>(
+      (step, block) =>
+        block.kind === 'step' ? block.title.trim() || null : step,
+      null
+    );
 
 export var emptyField = (kind: FieldKind = 'text'): FieldDraft => ({
   kind,

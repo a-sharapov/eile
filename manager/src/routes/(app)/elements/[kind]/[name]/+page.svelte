@@ -4,14 +4,14 @@ import type { SourcePoint } from '#lib/api.ts';
 import { api, isApiError } from '#lib/api.ts';
 import { catalog, loadCatalog } from '#lib/components.svelte.ts';
 import { ask } from '#lib/dialog.svelte.ts';
-import { elements, loadElements } from '#lib/elements.svelte.ts';
+import { ELEMENT_KINDS, elements, loadElements } from '#lib/elements.svelte.ts';
 import { fields } from '#lib/fields.svelte.ts';
 import { pageRef, places } from '#lib/format.ts';
 import { guardUnsaved } from '#lib/guard.svelte.ts';
-import { t, tn } from '#lib/i18n.ts';
+import { type MessageKey, t, tn } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { describeSource, failed, notify } from '#lib/notices.svelte.ts';
-import type { Element, Usage } from '#lib/types.ts';
+import type { Element, ElementKind, Usage } from '#lib/types.ts';
 import CodeEditor from '#lib/ui/CodeEditor.svelte';
 import EdgeState from '#lib/ui/EdgeState.svelte';
 import PageHeader from '#lib/ui/PageHeader.svelte';
@@ -27,6 +27,12 @@ let busy = $state(false);
 let missing = $state(false);
 
 const path = $derived(`/elements/${page.params.kind}/${page.params.name}`);
+// Вид из адреса; незнакомый сервер всё равно не найдёт — подписи берём как у шаблона.
+const kind = $derived<ElementKind>(
+  (page.params.kind ?? '') in ELEMENT_KINDS
+    ? (page.params.kind as ElementKind)
+    : 'template'
+);
 const dirty = $derived(element !== null && source !== element.source);
 
 guardUnsaved(() => dirty && !busy);
@@ -94,7 +100,7 @@ const _openFirst = (usage: Usage) =>
       ? resolve('/(app)/pages/[id]', { id: String(usage.pages[0].id) })
       : usage.elements[0]
         ? resolve('/(app)/elements/[kind]/[name]', {
-            kind: 'component',
+            kind: kindOf(usage.elements[0]),
             name: usage.elements[0],
           })
         : null
@@ -125,22 +131,29 @@ const templateFields = $derived(
     : []
 );
 
-const kindOf = (name: string): 'template' | 'component' =>
+const kindOf = (name: string): ElementKind =>
   elements.items.find((_) => _.name === name)?.kind ?? 'template';
 
 const livePages = $derived(usage?.pages.filter((_) => !_.trashed).length ?? 0);
+
+const _AREAS: Readonly<Record<ElementKind, MessageKey>> = {
+  template: 'aiFacts.templateArea',
+  component: 'aiFacts.componentArea',
+  script: 'aiFacts.scriptArea',
+};
+
+// Скрипт подключают из <svelte:head> шаблона: строка, которую можно скопировать как есть.
+const includeTag = $derived(
+  `<script type="module" src={script('${page.params.name ?? ''}')}></` +
+    'script>'
+);
 
 // ИИ знает, что за файл, какие компоненты есть на сайте и какие поля у шаблона.
 $effect(() => void loadCatalog().then(undefined, () => undefined));
 
 $effect(() =>
   aiScope({
-    area: t(
-      page.params.kind === 'template'
-        ? 'aiFacts.templateArea'
-        : 'aiFacts.componentArea',
-      { name: page.params.name ?? '' }
-    ),
+    area: t(_AREAS[kind], { name: page.params.name ?? '' }),
     facts: facts([
       componentFacts(
         (catalog.items ?? []).filter((_) => _.name !== page.params.name)
@@ -153,8 +166,9 @@ $effect(() =>
               .join(', ') || t('aiFacts.none'),
         }),
       usage &&
+        kind !== 'script' &&
         t(
-          page.params.kind === 'template'
+          kind === 'template'
             ? 'aiFacts.templatePages'
             : 'aiFacts.componentPages',
           { n: livePages }
@@ -192,7 +206,7 @@ const remove = () =>
 <svelte:head><title>{page.params.name} — {t('nav.elements')} — {t('app.name')}</title></svelte:head>
 
 {#snippet meta()}
-  <span>{t(page.params.kind === 'template' ? 'elements.template' : 'elements.component')}</span>
+  <span>{t(ELEMENT_KINDS[kind].one)}</span>
   {#if element}<span class="revision">{t('elements.revision')} {element.revision}</span>{/if}
 {/snippet}
 
@@ -209,13 +223,13 @@ const remove = () =>
   title={page.params.name ?? ''}
   crumbs={[
     { label: t('nav.elements'), href: resolve('/(app)/elements') },
-    { label: t(page.params.kind === 'template' ? 'elements.templates' : 'elements.components') },
+    { label: t(ELEMENT_KINDS[kind].many) },
   ]}
   {meta}
   {actions}
 />
 <!-- Подсказка — под заголовком, как у плагинов: в строке холстины ей тесно. -->
-<p class="muted hint">{t('elements.hint')}</p>
+<p class="muted hint">{t(kind === 'script' ? 'elements.scriptHint' : 'elements.hint')}</p>
 {#if element}
   <div class="contract">
     {#if page.params.kind === 'template'}
@@ -224,11 +238,23 @@ const remove = () =>
         {#each templateFields as field (field.name)}<a class="code" href={`${resolve('/(app)/fields')}?name=${field.name}`}>page.fields.{field.name}</a>{:else}<span class="muted">{t('elements.noFields')}</span>{/each}
       </p>
     {/if}
+    {#if kind === 'script'}
+      <p>
+        <span class="muted">{t('elements.scriptInclude')}:</span>
+        <code>{includeTag}</code>
+      </p>
+      {#if element.url}
+        <p>
+          <span class="muted">{t('elements.scriptUrl')}:</span>
+          <a class="code" href={element.url} target="_blank" rel="noopener">{element.url}</a>
+        </p>
+      {/if}
+    {/if}
     {#if usage}
       <p>
         <span class="muted">{t('elements.usedOn')}:</span>
-        <span>{tn('elements.pagesShort', livePages)}</span>
-        {#if usage.elements.length > 0}<span class="muted">·</span> {#each usage.elements as name (name)}<a class="code" href={resolve('/(app)/elements/[kind]/[name]', { kind: kindOf(name), name })}>{name}</a>{/each}{/if}
+        {#if kind !== 'script'}<span>{tn('elements.pagesShort', livePages)}</span>{/if}
+        {#if usage.elements.length > 0}{#if kind !== 'script'}<span class="muted">·</span>{/if} {#each usage.elements as name (name)}<a class="code" href={resolve('/(app)/elements/[kind]/[name]', { kind: kindOf(name), name })}>{name}</a>{/each}{:else if kind === 'script'}<span class="muted">{t('elements.scriptUnused')}</span>{/if}
       </p>
     {/if}
     {#if page.params.kind === 'template'}
@@ -254,7 +280,8 @@ const remove = () =>
   </EdgeState>
 {:else if element}
   {#key path}
-    <div class="code"><CodeEditor bind:value={source} onsave={save} ai={{ kind: page.params.kind === 'template' ? 'template' : 'component', label: `${t(page.params.kind === 'template' ? 'elements.template' : 'elements.component')} ${page.params.name}` }} label={`${t('elements.code')}: ${page.params.name}`} problem={error?.at ?? null} /></div>
+    <!-- Скрипт — готовый ES-модуль, часто собранный бандлером: палочка ИИ у него не нужна. -->
+    <div class="code"><CodeEditor bind:value={source} onsave={save} language={kind === 'script' ? 'javascript' : 'html'} ai={kind === 'script' ? null : { kind, label: `${t(ELEMENT_KINDS[kind].one)} ${page.params.name}` }} label={`${t('elements.code')}: ${page.params.name}`} problem={error?.at ?? null} /></div>
   {/key}
 {/if}
 

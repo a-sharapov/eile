@@ -2,7 +2,13 @@ import type { Field, NewField } from '../contexts/content/index.ts';
 import type { FormInput } from '../contexts/forms/index.ts';
 
 /** Вид файла папки элементов: элемент сайта, форма или список полей. */
-export type FileKind = 'template' | 'component' | 'plugin' | 'form' | 'fields';
+export type FileKind =
+  | 'template'
+  | 'component'
+  | 'script'
+  | 'plugin'
+  | 'form'
+  | 'fields';
 
 /** Файлы папки по путям от её корня: `components/Menu.svelte` → исходник. */
 export type Files = ReadonlyMap<string, string>;
@@ -13,6 +19,7 @@ export type FormSettings = Omit<FormInput, 'source'>;
 const _DIR: Readonly<Record<Exclude<FileKind, 'fields'>, string>> = {
   template: 'templates',
   component: 'components',
+  script: 'scripts',
   plugin: 'plugins',
   form: 'forms',
 };
@@ -20,6 +27,7 @@ const _DIR: Readonly<Record<Exclude<FileKind, 'fields'>, string>> = {
 const _EXT: Readonly<Record<Exclude<FileKind, 'fields'>, string>> = {
   template: '.svelte',
   component: '.svelte',
+  script: '.js',
   plugin: '.ts',
   form: '.html',
 };
@@ -30,6 +38,7 @@ export var FIELDS_FILE = 'fields.json';
 export var PATTERNS: readonly string[] = [
   'templates/*.svelte',
   'components/*.svelte',
+  'scripts/*.js',
   'plugins/*.ts',
   'forms/*.html',
   'forms/*.json',
@@ -55,6 +64,7 @@ export var entryOf = (
                 {
                   templates: 'template',
                   components: 'component',
+                  scripts: 'script',
                   plugins: 'plugin',
                   forms: 'form',
                 } as const
@@ -62,18 +72,19 @@ export var entryOf = (
               name: match[2]!,
             }
           : null)(
-        /^(templates|components|plugins|forms)\/([^/]+)\.(?:svelte|ts|html)$/.exec(
+        /^(templates|components|scripts|plugins|forms)\/([^/]+)\.(?:svelte|js|ts|html)$/.exec(
           path
         )
       );
 
-// Порядок отправки: поля нужны шаблонам, компоненты — шаблонам, формы ссылаются на страницы.
+// Порядок отправки: поля нужны шаблонам, компоненты и скрипты — шаблонам, формы ссылаются на страницы.
 const _ORDER: Readonly<Record<FileKind, number>> = {
   fields: 0,
-  component: 1,
-  template: 2,
-  plugin: 3,
-  form: 4,
+  script: 1,
+  component: 2,
+  template: 3,
+  plugin: 4,
+  form: 5,
 };
 
 export var byOrder = (a: string, b: string): number =>

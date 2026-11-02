@@ -408,6 +408,11 @@ export var messages: Dictionary['messages'] = {
   'elements.new': 'Neu',
   'elements.newTemplate': 'Neue Vorlage',
   'elements.newComponent': 'Neue Komponente',
+  'elements.scripts': 'Skripte',
+  'elements.script': 'Skript',
+  'elements.newScript': 'Neues Skript',
+  'elements.scriptNameHint':
+    'Kleinbuchstaben a–z, Ziffern und Bindestriche: kitchen-stage.',
   'elements.create': 'Erstellen',
   'elements.name': 'Name (PascalCase)',
   'elements.nameHint':
@@ -446,6 +451,8 @@ export var messages: Dictionary['messages'] = {
     'TypeScript-Module mit den Hooks render und notFound sowie Abonnements auf Ereignisse.',
   'elements.aboutFields':
     'Zusatzfelder für Seiten, werden Vorlagen zugewiesen.',
+  'elements.aboutScripts':
+    'ES-Module für den Browser: Eine Vorlage bindet sie mit script(name) ein.',
   'plugins.one': 'Plugin',
   'nav.forms': 'Formulare',
   'inbox.title': 'Anfragen',
@@ -543,6 +550,12 @@ export var messages: Dictionary['messages'] = {
   'formEditor.stepTitle': 'Titel des Schritts',
   'formEditor.stepHint':
     'Die Felder darunter, bis zum nächsten Schritt, sieht der Besucher auf einer eigenen Seite mit „Zurück“ und „Weiter“. Ein Schritt ohne Titel beendet die Schritte: Alles darunter ist wieder immer sichtbar. Ohne JavaScript erscheint das Formular vollständig.',
+  'formEditor.stepsEnd': 'Ende der Schritte',
+  'formEditor.pickedStep':
+    'Schritt {name} mit allem, was darin ist, aufgenommen, Position {n} von {total}. Pfeil nach oben und unten verschieben ihn hinter den nächsten Schritt, Leertaste legt ihn ab, Esc stellt ihn zurück.',
+  'formEditor.movedInStep': '{name}: Position {n} von {total}, Schritt {step}',
+  'formEditor.droppedInStep':
+    'Abgelegt: {name}, Position {n} von {total}, Schritt {step}',
   'formEditor.showIf': 'Anzeigen, wenn das Feld',
   'formEditor.showAlways': 'Immer',
   'formEditor.showValues': 'gleich',
@@ -702,6 +715,11 @@ export var messages: Dictionary['messages'] = {
     'Komponenten werden per Import eingebunden; ihre Parameter sind Attribute.',
   'elements.hint':
     "Strg+S – speichern. Komponenten importieren: import X from '$components/X'.",
+  'elements.scriptHint':
+    'Strg+S speichert. Ein ES-Modul für den Browser, bis 2 MB: Bündeln Sie die Abhängigkeiten in diese Datei, importiert werden dürfen nur https://-Adressen.',
+  'elements.scriptInclude': 'Einbinden im <svelte:head> einer Vorlage',
+  'elements.scriptUrl': 'Adresse der aktuellen Version',
+  'elements.scriptUnused': 'noch in keiner Vorlage oder Komponente eingebunden',
   'nav.plugins': 'Plugins',
   'nav.media': 'Medien',
   'media.title': 'Mediathek',
@@ -1474,6 +1492,16 @@ export var messages: Dictionary['messages'] = {
   'blocks.hide': 'Auf der Website ausblenden',
   'blocks.hiddenNote':
     'Der Block bleibt im Seitentext, aber Besucher, die Suche und die Markdown-Version sehen ihn nicht.',
+  'sortable.grip': 'Verschieben: {name}',
+  'sortable.gripTitle': 'Zum Verschieben ziehen',
+  'sortable.hint':
+    'Leertaste nimmt auf, Pfeil nach oben und unten verschieben, Leertaste legt ab, Esc stellt zurück. Mit Maus oder Finger am Griff ziehen.',
+  'sortable.picked':
+    'Aufgenommen: {name}, Position {n} von {total}. Pfeil nach oben und unten verschieben, Leertaste legt ab, Esc stellt zurück.',
+  'sortable.moved': '{name}: Position {n} von {total}',
+  'sortable.dropped': 'Abgelegt: {name}, Position {n} von {total}',
+  'sortable.cancelled':
+    'Verschieben abgebrochen: {name} wieder auf Position {n} von {total}',
   'picker.image': 'Bild aus der Mediathek',
   'picker.file': 'Datei aus der Mediathek',
   'picker.search': 'Nach Namen suchen',
@@ -1505,6 +1533,8 @@ export var messages: Dictionary['messages'] = {
   'starter.componentTitle': 'Titel',
   'starter.pluginHooks':
     'Hooks sind optional: Behalten Sie die, die Sie brauchen.',
+  'starter.scriptAbout':
+    'Ein ES-Modul für den Browser. Bündeln Sie die Abhängigkeiten in diese Datei: Importiert werden dürfen nur https://-Adressen.',
   'aiFacts.components': 'Komponenten der Website: {list}',
   'aiFacts.none': 'keine',
   'aiFacts.media': 'Mediathek',
@@ -1523,6 +1553,7 @@ export var messages: Dictionary['messages'] = {
   'aiFacts.fields': 'Felder der Vorlage: {list}',
   'aiFacts.templateArea': 'Vorlage „{name}“',
   'aiFacts.componentArea': 'Komponente „{name}“',
+  'aiFacts.scriptArea': 'Skript „{name}“',
   'aiFacts.templatePages': 'Seiten der Website mit dieser Vorlage: {n}',
   'aiFacts.componentPages': 'Seiten der Website mit dieser Komponente: {n}',
   'aiFacts.settings': 'Einstellungen der Website',
@@ -1658,6 +1689,12 @@ export var errors: Dictionary['errors'] = {
     'In der Vorlage schreibt man Schlüssel als Ausdrücke: {site.i18n.key} und {site.custom.key}, nicht {i18n.key} und [@key].',
   'design.import_cycle':
     'Elemente importieren sich gegenseitig im Kreis – {detail}',
+  'design.invalid_script_name':
+    'Ein Skriptname besteht aus Kleinbuchstaben a–z, Ziffern und Bindestrichen: kitchen-stage.',
+  'design.script_syntax':
+    'Das Skript lässt sich nicht als ES-Modul lesen — {detail}',
+  'design.script_import':
+    'Bündeln Sie die Abhängigkeiten in das Skript: Importiert werden dürfen nur https://-Adressen — {detail}',
   'extensions.empty_source': 'Der Code des Plugins darf nicht leer sein.',
   'extensions.source_too_large': 'Der Code des Plugins ist zu groß.',
   'extensions.compile_failed': 'Das Plugin kompiliert nicht – {detail}',

@@ -7,14 +7,15 @@ import { type MessageKey, t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { loadPlugins, plugins } from '#lib/plugins.svelte.ts';
 import { starters } from '#lib/starters.ts';
+import type { ElementKind } from '#lib/types.ts';
 import LoadState from '#lib/ui/LoadState.svelte';
 import NameForm from '#lib/ui/NameForm.svelte';
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import { page } from '$app/state';
 
-// Дерево элементов как в MODX: шаблоны, компоненты (чанки и сниппеты Evo), плагины, поля (TV).
-type Group = 'template' | 'component' | 'plugin' | 'field';
+// Дерево элементов как в MODX: шаблоны, компоненты (чанки и сниппеты Evo), скрипты для браузера, плагины, поля (TV).
+type Group = 'template' | 'component' | 'script' | 'plugin' | 'field';
 
 type Item = {
   readonly name: string;
@@ -29,7 +30,7 @@ let creating = $state<Group | null>(null);
 
 $effect(() => void elementsLoad.retry());
 
-const elementItems = (kind: 'template' | 'component'): Item[] =>
+const elementItems = (kind: ElementKind): Item[] =>
   elements.items
     .filter((_) => _.kind === kind)
     .map((_) => ({
@@ -46,6 +47,8 @@ const groups = $derived<
     readonly create: MessageKey;
     readonly icon: keyof typeof icons;
     readonly items: Item[];
+    /** Своё правило имени; без него — PascalCase. */
+    readonly name?: { readonly pattern: string; readonly hint: MessageKey };
   }[]
 >([
   {
@@ -61,6 +64,15 @@ const groups = $derived<
     create: 'elements.newComponent',
     icon: 'component',
     items: elementItems('component'),
+  },
+  {
+    id: 'script',
+    label: 'elements.scripts',
+    create: 'elements.newScript',
+    icon: 'fileCode',
+    items: elementItems('script'),
+    // Имя скрипта — часть его адреса: строчная латиница, цифры и дефис.
+    name: { pattern: '[a-z0-9][a-z0-9\\-]*', hint: 'elements.scriptNameHint' },
   },
   {
     id: 'plugin',
@@ -92,37 +104,23 @@ const groups = $derived<
   },
 ]);
 
+const createElement = (kind: ElementKind) => (name: string) =>
+  api
+    .send(
+      'PUT',
+      `/elements/${kind}/${name}`,
+      { source: starters()[kind] },
+      CREATE_ONLY
+    )
+    .then(loadElements)
+    .then(() => goto(resolve('/(app)/elements/[kind]/[name]', { kind, name })));
+
 const _CREATE: Readonly<
   Record<Exclude<Group, 'field'>, (name: string) => Promise<unknown>>
 > = {
-  template: (name) =>
-    api
-      .send(
-        'PUT',
-        `/elements/template/${name}`,
-        { source: starters().template },
-        CREATE_ONLY
-      )
-      .then(loadElements)
-      .then(() =>
-        goto(
-          resolve('/(app)/elements/[kind]/[name]', { kind: 'template', name })
-        )
-      ),
-  component: (name) =>
-    api
-      .send(
-        'PUT',
-        `/elements/component/${name}`,
-        { source: starters().component },
-        CREATE_ONLY
-      )
-      .then(loadElements)
-      .then(() =>
-        goto(
-          resolve('/(app)/elements/[kind]/[name]', { kind: 'component', name })
-        )
-      ),
+  template: createElement('template'),
+  component: createElement('component'),
+  script: createElement('script'),
   plugin: (name) =>
     api
       .send(
@@ -167,7 +165,7 @@ const create = (group: Group) =>
       </summary>
       <button type="button" class="add ghost icon" data-create={group.id} aria-label={t(group.create)} title={t(group.create)} aria-expanded={group.id === 'field' ? undefined : creating === group.id} onclick={() => create(group.id)}>{@html icons.plus}</button>
       {#if creating === group.id && group.id !== 'field'}
-        <NameForm label={t(group.create)} existing={existing(group.id)} oncreate={(name) => _CREATE[group.id as Exclude<Group, 'field'>](name).then(() => (creating = null))} oncancel={() => closeForm(group.id)} />
+        <NameForm label={t(group.create)} existing={existing(group.id)} oncreate={(name) => _CREATE[group.id as Exclude<Group, 'field'>](name).then(() => (creating = null))} oncancel={() => closeForm(group.id)} pattern={group.name?.pattern} hint={group.name && t(group.name.hint)} />
       {/if}
       <ul>
         {#each group.items as item (item.name)}

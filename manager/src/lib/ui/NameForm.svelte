@@ -7,12 +7,17 @@ let {
   oncreate,
   oncancel,
   existing,
+  pattern = '[A-Z][A-Za-z0-9]*',
+  hint = t('elements.nameHint'),
 }: {
   label: string;
   oncreate: (name: string) => Promise<unknown>;
   oncancel: () => void;
   /** Адрес элемента с таким именем или null: занятое имя не затирает чужой код. */
   existing: (name: string) => string | null;
+  /** Правило имени: у шаблонов и компонентов — PascalCase, у скриптов — `kitchen-stage`. */
+  pattern?: string;
+  hint?: string;
 } = $props();
 
 let name = $state('');
@@ -29,7 +34,7 @@ const taken = $derived(name ? existing(name) : null);
 const submit = (event: SubmitEvent) => (
   event.preventDefault(),
   input && !input.checkValidity()
-    ? ((error = t('elements.nameHint')), input.focus())
+    ? ((error = hint), input.focus())
     : taken === null &&
       ((busy = true),
       oncreate(name)
@@ -45,8 +50,8 @@ const submit = (event: SubmitEvent) => (
       class="code"
       bind:this={input}
       required
-      pattern="[A-Z][A-Za-z0-9]*"
-      title={t('elements.nameHint')}
+      {pattern}
+      title={hint}
       bind:value={name}
       aria-invalid={taken || error ? 'true' : undefined}
       aria-describedby="name-form-help"
@@ -59,7 +64,7 @@ const submit = (event: SubmitEvent) => (
   {:else if error}
     <small id="name-form-help" class="field-error">{error}</small>
   {:else}
-    <small id="name-form-help" class="muted">{t('elements.nameHint')}</small>
+    <small id="name-form-help" class="muted">{hint}</small>
   {/if}
   <div class="actions">
     <button class="primary" aria-disabled={busy || taken !== null}>{t('elements.create')}</button>

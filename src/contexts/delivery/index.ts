@@ -42,6 +42,7 @@ import { defineSiteHandler } from './interface/site-handler.ts';
 export {
   type ComponentRuntime,
   defineComponentRuntime,
+  type ScriptCatalog,
   SEARCH_TAG,
   type SearchResults,
 } from './application/component-runtime.ts';

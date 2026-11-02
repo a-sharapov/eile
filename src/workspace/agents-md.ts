@@ -78,11 +78,11 @@ export var agentsGuide = (
   services: WorkspaceServices,
   { db, program }: AgentsOptions
 ): string =>
-  ((site, catalog, templates, forms) =>
+  ((site, catalog, templates, scripts, forms) =>
     [
       `# ${site.name || 'Site'}: elements of an Eile site`,
       '',
-      `This folder holds the elements of an Eile site: templates, components, plugins, forms and fields. They live in the site database \`${db}\`; the folder is a copy to edit with any tool. Pages, media and settings are not here: change them in the manager (${site.siteUrl || 'http://localhost:8080'}/manager) or through the MCP server \`${program} mcp --db ${db}\`.`,
+      `This folder holds the elements of an Eile site: templates, components, scripts, plugins, forms and fields. They live in the site database \`${db}\`; the folder is a copy to edit with any tool. Pages, media and settings are not here: change them in the manager (${site.siteUrl || 'http://localhost:8080'}/manager) or through the MCP server \`${program} mcp --db ${db}\`.`,
       '',
       '## Workflow',
       '',
@@ -96,6 +96,7 @@ export var agentsGuide = (
       '',
       '- `templates/Name.svelte`: a page template; a page names its template.',
       '- `components/Name.svelte`: a component, imported as `$components/Name` or put into page text as `[[Name]]`.',
+      "- `scripts/name.js`: a site script, a browser ES module with its dependencies bundled in; a template includes it with `script('name')`. `check` prints its syntax errors as `file:line:column`.",
       '- `plugins/Name.ts`: a server plugin.',
       '- `forms/name.html` and `forms/name.json`: form markup and its settings (title, submitLabel, successText, successPage, subject, channels, retentionDays, minSeconds, allowLinks, goal, confirmation, webhook; the webhook secret stays on the site).',
       '- `fields.json`: page fields.',
@@ -107,6 +108,10 @@ export var agentsGuide = (
       '## Components',
       '',
       GUIDE.component,
+      '',
+      '## Scripts',
+      '',
+      GUIDE.script,
       '',
       '## $core',
       '',
@@ -133,6 +138,7 @@ export var agentsGuide = (
       `- Name: ${site.name || '(none)'}; language: ${site.language}; address: ${site.siteUrl || '(taken from the request)'}.`,
       ...(site.description ? [`- About: ${site.description}`] : []),
       `- Templates: ${templates.map((_) => `${_.name} (pages: ${_.pages})`).join(', ') || 'none'}.`,
+      ...(scripts.length > 0 ? [`- Scripts: ${scripts.join(', ')}.`] : []),
       ...(forms.length > 0
         ? [`- Forms: ${forms.map((_) => `${_.name} "${_.title}"`).join(', ')}.`]
         : []),
@@ -162,6 +168,10 @@ export var agentsGuide = (
         name: _.name,
         pages: services.content.usage.template(_.name).length,
       })),
+    services.design.elements
+      .list()
+      .filter((_) => _.kind === 'script')
+      .map((_) => _.name),
     services.forms.forms.list()
   );
 

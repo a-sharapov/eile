@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { type App, createApp } from '../src/app.ts';
 import { attempt, isDomainError } from '../src/shared/kernel/errors.ts';
 import { DEMO } from './fixtures/demo.ts';
@@ -74,6 +77,12 @@ describe('медиатека', () => {
     expect(
       errorCode(() =>
         app.media.files.save({ path: 'x.html', data: bytes('<p>') })
+      )
+    ).toBe('media.unsupported_type');
+    // Скрипт сайта — элемент с правом на код, а не файл медиатеки (ADR 0039).
+    expect(
+      errorCode(() =>
+        app.media.files.save({ path: 'js/stage.js', data: bytes('alert(1)') })
       )
     ).toBe('media.unsupported_type');
     expect(
@@ -175,5 +184,71 @@ describe('медиатека', () => {
     );
     expect(removed.status).toBe(200);
     expect((await get('/media/docs/hello.txt')).status).toBe(404);
+  });
+
+  it('модель .glb: тип model/gltf-binary, nosniff, без размеров картинки', async () => {
+    // Заголовок glTF: magic «glTF», версия 2, длина — двоичный файл, а не текст.
+    const glb = new Uint8Array([
+      0x67, 0x6c, 0x54, 0x46, 2, 0, 0, 0, 12, 0, 0, 0,
+    ]);
+    const file = app.media.files.save({
+      path: 'models/Kitchen.GLB',
+      data: glb,
+    });
+    expect(file).toMatchObject({
+      path: 'models/kitchen.glb',
+      contentType: 'model/gltf-binary',
+      size: 12,
+      width: null,
+    });
+    const response = await get(`/media/models/kitchen.glb?v=${file.hash}`);
+    expect(response.headers.get('content-type')).toBe('model/gltf-binary');
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(response.headers.get('cache-control')).toContain('immutable');
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(glb);
+    expect(app.media.url('models/kitchen.glb')).toBe(
+      `/media/models/kitchen.glb?v=${file.hash}`
+    );
+  });
+
+  it('модель .glb до 25 МиБ — через менеджер и с кэша на диске', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cms-glb-'));
+    const site = createApp({ mediaCache: join(dir, 'cache') });
+    const setup = await site.fetch(
+      new Request('http://localhost/manager/api/setup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          token: site.identity.setup.token(),
+          email: 'a@example.com',
+          password: 'correct horse battery',
+        }),
+      })
+    );
+    const cookie = setup.headers.get('set-cookie')!.split(';')[0]!;
+    const upload = (size: number) => {
+      const form = new FormData();
+      form.set('file', new Blob([new Uint8Array(size).fill(7)]), 'kitchen.glb');
+      form.set('path', 'models/kitchen.glb');
+      return site.fetch(
+        new Request('http://localhost/manager/api/media', {
+          method: 'POST',
+          headers: { cookie },
+          body: form,
+        })
+      );
+    };
+    expect((await upload(25 * 1024 * 1024 + 1)).status).toBe(422);
+    const saved = await upload(3 * 1024 * 1024);
+    expect(saved.status).toBe(201);
+    const response = await site.fetch(
+      new Request('http://localhost/media/models/kitchen.glb')
+    );
+    expect(response.headers.get('content-type')).toBe('model/gltf-binary');
+    expect((await response.arrayBuffer()).byteLength).toBe(3 * 1024 * 1024);
+    // Файл вынесен из базы на диск: дальше его отдаёт sendfile (ADR 0038).
+    expect(readdirSync(join(dir, 'cache'))).toContain('models~kitchen.glb');
+    site.close();
+    rmSync(dir, { recursive: true, force: true });
   });
 });

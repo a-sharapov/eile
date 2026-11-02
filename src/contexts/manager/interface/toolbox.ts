@@ -40,6 +40,8 @@ export var fullGuide = (): string =>
     GUIDE.template,
     '## Components',
     GUIDE.component,
+    '## Scripts',
+    GUIDE.script,
     '## $core',
     GUIDE.core,
     '## Page text',
@@ -57,7 +59,7 @@ const _READ_GUIDE: AgentTool = {
   name: 'read_guide',
   title: 'How the site is built',
   description:
-    'Rules for templates, components, $core, page text, forms, fields and plugins. Read the topic before writing that kind of thing.',
+    'Rules for templates, components, site scripts, $core, page text, forms, fields and plugins. Read the topic before writing that kind of thing.',
   access: 'user',
   input: {
     type: 'object',

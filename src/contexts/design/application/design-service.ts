@@ -11,6 +11,7 @@ import {
   type ElementName,
   parseElementName,
   removeElement,
+  scriptsOf,
 } from '../domain/element.ts';
 import type { ElementRepository } from '../domain/element-repository.ts';
 import { findImportCycle } from '../domain/import-cycle.ts';
@@ -24,6 +25,16 @@ const _changeOrCreate = (
   source: string
 ): ElementChange =>
   existing ? changeSource(source)(existing) : createElement(kind, name, source);
+
+// Кто держит элемент: компонент — импортом `$components/Name`, скрипт — вызовом `script('name')`.
+const _HOLDS: Readonly<
+  Record<ElementKind, (source: string, name: string) => boolean>
+> = {
+  template: () => false,
+  component: (source, name) =>
+    dependenciesOf(source).includes(name as ElementName),
+  script: (source, name) => scriptsOf(source).includes(name as ElementName),
+};
 
 export var defineDesignService = ({
   elements,
@@ -83,35 +94,38 @@ export var defineDesignService = ({
     (kind: ElementKind) =>
     (name: string, source: string): void =>
       pipe(
-        parseElementName,
+        (_: string) => parseElementName(_, kind),
         (_: ElementName) =>
           _changeOrCreate(elements.get(kind, _), kind, _, source),
         (_: ElementChange) => void (_.events.length > 0 && persist(_))
       )(name);
 
   const load = (kind: ElementKind, name: string): Element =>
-    elements.get(kind, parseElementName(name)) ??
+    elements.get(kind, parseElementName(name, kind)) ??
     fail('design.element_not_found', `There is no ${kind} "${name}"`);
 
-  /** Элементы, которые импортируют компонент: пока они есть, удалить его нельзя. */
-  const importers = (name: string): ElementName[] =>
+  /** Шаблоны и компоненты, которые используют элемент: пока они есть, удалить его нельзя. */
+  const importers = (
+    name: string,
+    kind: ElementKind = 'component'
+  ): ElementName[] =>
     elements
       .list()
       .filter(
         (_) =>
-          dependenciesOf(elements.get(_.kind, _.name)?.source ?? '').includes(
-            name as ElementName
-          ) && !(_.kind === 'component' && _.name === name)
+          _.kind !== 'script' &&
+          !(_.kind === kind && _.name === name) &&
+          _HOLDS[kind](elements.get(_.kind, _.name)?.source ?? '', name)
       )
       .map((_) => _.name);
 
   const remove = (kind: ElementKind, name: string): void =>
     pipe(
       (_: Element) =>
-        kind === 'component' && importers(_.name).length > 0
+        importers(_.name, kind).length > 0
           ? fail(
               'design.element_in_use',
-              `${_.name} is imported by ${importers(_.name).join(', ')}`
+              `${_.name} is used by ${importers(_.name, kind).join(', ')}`
             )
           : removeElement(_),
       (_: ElementChange) => (
@@ -124,11 +138,13 @@ export var defineDesignService = ({
     elements: {
       list: elements.list,
       get: (kind: ElementKind, name: string): Element | null =>
-        elements.get(kind, parseElementName(name)),
+        elements.get(kind, parseElementName(name, kind)),
       importers,
       remove,
     },
     templates: { save: save('template') },
+    /** Скрипты сайта: ES-модули для браузера; адрес с хэшем добавляет `defineDesign`. */
+    scripts: { save: save('script') },
     components: {
       save: save('component'),
       /** Компоненты с параметрами: из них менеджер собирает контент страницы. */

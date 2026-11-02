@@ -77,7 +77,7 @@ const _settingsOf = (form: Readonly<Record<string, unknown>>): FormSettings =>
     ])
   ) as FormSettings;
 
-/** Сайт файлами: шаблоны, компоненты, плагины, формы с настройками и поля. */
+/** Сайт файлами: шаблоны, компоненты, скрипты, плагины, формы с настройками и поля. */
 export var filesOf = (services: WorkspaceServices): Files =>
   new Map([
     ...services.design.elements
@@ -178,6 +178,7 @@ const _sourceDiffers: _Check = (path, folder, site) =>
 const _CHANGED: Readonly<Record<FileKind, _Check>> = {
   template: _sourceDiffers,
   component: _sourceDiffers,
+  script: _sourceDiffers,
   plugin: _sourceDiffers,
   form: (path, folder, site) =>
     _sourceDiffers(path, folder, site, null as never) ||
@@ -215,6 +216,7 @@ const _SAVE: Readonly<Record<FileKind, _Save>> = {
     services.design.templates.save(name, text),
   component: (services, name, text) =>
     services.design.components.save(name, text),
+  script: (services, name, text) => services.design.scripts.save(name, text),
   plugin: (services, name, text) =>
     void services.extensions.plugins.save(name, text),
   form: (services, name, text, folder) =>
@@ -259,6 +261,8 @@ const _REMOVE: Readonly<
     ),
     services.design.elements.remove('component', name)
   ),
+  // Скрипт, который подключает шаблон или компонент, сайт удалить не даст: ошибка скажет, кто держит.
+  script: (services, name) => services.design.elements.remove('script', name),
   plugin: (services, name) => services.extensions.plugins.remove(name),
   form: (services, name) => (
     _inUse(

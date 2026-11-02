@@ -29,10 +29,11 @@ import type {
   NewField,
   Page,
   PageChanges,
+  PageRef,
   PageView,
 } from '../../content/index.ts';
 import type { PageCacheStats } from '../../delivery/index.ts';
-import type { DesignService } from '../../design/index.ts';
+import type { DesignService, ElementKind } from '../../design/index.ts';
 import type { DiagnosticsReport } from '../../diagnostics/index.ts';
 import type { ExtensionsService } from '../../extensions/index.ts';
 import type {
@@ -217,6 +218,8 @@ const _MB = 1024 * _KB;
 const _BODY_LIMIT: Readonly<Record<string, number>> = {
   'POST /media': 32 * _MB,
   'POST /backup': 2048 * _MB,
+  // Скрипт сайта — до 2 МиБ, в JSON кавычки и обратные косые черты ещё и экранируются.
+  'PUT /elements/:kind/:name': 8 * _MB,
 };
 
 const _limitOf = (route: Route): number =>
@@ -420,6 +423,7 @@ const _match = (
 const _ELEMENT_KINDS = {
   template: 'templates',
   component: 'components',
+  script: 'scripts',
 } as const;
 
 const _PAGE_ACTIONS = {
@@ -800,7 +804,14 @@ const _routes = (
   };
 
   const elementSet = (kind: string) =>
-    design[_ELEMENT_KINDS[kind as keyof typeof _ELEMENT_KINDS]] ?? null;
+    Object.hasOwn(_ELEMENT_KINDS, kind)
+      ? design[_ELEMENT_KINDS[kind as ElementKind]]
+      : null;
+
+  const elementKind = (raw: string | undefined): ElementKind =>
+    Object.hasOwn(_ELEMENT_KINDS, raw ?? '')
+      ? (raw as ElementKind)
+      : fail('design.element_not_found', `Unknown kind "${raw}"`);
 
   // If-None-Match: * — «только создать»: новый элемент с занятым именем не затрёт существующий.
   const createOnly = (request: Request): boolean =>
@@ -818,13 +829,17 @@ const _routes = (
       fail(code, `"${name}" already exists`)
     );
 
-  // Где элемент используется: страницы (шаблон или тег в тексте) и элементы, которые его импортируют.
-  const elementUsage = (kind: 'template' | 'component', name: string) => ({
-    pages:
-      kind === 'template'
-        ? content.usage.template(name)
-        : content.usage.component(name),
-    elements: kind === 'component' ? design.elements.importers(name) : [],
+  // Где элемент используется: страницы (шаблон или тег в тексте) и элементы, которые его импортируют
+  // или подключают скрипт вызовом script('name').
+  const pagesOf: Readonly<Record<ElementKind, (name: string) => PageRef[]>> = {
+    template: (_) => content.usage.template(_),
+    component: (_) => content.usage.component(_),
+    script: () => [],
+  };
+
+  const elementUsage = (kind: ElementKind, name: string) => ({
+    pages: pagesOf[kind](name),
+    elements: kind === 'template' ? [] : design.elements.importers(name, kind),
   });
 
   return [
@@ -1839,19 +1854,21 @@ const _routes = (
       'GET',
       '/elements/:kind/:name',
       'design.edit',
-      ({ params }) => {
-        const element =
-          (params.kind ?? '') in _ELEMENT_KINDS
-            ? design.elements.get(params.kind as 'template', params.name!)
-            : null;
-        return element
-          ? _json(200, element)
-          : _error(
-              404,
-              'design.element_not_found',
-              `No ${params.kind} "${params.name}"`
-            );
-      },
+      ({ params }) =>
+        ((element) =>
+          element
+            ? _json(
+                200,
+                // У скрипта — и адрес текущей версии: его подключает шаблон.
+                element.kind === 'script'
+                  ? { ...element, url: design.scripts.url(element.name) }
+                  : element
+              )
+            : _error(
+                404,
+                'design.element_not_found',
+                `No ${params.kind} "${params.name}"`
+              ))(design.elements.get(elementKind(params.kind), params.name!)),
     ],
     [
       'GET',
@@ -1861,8 +1878,7 @@ const _routes = (
         _json(
           200,
           elementUsage(
-            design.elements.get(params.kind as 'template', params.name!)
-              ?.kind ??
+            design.elements.get(elementKind(params.kind), params.name!)?.kind ??
               fail(
                 'design.element_not_found',
                 `No ${params.kind} "${params.name}"`
@@ -1876,19 +1892,16 @@ const _routes = (
       '/elements/:kind/:name',
       'design.edit',
       ({ params }) =>
-        ((usage) =>
-          usage.pages.length > 0
-            ? fail(
-                'design.element_in_use',
-                `Used by pages ${usage.pages.map((_) => _.id).join(', ')}`
-              )
-            : (design.elements.remove(params.kind as 'template', params.name!),
-              _json(200, {})))(
-          elementUsage(
-            params.kind === 'component' ? 'component' : 'template',
-            params.name!
-          )
-        ),
+        ((kind) =>
+          ((usage) =>
+            usage.pages.length > 0
+              ? fail(
+                  'design.element_in_use',
+                  `Used by pages ${usage.pages.map((_) => _.id).join(', ')}`
+                )
+              : (design.elements.remove(kind, params.name!), _json(200, {})))(
+            elementUsage(kind, params.name!)
+          ))(elementKind(params.kind)),
     ],
     [
       'PUT',
@@ -1902,7 +1915,7 @@ const _routes = (
                 refuseExisting(
                   request,
                   design.elements.get(
-                    params.kind as 'template',
+                    elementKind(params.kind),
                     params.name!
                   ) !== null,
                   'design.element_exists',
@@ -1911,7 +1924,7 @@ const _routes = (
                 set.save(params.name!, String(_.source ?? '')),
                 _json(
                   200,
-                  design.elements.get(params.kind as 'template', params.name!)
+                  design.elements.get(elementKind(params.kind), params.name!)
                 )
               )
             )

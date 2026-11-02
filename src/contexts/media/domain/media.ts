@@ -22,7 +22,8 @@ export type MediaEvent = {
   readonly path: MediaPath;
 };
 
-// Только известные типы: HTML и скрипты с того же адреса, что и сайт, открыли бы дорогу XSS.
+// Только известные типы: HTML и скрипты с того же адреса, что и сайт, открыли бы дорогу XSS. Скрипты
+// сайта — элементы с правом на код, а не файлы медиатеки (ADR 0039).
 const _TYPES: Readonly<Record<string, string>> = {
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
@@ -42,6 +43,8 @@ const _TYPES: Readonly<Record<string, string>> = {
   txt: 'text/plain; charset=utf-8',
   csv: 'text/csv; charset=utf-8',
   zip: 'application/zip',
+  // Модель glTF для сцены Three.js: двоичный контейнер, браузер его не исполняет.
+  glb: 'model/gltf-binary',
 };
 
 const _SEGMENT = /^[a-z0-9][a-z0-9._@-]*$/;

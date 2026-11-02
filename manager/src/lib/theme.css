@@ -803,6 +803,17 @@ tbody tr:hover {
   background: color-mix(in oklch, var(--sunken) 60%, transparent);
 }
 
+/* Строку списка тянут за ручку (sortable.svelte.ts): курсор «держу» везде, текст по пути не выделяется. */
+:root[data-sorting] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+:root[data-sorting] * {
+  /* biome-ignore lint/complexity/noImportantStyles: курсор перетаскивания сильнее курсоров кнопок и полей */
+  cursor: grabbing !important;
+}
+
 /* «Уменьшить движение»: переходы мгновенные — выдвижное дерево, стрелки веток, наведение. */
 @media (prefers-reduced-motion: reduce) {
   *,

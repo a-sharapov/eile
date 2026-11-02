@@ -136,6 +136,11 @@ cms help                               # все команды с примера
 и выражения Svelte, данные сайта — из модуля `$core`. В «Элементах» есть набор готовых компонентов: меню,
 хлебные крошки, лента с пейджером, окна.
 
+Свой JavaScript для браузера — сцена Three.js, виджет — это скрипт сайта: ES-модуль в «Элементах», зависимости
+собраны в него. Шаблон подключает его в `<svelte:head>`:
+`<script type="module" src={script('kitchen-stage')}></script>`. Адрес меняется с каждой правкой, браузер
+кэширует его навсегда. Модели `.glb` для сцены лежат в медиатеке.
+
 ## С ИИ-агентом
 
 ```sh
@@ -228,6 +233,7 @@ sudo systemctl enable --now cms
 - [Глоссарий](docs/glossary.md): термины, API модуля `$core` и соответствие тегам Evo.
 - [Кэш и некэшируемые регионы](docs/adr/0007-two-phase-cache.md) ·
   [острова](docs/adr/0008-islands.md) ·
+  [скрипты сайта](docs/adr/0039-site-scripts.md) ·
   [контент из блоков](docs/adr/0010-content-from-components.md) ·
   [переводы и свои настройки](docs/adr/0013-translations-and-custom-settings.md) ·
   [страницы-файлы: CSS, RSS, robots.txt](docs/adr/0017-content-types.md) ·

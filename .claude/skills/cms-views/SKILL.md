@@ -64,6 +64,10 @@ description: Как устроены шаблоны и компоненты CMS 
   - `media(path)` — URL файла медиатеки с версией;
   - `image(path)` — `{ src, srcset, width, height, alt }` из вариантов `photo@960.webp`; `alt` —
     описание картинки из медиатеки (пусто — не описана).
+  - `script(name)` — адрес скрипта сайта `/_cms/scripts/<имя>.<хэш>.js` или `null`; вешает тег
+    `element:script/<имя>` — правка скрипта перерисует страницу с новым адресом (ADR 0039).
+    Подключение — в `<svelte:head>`: `<script type="module" src={script('kitchen-stage')}></script>`;
+    тот же тег на верхнем уровне разметки — `script_duplicate`.
   - `t(key)` — перевод на язык страницы (её ветки), иначе на язык сайта; нет ключа — `{i18n.key}`;
   - `setting(key)` — своя настройка сайта; нет — `[@key]`;
   - `search(query, { limit, parent, page })` → `{ query, items: [{ id, title, url, snippet }], total,
@@ -84,7 +88,17 @@ description: Как устроены шаблоны и компоненты CMS 
 
   Каждый экспорт — публичный API для разработчиков сайтов. Добавляй экспорты осознанно и описывай их в
   `docs/glossary.md`.
-- Стили scoped, уходят в `<head>`. На клиент JS не отправляется.
+- Стили scoped, уходят в `<head>`. На клиент JS не отправляется — кроме островов и скриптов сайта.
+
+## Скрипты сайта
+
+- Элемент `kind: 'script'`, имя `kitchen-stage`, до 2 МиБ; в папке элементов — `scripts/<имя>.js` (ADR 0039).
+- При сохранении `Bun.Transpiler.scanImports` разбирает его как ES-модуль (`design.script_syntax` со строкой
+  и столбцом); `import`/`export from`/`import('…')` — только `https://…` (`design.script_import`). Голые
+  имена и пути — собрать в один файл заранее.
+- Отдаёт `design/interface/scripts-handler.ts`: `text/javascript`, `nosniff`, `immutable`, ETag, HEAD, br/gzip;
+  прежний хэш — 404.
+- Удалить скрипт, который подключает `script('имя')` строкой, нельзя (`design.element_in_use`).
 - Цикл импортов (`design.import_cycle`) и ошибка компиляции (`design.compile_failed`) отклоняют сохранение,
   а сайт продолжает работать на прежней версии.
 

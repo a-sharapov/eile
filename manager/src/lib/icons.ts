@@ -2,9 +2,11 @@ import activity from 'lucide-static/icons/activity.svg?raw';
 import archiveRestore from 'lucide-static/icons/archive-restore.svg?raw';
 import arrowDown from 'lucide-static/icons/arrow-down.svg?raw';
 import arrowUp from 'lucide-static/icons/arrow-up.svg?raw';
+import atSign from 'lucide-static/icons/at-sign.svg?raw';
 import blocks from 'lucide-static/icons/blocks.svg?raw';
 import bold from 'lucide-static/icons/bold.svg?raw';
 import calendar from 'lucide-static/icons/calendar.svg?raw';
+import calendarClock from 'lucide-static/icons/calendar-clock.svg?raw';
 import check from 'lucide-static/icons/check.svg?raw';
 import chevronDown from 'lucide-static/icons/chevron-down.svg?raw';
 import chevronLeft from 'lucide-static/icons/chevron-left.svg?raw';
@@ -13,8 +15,10 @@ import chevronsDownUp from 'lucide-static/icons/chevrons-down-up.svg?raw';
 import chevronsUpDown from 'lucide-static/icons/chevrons-up-down.svg?raw';
 import circleAlert from 'lucide-static/icons/circle-alert.svg?raw';
 import circleCheck from 'lucide-static/icons/circle-check.svg?raw';
+import circleDot from 'lucide-static/icons/circle-dot.svg?raw';
 import circleHelp from 'lucide-static/icons/circle-help.svg?raw';
 import clipboardList from 'lucide-static/icons/clipboard-list.svg?raw';
+import clock from 'lucide-static/icons/clock.svg?raw';
 import codeXml from 'lucide-static/icons/code-xml.svg?raw';
 import component from 'lucide-static/icons/component.svg?raw';
 import copy from 'lucide-static/icons/copy.svg?raw';
@@ -37,6 +41,8 @@ import fileType from 'lucide-static/icons/file-type.svg?raw';
 import folder from 'lucide-static/icons/folder.svg?raw';
 import folderInput from 'lucide-static/icons/folder-input.svg?raw';
 import folderTree from 'lucide-static/icons/folder-tree.svg?raw';
+import gripVertical from 'lucide-static/icons/grip-vertical.svg?raw';
+import hash from 'lucide-static/icons/hash.svg?raw';
 import image from 'lucide-static/icons/image.svg?raw';
 import images from 'lucide-static/icons/images.svg?raw';
 import inbox from 'lucide-static/icons/inbox.svg?raw';
@@ -46,6 +52,7 @@ import languages from 'lucide-static/icons/languages.svg?raw';
 import layoutTemplate from 'lucide-static/icons/layout-template.svg?raw';
 import link from 'lucide-static/icons/link.svg?raw';
 import list from 'lucide-static/icons/list.svg?raw';
+import listChecks from 'lucide-static/icons/list-checks.svg?raw';
 import listOrdered from 'lucide-static/icons/list-ordered.svg?raw';
 import logOut from 'lucide-static/icons/log-out.svg?raw';
 import mail from 'lucide-static/icons/mail.svg?raw';
@@ -54,6 +61,7 @@ import palette from 'lucide-static/icons/palette.svg?raw';
 import panelLeft from 'lucide-static/icons/panel-left.svg?raw';
 import panelLeftClose from 'lucide-static/icons/panel-left-close.svg?raw';
 import panelLeftOpen from 'lucide-static/icons/panel-left-open.svg?raw';
+import paperclip from 'lucide-static/icons/paperclip.svg?raw';
 import pencil from 'lucide-static/icons/pencil.svg?raw';
 import phone from 'lucide-static/icons/phone.svg?raw';
 import plug from 'lucide-static/icons/plug.svg?raw';
@@ -63,7 +71,10 @@ import refreshCw from 'lucide-static/icons/refresh-cw.svg?raw';
 import search from 'lucide-static/icons/search.svg?raw';
 import send from 'lucide-static/icons/send.svg?raw';
 import settings from 'lucide-static/icons/settings.svg?raw';
+import shieldCheck from 'lucide-static/icons/shield-check.svg?raw';
+import squareChevronDown from 'lucide-static/icons/square-chevron-down.svg?raw';
 import sun from 'lucide-static/icons/sun.svg?raw';
+import textLines from 'lucide-static/icons/text.svg?raw';
 import textCursorInput from 'lucide-static/icons/text-cursor-input.svg?raw';
 import trash from 'lucide-static/icons/trash-2.svg?raw';
 import type from 'lucide-static/icons/type.svg?raw';
@@ -89,20 +100,29 @@ const _icon = (raw: string): string =>
 const fileHash =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10.5 11.5 10 18.5"/><path d="M14.5 11.5 14 18.5"/><path d="M8.5 13.5h7"/><path d="M8.5 16.5h7"/></svg>';
 
+// Ползунка в Lucide нет: дорожка и бегунок в той же линии.
+const slider =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4"/><circle cx="10" cy="12" r="4"/><path d="M14 12h8"/></svg>';
+
 export var icons = {
   activity: _icon(activity),
   alert: _icon(circleAlert),
+  at: _icon(atSign),
   arrowDown: _icon(arrowDown),
   arrowUp: _icon(arrowUp),
   blocks: _icon(blocks),
   bold: _icon(bold),
   calendar: _icon(calendar),
+  calendarClock: _icon(calendarClock),
   check: _icon(check),
+  checks: _icon(listChecks),
   chevron: _icon(chevronRight),
   chevronDown: _icon(chevronDown),
   chevronLeft: _icon(chevronLeft),
+  clock: _icon(clock),
   close: _icon(x),
   code: _icon(codeXml),
+  consent: _icon(shieldCheck),
   collapse: _icon(chevronsDownUp),
   component: _icon(component),
   copy: _icon(copy),
@@ -129,6 +149,8 @@ export var icons = {
   folder: _icon(folder),
   folderInput: _icon(folderInput),
   forms: _icon(clipboardList),
+  grip: _icon(gripVertical),
+  hash: _icon(hash),
   image: _icon(image),
   inbox: _icon(inbox),
   images: _icon(images),
@@ -143,6 +165,8 @@ export var icons = {
   menu: _icon(panelLeft),
   more: _icon(ellipsis),
   palette: _icon(palette),
+  paperclip: _icon(paperclip),
+  paragraph: _icon(textLines),
   panelClose: _icon(panelLeftClose),
   panelOpen: _icon(panelLeftOpen),
   pencil: _icon(pencil),
@@ -150,12 +174,15 @@ export var icons = {
   plug: _icon(plug),
   plus: _icon(plus),
   quote: _icon(quote),
+  radio: _icon(circleDot),
   refresh: _icon(refreshCw),
   restore: _icon(archiveRestore),
   saved: _icon(circleCheck),
   search: _icon(search),
+  select: _icon(squareChevronDown),
   send: _icon(send),
   settings: _icon(settings),
+  slider: _icon(slider),
   template: _icon(layoutTemplate),
   text: _icon(type),
   trash: _icon(trash),

@@ -166,6 +166,7 @@ const _SAY = {
     fields: 'Поля',
     templates: (n: number) => `шаблонов ${n}`,
     components: (n: number) => `компонентов ${n}`,
+    scripts: (n: number) => `скриптов ${n}`,
     plugins: (n: number) => `плагинов ${n}`,
     fieldCount: (n: number) => `полей ${n}`,
     forms: (n: number) => `форм ${n}`,
@@ -277,6 +278,7 @@ const _SAY = {
     fields: 'Fields',
     templates: (n: number) => `templates ${n}`,
     components: (n: number) => `components ${n}`,
+    scripts: (n: number) => `scripts ${n}`,
     plugins: (n: number) => `plugins ${n}`,
     fieldCount: (n: number) => `fields ${n}`,
     forms: (n: number) => `forms ${n}`,
@@ -635,6 +637,7 @@ const _info = (ctx: Context): Promise<void> =>
         elements: {
           templates: kinds('template'),
           components: kinds('component'),
+          scripts: kinds('script'),
           plugins: app.extensions.plugins.list().length,
           fields: app.content.fields.list().length,
         },
@@ -666,6 +669,7 @@ const _info = (ctx: Context): Promise<void> =>
           [
             say.templates(kinds('template')),
             say.components(kinds('component')),
+            say.scripts(kinds('script')),
             say.plugins(app.extensions.plugins.list().length),
             say.fieldCount(app.content.fields.list().length),
           ].join(_dot(paint))

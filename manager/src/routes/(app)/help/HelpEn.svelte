@@ -255,7 +255,9 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
       <p>
         <a href={resolve('/(app)/forms')}>“Forms”</a> in the top menu → “New form” starts with a ready-made set: name, phone, comment and consent. Add fields
         with the buttons at the bottom; each one has a label, a type, a required flag and rules: pattern, length, limits. On the right is the form as
-        a visitor will see it. A hidden field remembers the page, ad tags, a URL parameter or a visitor’s cookie (a partner code, say) — the server
+        a visitor will see it. Reorder blocks with the arrows or drag the handle on their left with a mouse or finger; a step moves
+        together with its fields. With the keyboard: Space on the handle, up and down arrows, Space to drop, Esc to put it
+        back. A hidden field remembers the page, ad tags, a URL parameter or a visitor’s cookie (a partner code, say) — the server
         fills in page and cookie values itself, so they can’t be tampered with; the CMS’s own cookies are never taken. To delete a form, use the trash icon on its card or “Delete” in the editor:
         the manager names the pages where the form is used, and its submissions stay for another 30 days.
       </p>
@@ -420,6 +422,8 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         <dd>Decide how a page looks. Above a template’s code you can see which fields are assigned to it and how many pages use it.</dd>
         <dt>Components</dt>
         <dd>Pieces of the design that editors insert into text as blocks. A component’s description and parameters become a form in the editor.</dd>
+        <dt>Scripts</dt>
+        <dd>JavaScript for the browser as ES modules: a Three.js scene, a widget, a counter. A template includes a script with <code>script('name')</code>; the address changes with every edit, so browsers always get the fresh version.</dd>
         <dt>Plugins</dt>
         <dd>Change how the site behaves — redirects, for example. A button turns them on and off instantly.</dd>
         <dt>Page fields</dt>
@@ -429,7 +433,7 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
     </section>
     <section id="admin-code" data-topic hidden={!shown('admin-code')}>
       <h3>Where code runs</h3>
-      <p>The code of templates, components and plugins runs on the server: visitors get finished HTML. Only island code runs in the browser.</p>
+      <p>The code of templates, components and plugins runs on the server: visitors get finished HTML. Only the code of islands and site scripts runs in the browser.</p>
       <dl>
         <dt>Component</dt>
         <dd>
@@ -446,10 +450,17 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         </dd>
         <dt>Island</dt>
         <dd>
-          The only way to run code in the browser: <code>{'<Island name="…"\u00a0/>'}</code> from <code>$core/Island</code>. It has
+          A component that runs in the browser: <code>{'<Island name="…"\u00a0/>'}</code> from <code>$core/Island</code>. It has
           no <code>$core</code> and gets server data through its parameters, which visitors can see: don’t pass secrets in them.
           An island can also sit inside a component placed with <code>Uncached</code>: its parameters are then worked out on every
           request — say, a price for the partner code in a cookie — while the page around it stays cached.
+        </dd>
+        <dt>Script</dt>
+        <dd>
+          When the browser needs JavaScript of its own rather than a component: a Three.js scene, a widget, analytics. A script
+          is an ES module of up to 2 MB under Elements. A template includes it in <code>{'<svelte:head>'}</code> with a
+          <code>script</code> tag whose address is <code>script('name')</code>. A script can import only <code>https://</code>
+          addresses: bundle libraries into the same file beforehand.
         </dd>
       </dl>
       <p>Components can import only <code>svelte</code>, <code>$core</code> and other components; plugins only <code>$core</code>.</p>
@@ -480,7 +491,7 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         <li><code>cms backup</code> — a backup of the whole site in one file, <code>cms backup site.json</code> — as records in JSON;</li>
         <li><code>cms restore file</code> — restore the site from a backup;</li>
         <li><code>cms update</code> — update the program to a new version, <code>--check</code> — only check for one;</li>
-        <li><code>cms elements pull folder</code> — templates, components, plugins, forms and fields as files, with an AGENTS.md guide for AI agents; <code>cms elements push folder</code> — back to the site;</li>
+        <li><code>cms elements pull folder</code> — templates, components, scripts, plugins, forms and fields as files, with an AGENTS.md guide for AI agents; <code>cms elements push folder</code> — back to the site;</li>
         <li><code>cms mcp</code> — an MCP server for an agent on this server, <code>cms diagnose</code> — the site diagnostics in the terminal;</li>
         <li><code>cms users password email</code> — a new password if an administrator forgot theirs.</li>
       </ul>

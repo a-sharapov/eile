@@ -396,6 +396,10 @@ export var messages = {
   'elements.new': 'Новый',
   'elements.newTemplate': 'Новый шаблон',
   'elements.newComponent': 'Новый компонент',
+  'elements.scripts': 'Скрипты',
+  'elements.script': 'Скрипт',
+  'elements.newScript': 'Новый скрипт',
+  'elements.scriptNameHint': 'Строчная латиница, цифры и дефис: kitchen-stage.',
   'elements.create': 'Создать',
   'elements.name': 'Имя (PascalCase)',
   'elements.nameHint': 'Латиница с заглавной буквы: Header, BlogCard.',
@@ -432,6 +436,8 @@ export var messages = {
     'TypeScript-модули с хуками render, notFound и подписками на события.',
   'elements.aboutFields':
     'Дополнительные поля страниц, назначаются на шаблоны.',
+  'elements.aboutScripts':
+    'ES-модули для браузера: шаблон подключает их через script(имя).',
   'plugins.one': 'Плагин',
   'nav.forms': 'Формы',
   'inbox.title': 'Заявки',
@@ -524,6 +530,12 @@ export var messages = {
   'formEditor.stepTitle': 'Название шага',
   'formEditor.stepHint':
     'Поля ниже, до следующего шага, посетитель увидит отдельным экраном с кнопками «Назад» и «Далее». Шаг без названия — конец шагов: всё ниже снова видно всегда. Без JavaScript форма показывается целиком.',
+  'formEditor.stepsEnd': 'Конец шагов',
+  'formEditor.pickedStep':
+    'Поднят шаг {name} со всем, что в нём, место {n} из {total}. Стрелки вверх и вниз — переставить за соседний шаг, пробел — поставить, Esc — вернуть на место.',
+  'formEditor.movedInStep': '{name}: место {n} из {total}, шаг {step}',
+  'formEditor.droppedInStep':
+    'Поставлено: {name}, место {n} из {total}, шаг {step}',
   'formEditor.showIf': 'Показывать, если поле',
   'formEditor.showAlways': 'Всегда',
   'formEditor.showValues': 'равно',
@@ -680,6 +692,12 @@ export var messages = {
     'Компоненты подключаются импортом; их параметры — атрибуты.',
   'elements.hint':
     "Ctrl+S — сохранить. Импорт компонентов: import X from '$components/X'.",
+  'elements.scriptHint':
+    'Ctrl+S — сохранить. ES-модуль для браузера до 2 МБ: зависимости соберите в этот же файл, импортировать можно только адреса https://.',
+  'elements.scriptInclude': 'Подключение — в <svelte:head> шаблона',
+  'elements.scriptUrl': 'Адрес текущей версии',
+  'elements.scriptUnused':
+    'пока не подключён ни в одном шаблоне или компоненте',
   'nav.plugins': 'Плагины',
   'nav.media': 'Медиа',
   'media.title': 'Медиатека',
@@ -1431,6 +1449,16 @@ export var messages = {
   'blocks.hide': 'Скрыть на сайте',
   'blocks.hiddenNote':
     'Блок остаётся в тексте страницы, но посетители, поиск и Markdown-версия его не видят.',
+  'sortable.grip': 'Переставить: {name}',
+  'sortable.gripTitle': 'Перетащите, чтобы переставить',
+  'sortable.hint':
+    'Пробел — поднять, стрелки вверх и вниз — переставить, пробел — поставить, Esc — вернуть на место. Мышью или пальцем — перетащите за ручку.',
+  'sortable.picked':
+    'Поднято: {name}, место {n} из {total}. Стрелки вверх и вниз — переставить, пробел — поставить, Esc — вернуть на место.',
+  'sortable.moved': '{name}: место {n} из {total}',
+  'sortable.dropped': 'Поставлено: {name}, место {n} из {total}',
+  'sortable.cancelled':
+    'Перестановка отменена: {name} на прежнем месте, {n} из {total}',
   'picker.image': 'Изображение из медиатеки',
   'picker.file': 'Файл из медиатеки',
   'picker.search': 'Поиск по имени',
@@ -1460,6 +1488,8 @@ export var messages = {
     'Подпись параметра в редакторе страницы — комментарий /** … */ над ним.',
   'starter.componentTitle': 'Заголовок',
   'starter.pluginHooks': 'Хуки необязательны: оставьте нужные.',
+  'starter.scriptAbout':
+    'ES-модуль для браузера. Зависимости соберите в этот файл: импортировать можно только адреса https://.',
   'aiFacts.components': 'Компоненты сайта: {list}',
   'aiFacts.none': 'нет',
   'aiFacts.media': 'медиатека',
@@ -1477,6 +1507,7 @@ export var messages = {
   'aiFacts.fields': 'Поля шаблона: {list}',
   'aiFacts.templateArea': 'шаблон «{name}»',
   'aiFacts.componentArea': 'компонент «{name}»',
+  'aiFacts.scriptArea': 'скрипт «{name}»',
   'aiFacts.templatePages': 'Страниц на сайте с этим шаблоном: {n}',
   'aiFacts.componentPages': 'Страниц на сайте с этим компонентом: {n}',
   'aiFacts.settings': 'настройки сайта',
@@ -1596,6 +1627,11 @@ export var errors = {
   'design.key_tags':
     'В шаблоне ключи пишутся как выражения: {site.i18n.ключ} и {site.custom.ключ}, а не {i18n.ключ} и [@ключ].',
   'design.import_cycle': 'Элементы импортируют друг друга по кругу — {detail}',
+  'design.invalid_script_name':
+    'Имя скрипта — строчная латиница, цифры и дефис: kitchen-stage.',
+  'design.script_syntax': 'Скрипт не разбирается как ES-модуль — {detail}',
+  'design.script_import':
+    'Зависимости скрипта нужно собрать в него самого, импортировать можно только адреса https:// — {detail}',
   'extensions.empty_source': 'Код плагина не может быть пустым.',
   'extensions.source_too_large': 'Код плагина слишком большой.',
   'extensions.compile_failed': 'Плагин не компилируется — {detail}',

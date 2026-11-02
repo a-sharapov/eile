@@ -401,6 +401,11 @@ export var messages: Dictionary['messages'] = {
   'elements.new': 'New',
   'elements.newTemplate': 'New template',
   'elements.newComponent': 'New component',
+  'elements.scripts': 'Scripts',
+  'elements.script': 'Script',
+  'elements.newScript': 'New script',
+  'elements.scriptNameHint':
+    'Lowercase letters a–z, digits and hyphens: kitchen-stage.',
   'elements.create': 'Create',
   'elements.name': 'Name (PascalCase)',
   'elements.nameHint':
@@ -437,6 +442,8 @@ export var messages: Dictionary['messages'] = {
   'elements.aboutPlugins':
     'TypeScript modules with render and notFound hooks and event subscriptions.',
   'elements.aboutFields': 'Custom page fields, assigned to templates.',
+  'elements.aboutScripts':
+    'ES modules for the browser: a template includes them with script(name).',
   'plugins.one': 'Plugin',
   'nav.forms': 'Forms',
   'inbox.title': 'Submissions',
@@ -531,6 +538,12 @@ export var messages: Dictionary['messages'] = {
   'formEditor.stepTitle': 'Step title',
   'formEditor.stepHint':
     'The fields below, up to the next step, appear on a screen of their own with Back and Next buttons. A step without a title ends the steps: everything below it is always visible again. Without JavaScript the whole form shows at once.',
+  'formEditor.stepsEnd': 'End of steps',
+  'formEditor.pickedStep':
+    'Picked up step {name} with everything in it, position {n} of {total}. Up and down arrows move it past the next step, Space drops it, Esc puts it back.',
+  'formEditor.movedInStep': '{name}: position {n} of {total}, step {step}',
+  'formEditor.droppedInStep':
+    'Dropped: {name}, position {n} of {total}, step {step}',
   'formEditor.showIf': 'Show if the field',
   'formEditor.showAlways': 'Always',
   'formEditor.showValues': 'equals',
@@ -690,6 +703,11 @@ export var messages: Dictionary['messages'] = {
     'Components are added with an import; their parameters are attributes.',
   'elements.hint':
     "Ctrl+S saves. Importing components: import X from '$components/X'.",
+  'elements.scriptHint':
+    'Ctrl+S saves. An ES module for the browser, up to 2 MB: bundle its dependencies into this file; only https:// addresses can be imported.',
+  'elements.scriptInclude': 'Include in a template’s <svelte:head>',
+  'elements.scriptUrl': 'Current version’s address',
+  'elements.scriptUnused': 'no template or component includes it yet',
   'nav.plugins': 'Plugins',
   'nav.media': 'Media',
   'media.title': 'Media library',
@@ -1450,6 +1468,16 @@ export var messages: Dictionary['messages'] = {
   'blocks.hide': 'Hide on the site',
   'blocks.hiddenNote':
     'The block stays in the page text, but visitors, search and the Markdown version don’t see it.',
+  'sortable.grip': 'Reorder: {name}',
+  'sortable.gripTitle': 'Drag to reorder',
+  'sortable.hint':
+    'Space picks up, up and down arrows move, Space drops, Esc puts it back. With a mouse or finger, drag the handle.',
+  'sortable.picked':
+    'Picked up: {name}, position {n} of {total}. Up and down arrows move it, Space drops it, Esc puts it back.',
+  'sortable.moved': '{name}: position {n} of {total}',
+  'sortable.dropped': 'Dropped: {name}, position {n} of {total}',
+  'sortable.cancelled':
+    'Reorder cancelled: {name} is back at position {n} of {total}',
   'picker.image': 'Image from the media library',
   'picker.file': 'File from the media library',
   'picker.search': 'Search by name',
@@ -1480,6 +1508,8 @@ export var messages: Dictionary['messages'] = {
     'A parameter’s label in the page editor is the /** … */ comment above it.',
   'starter.componentTitle': 'Title',
   'starter.pluginHooks': 'Hooks are optional: keep the ones you need.',
+  'starter.scriptAbout':
+    'An ES module for the browser. Bundle its dependencies into this file: only https:// addresses can be imported.',
   'aiFacts.components': 'Site components: {list}',
   'aiFacts.none': 'none',
   'aiFacts.media': 'media library',
@@ -1497,6 +1527,7 @@ export var messages: Dictionary['messages'] = {
   'aiFacts.fields': 'Template fields: {list}',
   'aiFacts.templateArea': 'template “{name}”',
   'aiFacts.componentArea': 'component “{name}”',
+  'aiFacts.scriptArea': 'script “{name}”',
   'aiFacts.templatePages': 'Pages on the site with this template: {n}',
   'aiFacts.componentPages': 'Pages on the site with this component: {n}',
   'aiFacts.settings': 'site settings',
@@ -1620,6 +1651,11 @@ export var errors: Dictionary['errors'] = {
   'design.key_tags':
     'In a template, write keys as expressions: {site.i18n.key} and {site.custom.key}, not {i18n.key} and [@key].',
   'design.import_cycle': 'Elements import each other in a loop — {detail}',
+  'design.invalid_script_name':
+    'A script name is lowercase letters a–z, digits and hyphens: kitchen-stage.',
+  'design.script_syntax': 'The script doesn’t parse as an ES module — {detail}',
+  'design.script_import':
+    'Bundle the script’s dependencies into it: only https:// addresses can be imported — {detail}',
   'extensions.empty_source': 'The plugin code can’t be empty.',
   'extensions.source_too_large': 'The plugin code is too large.',
   'extensions.compile_failed': 'The plugin doesn’t compile — {detail}',

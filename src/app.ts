@@ -371,13 +371,15 @@ const _compose = (
     text: site.translations.text,
     value: site.customSettings.value,
   };
+  // Скрипты хранит design, а он создаётся ниже и хостит этот рантайм: адрес нужен только при рендере.
   const runtime = defineComponentRuntime(
     content.published,
     settings,
     scope,
     media,
     dictionary,
-    search.search
+    search.search,
+    { url: (name) => design.scripts.url(name) }
   );
   const searchHandler = search.handler(runtime.link);
   const design = defineDesign({

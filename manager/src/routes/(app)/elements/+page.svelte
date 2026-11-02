@@ -67,6 +67,21 @@ const groups = $derived<Group[]>([
       })),
   },
   {
+    id: 'script',
+    title: 'elements.scripts',
+    about: 'elements.aboutScripts',
+    icon: 'fileCode',
+    items: elements.items
+      .filter((_) => _.kind === 'script')
+      .map((_) => ({
+        name: _.name,
+        href: resolve('/(app)/elements/[kind]/[name]', {
+          kind: 'script',
+          name: _.name,
+        }),
+      })),
+  },
+  {
     id: 'plugin',
     title: 'plugins.title',
     about: 'elements.aboutPlugins',

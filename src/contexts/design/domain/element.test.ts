@@ -5,6 +5,7 @@ import {
   dependenciesOf,
   type ElementName,
   parseElementName,
+  scriptsOf,
 } from './element.ts';
 import { findImportCycle } from './import-cycle.ts';
 
@@ -90,5 +91,39 @@ describe('импорты компонентов', () => {
     const started = performance.now();
     dependenciesOf(`import ${' '.repeat(100_000)}`.repeat(3));
     expect(performance.now() - started).toBeLessThan(200);
+  });
+});
+
+describe('скрипты сайта', () => {
+  it.each(['kitchen-stage', 'three', '3d-scene'])('имя %p подходит', (raw) => {
+    expect(parseElementName(raw, 'script') as string).toBe(raw);
+  });
+
+  it.each(['KitchenStage', '-stage', 'kitchen_stage', 'kitchen.js', ''])(
+    'имя %p отклоняется',
+    (raw) => {
+      expect(() => parseElementName(raw, 'script')).toThrow('lowercase');
+    }
+  );
+
+  it('до 2 МиБ — по байтам, а не по знакам', () => {
+    const name = parseElementName('stage', 'script');
+    const fits = `export const a = '${'x'.repeat(2 * 1024 * 1024 - 64)}';`;
+    expect(createElement('script', name, fits).state.revision).toBe(1);
+    // Кириллица — два байта на знак: знаков меньше предела, байтов — больше.
+    const wide = `export const a = '${'я'.repeat(1024 * 1024 + 16)}';`;
+    expect(() => createElement('script', name, wide)).toThrow('2 MiB');
+    // Шаблон остаётся при прежнем пределе в знаках.
+    expect(() =>
+      createElement('template', parseElementName('Base'), fits)
+    ).toThrow('characters');
+  });
+
+  it('scriptsOf находит подключения script(имя) по одному разу', () => {
+    expect(
+      scriptsOf(
+        `{script('kitchen-stage')} {script("kitchen-stage")} {script( 'menu' )} {script(name)} {myscript('x')}`
+      ).map(String)
+    ).toEqual(['kitchen-stage', 'menu']);
   });
 });

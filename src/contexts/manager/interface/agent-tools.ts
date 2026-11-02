@@ -110,10 +110,14 @@ const _pageAction = (
 
 const _ELEMENT_KIND = {
   type: 'string',
-  enum: ['template', 'component'],
+  enum: ['template', 'component', 'script'],
   description:
-    'template renders a whole page, component is imported or put into the text',
+    'template renders a whole page, component is imported or put into the text, script is a browser ES module that templates include with script(name)',
 } as const;
+
+const _ELEMENT_NAME = _string(
+  'PascalCase name; a script is named in lowercase with hyphens: kitchen-stage'
+);
 
 // Секрет вебхука агенту не показываем: им подписаны заявки, его берут в менеджере, а не из разговора.
 const _withoutSecret = (body: unknown): unknown =>
@@ -379,8 +383,8 @@ export var AGENT_TOOLS: readonly AgentTool[] = [
   },
   {
     name: 'list_elements',
-    title: 'Templates and components',
-    description: 'Templates and components with their revision.',
+    title: 'Templates, components and scripts',
+    description: 'Templates, components and site scripts with their revision.',
     access: 'design.edit',
     input: _object({}),
     readOnly: true,
@@ -389,9 +393,10 @@ export var AGENT_TOOLS: readonly AgentTool[] = [
   {
     name: 'get_element',
     title: 'Element source',
-    description: 'Svelte source of a template or component.',
+    description:
+      'Svelte source of a template or component, or the JavaScript of a site script with its current URL.',
     access: 'design.edit',
-    input: _object({ kind: _ELEMENT_KIND, name: _string('PascalCase name') }, [
+    input: _object({ kind: _ELEMENT_KIND, name: _ELEMENT_NAME }, [
       'kind',
       'name',
     ]),
@@ -405,14 +410,16 @@ export var AGENT_TOOLS: readonly AgentTool[] = [
     name: 'save_element',
     title: 'Save element',
     description:
-      'Creates or replaces a template or component. The source is compiled first: an error comes back with line and column, and the site keeps the previous version.',
+      'Creates or replaces a template, component or site script. The source is compiled (a script is parsed as an ES module) first: an error comes back with line and column, and the site keeps the previous version.',
     access: 'design.edit',
     guarded: true,
     input: _object(
       {
         kind: _ELEMENT_KIND,
-        name: _string('PascalCase name'),
-        source: _string('The whole Svelte 5 file'),
+        name: _ELEMENT_NAME,
+        source: _string(
+          'The whole Svelte 5 file; for a script the whole ES module, dependencies bundled in'
+        ),
       },
       ['kind', 'name', 'source']
     ),

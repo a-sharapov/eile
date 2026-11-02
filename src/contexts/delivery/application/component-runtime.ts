@@ -115,6 +115,8 @@ export type ComponentRuntime = {
   readonly media: (path: string) => string | null;
   /** `src`, `srcset` из вариантов `photo@960.webp` и размеры для `<img>`. */
   readonly image: (path: string) => ImageSet | null;
+  /** Адрес скрипта сайта с хэшем — кэшируется браузером навсегда; null — скрипта нет. */
+  readonly script: (name: string) => string | null;
   /** Перевод ключа на язык страницы; ключа нет — `{i18n.key}`, чтобы пропуск было видно. */
   readonly t: (key: string) => string;
   /** Своя настройка сайта; нет такой — `[@key]`. */
@@ -128,6 +130,11 @@ export type MediaCatalog = {
   readonly image: (path: string) => ImageSet | null;
 };
 
+/** Скрипты сайта по имени: адрес текущей версии. */
+export type ScriptCatalog = {
+  readonly url: (name: string) => string | null;
+};
+
 export var defineComponentRuntime = (
   content: PublishedContent,
   settings: () => SiteSettings,
@@ -139,7 +146,8 @@ export var defineComponentRuntime = (
     query: query.trim(),
     hits: [],
     total: 0,
-  })
+  }),
+  scripts: ScriptCatalog = { url: () => null }
 ): ComponentRuntime => {
   // Неверный путь в шаблоне — пустое место, а не ошибка всей страницы.
   const lookup =
@@ -300,6 +308,14 @@ export var defineComponentRuntime = (
     request: () => (scope.record(REQUEST_TAG), scope.request()),
     media: lookup(media.url),
     image: lookup(media.image),
+    // Тег — и у скрипта, которого пока нет: создадут его — страница перерисуется с адресом.
+    script: (name) => (
+      scope.record(`element:script/${name}`),
+      attempt(
+        () => scripts.url(name),
+        () => null
+      )
+    ),
     t: (key) =>
       dictionary.text(key, scope.language() ?? settings().language) ??
       `{i18n.${key}}`,

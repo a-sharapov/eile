@@ -2,19 +2,24 @@
 import { tick } from 'svelte';
 import { api } from '#lib/api.ts';
 import {
+  blockGaps,
+  blockSpan,
   emptyField,
   FIELD_KINDS,
   type FormBlock,
   formBlockId,
+  moveBlock,
   serializeForm,
+  stepOf,
 } from '#lib/form-blocks.ts';
 import { parseForm } from '#lib/form-parse.ts';
 import { loadForms, removeForm } from '#lib/forms.svelte.ts';
 import { guardUnsaved } from '#lib/guard.svelte.ts';
-import { t, tn } from '#lib/i18n.ts';
+import { type MessageKey, quoted, t, tn } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
 import { failed, notify } from '#lib/notices.svelte.ts';
+import { defineSortable, toBody } from '#lib/sortable.svelte.ts';
 import { branchOrder, loadTree } from '#lib/tree.svelte.ts';
 import type {
   ChannelKind,
@@ -177,14 +182,129 @@ const addStep = () => {
   );
 };
 
-const move = (index: number, by: -1 | 1) =>
-  void (blocks = blocks.map((block, i) =>
+let list = $state<HTMLOListElement>();
+
+// После перестановки фокус остаётся на той же кнопке того же блока, а если она погасла — на соседней.
+const focusIn = (id: number, selectors: readonly string[]) =>
+  tick().then(() =>
+    selectors
+      .map((_) =>
+        list?.querySelector<HTMLButtonElement>(`li[data-block="${id}"] ${_}`)
+      )
+      .find((_) => _ && !_.disabled)
+      ?.focus()
+  );
+
+const move = (index: number, by: -1 | 1) => {
+  const id = blocks[index]!.id;
+  blocks = blocks.map((block, i) =>
     i === index
       ? blocks[index + by]!
       : i === index + by
         ? blocks[index]!
         : block
-  ));
+  );
+  return focusIn(id, [
+    `[data-control="${by < 0 ? 'up' : 'down'}"]`,
+    `[data-control="${by < 0 ? 'down' : 'up'}"]`,
+  ]);
+};
+
+const _NAMES: {
+  readonly [K in FormBlock['kind']]: (
+    block: Extract<FormBlock, { kind: K }>
+  ) => string;
+} = {
+  text: () => t('formEditor.textBlock'),
+  step: (_) =>
+    _.title.trim() ? quoted(_.title.trim()) : t('formEditor.stepsEnd'),
+  field: (_) =>
+    ((label) => (label ? quoted(label) : kindLabel(_.field.kind)))(
+      _.field.label.replace(/[{}]/g, '').trim()
+    ),
+};
+
+/** Как назвать блок читалке и на ручке: подпись поля, название шага. */
+const blockName = (block: FormBlock): string =>
+  (_NAMES[block.kind] as (block: FormBlock) => string)(block);
+
+const position = (index: number) => ({
+  name: blocks[index] ? blockName(blocks[index]) : '',
+  n: index + 1,
+  total: blocks.length,
+});
+
+// Поле, переехавшее в другой шаг, — читалке и шаг: иначе переход через границу шага не слышен.
+const where = (index: number, plain: MessageKey, inStep: MessageKey) =>
+  ((step) =>
+    step === null || blocks[index]?.kind === 'step'
+      ? t(plain, position(index))
+      : t(inStep, { ...position(index), step: quoted(step) }))(
+    stepOf(blocks, index)
+  );
+
+// Шаг тянется со всем, что в нём, и встаёт только на границу шагов (blockGaps).
+const sorter = defineSortable({
+  count: () => blocks.length,
+  rows: () => [...(list?.querySelectorAll<HTMLElement>(':scope > li') ?? [])],
+  span: (index) => blockSpan(blocks, index),
+  gaps: (index) => blockGaps(blocks, index),
+  move: (from, to) => void (blocks = moveBlock(blocks, from, to)),
+  say: {
+    picked: (index) =>
+      ((block) =>
+        t(
+          block?.kind === 'step' && block.title.trim()
+            ? 'formEditor.pickedStep'
+            : 'sortable.picked',
+          position(index)
+        ))(blocks[index]),
+    moved: (index) => where(index, 'sortable.moved', 'formEditor.movedInStep'),
+    dropped: (index) =>
+      where(index, 'sortable.dropped', 'formEditor.droppedInStep'),
+    cancelled: (index) => t('sortable.cancelled', position(index)),
+  },
+  // Шапка менеджера и строка страницы закреплены сверху: прокрутка у края начинается под ними.
+  top: () =>
+    Math.max(
+      0,
+      ...[...document.querySelectorAll('.topbar, .page-bar')].map(
+        (_) => _.getBoundingClientRect().bottom
+      )
+    ),
+});
+
+type Ghost = { kind: string; name: string };
+
+const _GHOSTS: {
+  readonly [K in FormBlock['kind']]: (
+    block: Extract<FormBlock, { kind: K }>
+  ) => Ghost;
+} = {
+  text: (_) => ({
+    kind: t('formEditor.textBlock'),
+    name: _.html
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim(),
+  }),
+  step: (_) => ({
+    kind: t('formEditor.stepBlock'),
+    name: _.title.trim() || t('formEditor.stepsEnd'),
+  }),
+  field: (_) => ({
+    kind: kindLabel(_.field.kind),
+    name: _.field.label.replace(/[{}]/g, '') || t('formEditor.untitled'),
+  }),
+};
+
+// «Призрак» под пальцем: вид блока и название; у шага — сколько блоков едет вместе с ним.
+const ghostOf = (index: number) =>
+  ((block) =>
+    block && {
+      ...(_GHOSTS[block.kind] as (block: FormBlock) => Ghost)(block),
+      more: blockSpan(blocks, index) - 1,
+    })(blocks[index]);
 
 const removeBlock = (index: number) => {
   const removed = blocks[index]!;
@@ -246,6 +366,26 @@ const toggleChannel = (channel: ChannelKind, on: boolean) =>
 const kindLabel = (kind: FieldKind): string =>
   t(FIELD_KINDS.find((_) => _.id === kind)?.label ?? 'formEditor.kindText');
 
+// Значки палитры «Добавить в форму»: по одному на вид поля, рядом с подписью.
+const _KIND_ICONS: Readonly<Record<FieldKind, string>> = {
+  text: icons.fields,
+  email: icons.at,
+  tel: icons.phone,
+  url: icons.link,
+  number: icons.hash,
+  date: icons.calendar,
+  time: icons.clock,
+  'datetime-local': icons.calendarClock,
+  range: icons.slider,
+  textarea: icons.paragraph,
+  select: icons.select,
+  radio: icons.radio,
+  checkbox: icons.checks,
+  consent: icons.consent,
+  file: icons.paperclip,
+  hidden: icons.eyeOff,
+};
+
 // Ctrl+S — сохранить, как в редакторе страницы.
 const keys = (event: KeyboardEvent) =>
   void (
@@ -273,58 +413,71 @@ crumbs={[{ label: t('nav.forms'), href: resolve('/(app)/forms') }]}
 {#snippet fieldsTab()}
   <div class="composer">
     <div class="blocks">
-      <ol>
+      <ol bind:this={list}>
         {#each blocks as block, index (block.id)}
-          <li data-block={block.id} data-kind={block.kind}>
+          <li data-block={block.id} data-kind={block.kind} {...sorter.row(index)}>
             {#snippet controls()}
               <div class="controls">
-                <button type="button" class="icon" disabled={index === 0} aria-label={t('blocks.up')} title={t('blocks.up')} onclick={() => move(index, -1)}>{@html icons.arrowUp}</button>
-                <button type="button" class="icon" disabled={index === blocks.length - 1} aria-label={t('blocks.down')} title={t('blocks.down')} onclick={() => move(index, 1)}>{@html icons.arrowDown}</button>
+                <button type="button" class="icon" data-control="up" disabled={index === 0} aria-label={t('blocks.up')} title={t('blocks.up')} onclick={() => move(index, -1)}>{@html icons.arrowUp}</button>
+                <button type="button" class="icon" data-control="down" disabled={index === blocks.length - 1} aria-label={t('blocks.down')} title={t('blocks.down')} onclick={() => move(index, 1)}>{@html icons.arrowDown}</button>
                 <button type="button" class="icon danger" aria-label={t('blocks.remove')} title={t('blocks.remove')} onclick={() => removeBlock(index)}>{@html icons.close}</button>
               </div>
             {/snippet}
-            {#if block.kind === 'text'}
-              <TextBlock bind:value={block.html} label={t('formEditor.textBlock')} placeholder={t('formEditor.textHint')} actions={controls} />
-            {:else if block.kind === 'step'}
-              <div class="step-card">
-                <div class="head">
-                  <label class="step-title">
-                    <span class="kind muted">{t('formEditor.stepBlock')}</span>
-                    <input bind:value={block.title} maxlength="120" aria-label={t('formEditor.stepTitle')} />
-                  </label>
-                  {@render controls()}
-                </div>
-                <small class="muted">{t('formEditor.stepHint')}</small>
-              </div>
-            {:else}
-              <div class="field-card" class:open={open === block.id}>
-                <div class="head">
-                  <button type="button" class="summary" aria-expanded={open === block.id} onclick={() => (open = open === block.id ? null : block.id)}>
-                    {@html icons.chevron}
-                    <span class="kind muted">{kindLabel(block.field.kind)}</span>
-                    <strong>{block.field.label.replace(/[{}]/g, '') || t('formEditor.untitled')}</strong>
-                    {#if block.field.required}<span class="req" title={t('formEditor.required')}>*</span>{/if}
-                    <code class="muted">{block.field.name}</code>
-                  </button>
-                  {@render controls()}
-                </div>
-                {#if open === block.id}
-                  <div oninput={() => touch(block)} onchange={() => touch(block)} role="group">
-                    <FieldEditor bind:field={block.field} {sources} {pageFields} {pages} taken={names(block)} others={others(block)} />
+            <button type="button" class="grip" {...sorter.handle(index)} aria-label={t('sortable.grip', { name: blockName(block) })} aria-describedby="sort-hint" title={t('sortable.gripTitle')}>{@html icons.grip}</button>
+            <div class="body">
+              {#if block.kind === 'text'}
+                <TextBlock bind:value={block.html} label={t('formEditor.textBlock')} placeholder={t('formEditor.textHint')} actions={controls} />
+              {:else if block.kind === 'step'}
+                <div class="step-card">
+                  <div class="head">
+                    <label class="step-title">
+                      <span class="kind muted">{t('formEditor.stepBlock')}</span>
+                      <input bind:value={block.title} maxlength="120" aria-label={t('formEditor.stepTitle')} />
+                    </label>
+                    {@render controls()}
                   </div>
-                {/if}
-              </div>
-            {/if}
+                  <small class="muted">{t('formEditor.stepHint')}</small>
+                </div>
+              {:else}
+                <div class="field-card" class:open={open === block.id}>
+                  <div class="head">
+                    <button type="button" class="summary" aria-expanded={open === block.id} onclick={() => (open = open === block.id ? null : block.id)}>
+                      {@html icons.chevron}
+                      <span class="kind muted">{kindLabel(block.field.kind)}</span>
+                      <strong>{block.field.label.replace(/[{}]/g, '') || t('formEditor.untitled')}</strong>
+                      {#if block.field.required}<span class="req" title={t('formEditor.required')}>*</span>{/if}
+                      <code class="muted">{block.field.name}</code>
+                    </button>
+                    {@render controls()}
+                  </div>
+                  {#if open === block.id}
+                    <div oninput={() => touch(block)} onchange={() => touch(block)} role="group">
+                      <FieldEditor bind:field={block.field} {sources} {pageFields} {pages} taken={names(block)} others={others(block)} />
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+            </div>
           </li>
         {/each}
       </ol>
+      <span id="sort-hint" class="sr-only">{t('sortable.hint')}</span>
+      <div class="sr-only" aria-live="assertive" aria-atomic="true">{sorter.state.message}</div>
+      {#if sorter.state.mode === 'pointer' && sorter.state.from !== null}
+        {@const ghost = ghostOf(sorter.state.from)}
+        {#if ghost}
+          <div class="drag-ghost" class:stack={ghost.more > 0} style:translate={`${sorter.state.x}px ${sorter.state.y}px`} aria-hidden="true" {@attach toBody}>
+            {@html icons.grip}<span class="kind muted">{ghost.kind}</span><strong>{ghost.name}</strong>{#if ghost.more > 0}<span class="more">+{ghost.more}</span>{/if}
+          </div>
+        {/if}
+      {/if}
       <div class="add frame">
         <span class="muted">{t('formEditor.add')}</span>
         <div class="kinds">
           <button type="button" onclick={addText}>{@html icons.text}{t('formEditor.textBlock')}</button>
-          <button type="button" onclick={addStep}>{t('formEditor.stepBlock')}</button>
+          <button type="button" onclick={addStep}>{@html icons.listOrdered}{t('formEditor.stepBlock')}</button>
           {#each FIELD_KINDS as kind (kind.id)}
-            <button type="button" onclick={() => addField(kind.id)}>{t(kind.label)}</button>
+            <button type="button" onclick={() => addField(kind.id)}>{@html _KIND_ICONS[kind.id]}{t(kind.label)}</button>
           {/each}
         </div>
       </div>
@@ -517,6 +670,7 @@ crumbs={[{ label: t('nav.forms'), href: resolve('/(app)/forms') }]}
   }
 
   .blocks {
+    --grip-w: 1.5rem;
     min-width: 0;
   }
 
@@ -528,12 +682,186 @@ crumbs={[{ label: t('nav.forms'), href: resolve('/(app)/forms') }]}
   }
 
   ol {
+    --gap: 0.6rem;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 0.6rem;
+    gap: var(--gap);
     margin: 0 0 0.75rem;
     padding: 0;
     list-style: none;
+  }
+
+  /* Слева от каждого блока — ручка; справа — сам блок. */
+  li {
+    --grip-h: 2rem;
+    --grip-center: 1.25rem;
+    position: relative;
+    display: grid;
+    grid-template-columns: var(--grip-w) minmax(0, 1fr);
+    gap: 0.25rem;
+    align-items: start;
+  }
+
+  .body {
+    min-width: 0;
+  }
+
+  /* Ручка стоит по центру заголовка блока: у поля, шага и текста он разной высоты. */
+  li[data-kind='field'] {
+    --grip-center: 1.6625rem;
+  }
+
+  li[data-kind='step'] {
+    --grip-center: 2.3rem;
+  }
+
+  .grip {
+    display: grid;
+    place-items: center;
+    width: var(--grip-w);
+    height: var(--grip-h);
+    min-height: 0;
+    margin-top: calc(var(--grip-center) - var(--grip-h) / 2);
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-s);
+    background: none;
+    box-shadow: none;
+    color: var(--muted);
+    cursor: grab;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  .grip:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  .grip[aria-pressed='true'] {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .grip :global(svg) {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  /* Палец — цель не меньше 2.75rem. */
+  @media (pointer: coarse) {
+    .blocks {
+      --grip-w: 2rem;
+    }
+
+    li {
+      --grip-h: 2.75rem;
+    }
+  }
+
+  /* Что едет — бледнеет на своём месте; поднятое с клавиатуры — в рамке акцента. */
+  li[data-sort='moving'] {
+    opacity: 0.4;
+  }
+
+  li[data-sort='picked'] > .body {
+    border-radius: var(--radius-l);
+    outline: 0.125rem solid var(--accent);
+    outline-offset: 0.1875rem;
+  }
+
+  /* Встал на место — коротко проступает кольцо акцента; без движения его нет. */
+  @media (prefers-reduced-motion: no-preference) {
+    li[data-sort='settled'] > .body {
+      border-radius: var(--radius-l);
+      animation: settle 700ms var(--ease);
+    }
+  }
+
+  @keyframes settle {
+    from {
+      box-shadow: 0 0 0 0.1875rem
+        color-mix(in oklch, var(--accent) 35%, transparent);
+    }
+
+    to {
+      box-shadow: 0 0 0 0.1875rem transparent;
+    }
+  }
+
+  /* Место, куда встанет блок, — линия акцента посреди промежутка, как в дереве страниц. */
+  li[data-drop]::after {
+    position: absolute;
+    right: 0;
+    left: calc(var(--grip-w) + 0.25rem);
+    height: 0.125rem;
+    border-radius: 0.0625rem;
+    background: var(--accent);
+    content: '';
+    pointer-events: none;
+  }
+
+  li[data-drop='before']::after {
+    top: calc(var(--gap) / -2 - 0.0625rem);
+  }
+
+  li[data-drop='after']::after {
+    bottom: calc(var(--gap) / -2 - 0.0625rem);
+  }
+
+  /* «Призрак» под указателем: лежит в body, ручка — под пальцем. */
+  .drag-ghost {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 100;
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    max-width: 22rem;
+    margin: -1.1rem 0 0 -1.0625rem;
+    padding: 0.4rem 0.75rem 0.4rem 0.5rem;
+    border: 0.0625rem solid color-mix(in oklch, var(--accent) 45%, var(--line));
+    border-radius: var(--radius-l);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    color: var(--text);
+    font-size: 0.875rem;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  /* Шаг едет со своими полями — под карточкой виден край второй. */
+  .drag-ghost.stack {
+    box-shadow:
+      0.25rem 0.25rem 0 -0.0625rem var(--surface),
+      0.25rem 0.25rem 0 0 color-mix(in oklch, var(--accent) 45%, var(--line)),
+      var(--shadow);
+  }
+
+  .drag-ghost :global(svg) {
+    flex: none;
+    align-self: center;
+    width: 1rem;
+    height: 1rem;
+    color: var(--accent);
+  }
+
+  .drag-ghost strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .drag-ghost .more {
+    flex: none;
+    padding: 0 0.4rem;
+    border-radius: var(--radius-s);
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 0.75rem;
+    font-weight: 600;
   }
 
   .field-card {
@@ -643,9 +971,11 @@ crumbs={[{ label: t('nav.forms'), href: resolve('/(app)/forms') }]}
     height: 1rem;
   }
 
+  /* Палитра — под карточками, а не под ручками. */
   .add {
     display: grid;
     gap: 0.5rem;
+    margin-left: calc(var(--grip-w) + 0.25rem);
     padding: 0.85rem 1rem;
   }
 

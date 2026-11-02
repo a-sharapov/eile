@@ -96,7 +96,7 @@ const _RU: readonly CommandHelp[] = [
     summary: 'Сводка по базе: страницы, элементы, файлы, пользователи',
     usage: ['cms info [--db <файл>]'],
     details: [
-      'Размер файла, версия схемы, сколько страниц опубликовано и лежит в корзине, сколько шаблонов, компонентов, плагинов, полей, файлов медиатеки и пользователей.',
+      'Размер файла, версия схемы, сколько страниц опубликовано и лежит в корзине, сколько шаблонов, компонентов, скриптов, плагинов, полей, файлов медиатеки и пользователей.',
       'База открывается так же, как при запуске сервера: если бинарник новее, сначала применяются миграции.',
     ],
     options: [['--json', 'Сводка в JSON: для скриптов и агентов'], _DB],
@@ -145,8 +145,8 @@ const _RU: readonly CommandHelp[] = [
       'cms elements push [<папка>] [--prune] [--watch] [--json]',
     ],
     details: [
-      'pull выкладывает шаблоны, компоненты, плагины, формы и поля файлами: templates/, components/, plugins/, forms/, fields.json. Рядом — AGENTS.md: правила CMS и что есть на сайте, для Claude Code, Codex, Cursor. Отличающиеся файлы переписываются — держите папку в git.',
-      'check компилирует всё и печатает ошибки как файл:строка:столбец. Ничего не сохраняет.',
+      'pull выкладывает шаблоны, компоненты, скрипты, плагины, формы и поля файлами: templates/, components/, scripts/, plugins/, forms/, fields.json. Рядом — AGENTS.md: правила CMS и что есть на сайте, для Claude Code, Codex, Cursor. Отличающиеся файлы переписываются — держите папку в git.',
+      'check компилирует всё (скрипт scripts/имя.js — разбирает как ES-модуль) и печатает ошибки как файл:строка:столбец. Ничего не сохраняет.',
       'push сохраняет изменённые файлы в сайт — все или ни одного. Сервер на этой базе подхватывает правку сам, перезапуск не нужен.',
       '--prune удаляет из сайта то, чего нет в папке (поля — никогда), --watch отправляет каждый сохранённый файл. Папка по умолчанию — текущая.',
     ],
@@ -376,7 +376,7 @@ const _EN: readonly CommandHelp[] = [
     summary: 'Database summary: pages, elements, files, users',
     usage: ['cms info [--db <file>]'],
     details: [
-      'File size, schema version, how many pages are published and in the trash, and how many templates, components, plugins, fields, media files and users there are.',
+      'File size, schema version, how many pages are published and in the trash, and how many templates, components, scripts, plugins, fields, media files and users there are.',
       'The database opens the same way as when the server starts: if the binary is newer, migrations run first.',
     ],
     options: [
@@ -434,8 +434,8 @@ const _EN: readonly CommandHelp[] = [
       'cms elements push [<folder>] [--prune] [--watch] [--json]',
     ],
     details: [
-      'pull writes templates, components, plugins, forms and fields as files: templates/, components/, plugins/, forms/, fields.json. Next to them goes AGENTS.md: the CMS rules and what the site has, for Claude Code, Codex and Cursor. Files that differ are overwritten, so keep the folder in git.',
-      'check compiles everything and prints problems as file:line:column. Nothing is saved.',
+      'pull writes templates, components, scripts, plugins, forms and fields as files: templates/, components/, scripts/, plugins/, forms/, fields.json. Next to them goes AGENTS.md: the CMS rules and what the site has, for Claude Code, Codex and Cursor. Files that differ are overwritten, so keep the folder in git.',
+      'check compiles everything (a script scripts/name.js is parsed as an ES module) and prints problems as file:line:column. Nothing is saved.',
       'push saves the changed files to the site, all of them or none. A server on this database picks the change up by itself, no restart needed.',
       '--prune deletes from the site what has no file (never fields), --watch sends every saved file. The folder is the current one by default.',
     ],

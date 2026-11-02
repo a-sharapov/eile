@@ -1,5 +1,5 @@
 <script lang="ts">
-import { elements, elementsLoad } from '#lib/elements.svelte.ts';
+import { ELEMENT_KINDS, elements, elementsLoad } from '#lib/elements.svelte.ts';
 import { fields } from '#lib/fields.svelte.ts';
 import { type MessageKey, t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
@@ -72,12 +72,8 @@ const elementEntries = $derived<Entry[]>(
           key: `element:${_.kind}:${_.name}`,
           group: 'palette.elements' as const,
           label: _.name,
-          hint: t(
-            _.kind === 'template' ? 'elements.template' : 'elements.component'
-          ),
-          icon: (_.kind === 'template'
-            ? 'template'
-            : 'component') as keyof typeof icons,
+          hint: t(ELEMENT_KINDS[_.kind].one),
+          icon: ELEMENT_KINDS[_.kind].icon,
           href: resolve('/(app)/elements/[kind]/[name]', {
             kind: _.kind,
             name: _.name,

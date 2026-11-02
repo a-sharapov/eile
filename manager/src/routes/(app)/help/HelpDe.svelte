@@ -256,7 +256,9 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
       <p>
         <a href={resolve('/(app)/forms')}>„Formulare“</a> im oberen Menü → „Neues Formular“ beginnt mit fertigen Feldern: Name, Telefon, Kommentar und Einwilligung. Weitere Felder fügen Sie
         mit den Schaltflächen unten hinzu; jedes hat Beschriftung, Typ, Pflichtangabe und Regeln: Muster, Länge, Grenzwerte. Rechts sehen Sie das Formular so, wie
-        Besucher es sehen. Ein verstecktes Feld merkt sich die Seite, Werbeparameter, einen Parameter der Adresse oder ein Cookie des Besuchers (etwa
+        Besucher es sehen. Die Reihenfolge ändern Sie mit den Pfeilen oder indem Sie den Griff links am Block mit Maus oder
+        Finger ziehen; ein Schritt wandert mit seinen Feldern. Mit der Tastatur: Leertaste auf dem Griff, Pfeil nach oben und
+        unten, Leertaste legt ab, Esc stellt zurück. Ein verstecktes Feld merkt sich die Seite, Werbeparameter, einen Parameter der Adresse oder ein Cookie des Besuchers (etwa
         einen Partnercode) – Werte der Seite und Cookies setzt der Server selbst ein, sie lassen sich nicht fälschen; eigene Cookies des CMS
         werden nie übernommen. Ein Formular löschen Sie mit dem Papierkorb auf seiner Karte oder mit „Löschen“ im Editor:
         Der Manager nennt die Seiten, auf denen es steht, und seine Anfragen bleiben noch 30 Tage erhalten.
@@ -424,6 +426,8 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         <dd>Bestimmen, wie eine Seite aussieht. Über dem Code einer Vorlage sehen Sie, welche Felder ihr zugewiesen sind und wie viele Seiten sie verwenden.</dd>
         <dt>Komponenten</dt>
         <dd>Bausteine der Gestaltung, die Redakteure als Blöcke in den Text einfügen. Beschreibung und Parameter einer Komponente werden zum Formular im Editor.</dd>
+        <dt>Skripte</dt>
+        <dd>JavaScript für den Browser als ES-Module: eine Three.js-Szene, ein Widget, ein Zähler. Eine Vorlage bindet ein Skript mit <code>script('name')</code> ein; die Adresse ändert sich mit jeder Änderung, der Browser erhält also immer die frische Version.</dd>
         <dt>Plugins</dt>
         <dd>Ändern das Verhalten der Website – zum Beispiel Weiterleitungen. Sie lassen sich per Schaltfläche sofort ein- und ausschalten.</dd>
         <dt>Seitenfelder</dt>
@@ -433,7 +437,7 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
     </section>
     <section id="admin-code" data-topic hidden={!shown('admin-code')}>
       <h3>Wo der Code läuft</h3>
-      <p>Der Code von Vorlagen, Komponenten und Plugins läuft auf dem Server: Besucher erhalten fertiges HTML. Im Browser läuft nur der Code von Inseln.</p>
+      <p>Der Code von Vorlagen, Komponenten und Plugins läuft auf dem Server: Besucher erhalten fertiges HTML. Im Browser läuft nur der Code von Inseln und Skripten der Website.</p>
       <dl>
         <dt>Komponente</dt>
         <dd>
@@ -451,10 +455,17 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         </dd>
         <dt>Insel</dt>
         <dd>
-          Der einzige Weg, Code im Browser auszuführen: <code>{'<Island name="…"\u00a0/>'}</code> aus <code>$core/Island</code>. Sie
+          Eine Komponente, die im Browser läuft: <code>{'<Island name="…"\u00a0/>'}</code> aus <code>$core/Island</code>. Sie
           hat kein <code>$core</code> und erhält Serverdaten über ihre Parameter – die sieht der Besucher, also keine Geheimnisse
           darin übergeben. Eine Insel kann auch in einer Komponente stehen, die mit <code>Uncached</code> eingebunden ist: Dann werden
           ihre Parameter bei jeder Anfrage berechnet – etwa ein Preis zum Partnercode aus einem Cookie –, die Seite drumherum bleibt im Cache.
+        </dd>
+        <dt>Skript</dt>
+        <dd>
+          Wenn der Browser eigenes JavaScript braucht statt einer Komponente: eine Three.js-Szene, ein Widget, Analytics. Ein
+          Skript ist ein ES-Modul bis 2 MB unter „Elemente“. Eine Vorlage bindet es in <code>{'<svelte:head>'}</code> mit einem
+          <code>script</code>-Tag ein, dessen Adresse <code>script('name')</code> ist. Ein Skript darf nur <code>https://</code>-Adressen
+          importieren: Bibliotheken bündeln Sie vorher in dieselbe Datei.
         </dd>
       </dl>
       <p>Komponenten importieren nur <code>svelte</code>, <code>$core</code> und andere Komponenten, Plugins nur <code>$core</code>.</p>
@@ -485,7 +496,7 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         <li><code>cms backup</code> – Sicherung der ganzen Website in einer Datei, <code>cms backup site.json</code> – als Datensätze in JSON;</li>
         <li><code>cms restore datei</code> – die Website aus einer Sicherung wiederherstellen;</li>
         <li><code>cms update</code> – das Programm auf die neue Version aktualisieren, <code>--check</code> – nur prüfen;</li>
-        <li><code>cms elements pull ordner</code> – Vorlagen, Komponenten, Plugins, Formulare und Felder als Dateien, mit einer Anleitung AGENTS.md für KI-Agenten; <code>cms elements push ordner</code> – zurück in die Website;</li>
+        <li><code>cms elements pull ordner</code> – Vorlagen, Komponenten, Skripte, Plugins, Formulare und Felder als Dateien, mit einer Anleitung AGENTS.md für KI-Agenten; <code>cms elements push ordner</code> – zurück in die Website;</li>
         <li><code>cms mcp</code> – ein MCP-Server für einen Agenten auf diesem Server, <code>cms diagnose</code> – die Diagnose der Website im Terminal;</li>
         <li><code>cms users password email</code> – neues Passwort, falls ein Administrator seins vergessen hat.</li>
       </ul>

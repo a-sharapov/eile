@@ -215,7 +215,7 @@ export type Revision = RevisionSummary & {
   snapshot: Pick<Page, RevisionKey | 'fields'>;
 };
 
-export type ElementKind = 'template' | 'component';
+export type ElementKind = 'template' | 'component' | 'script';
 
 export type ElementSummary = {
   kind: ElementKind;
@@ -223,7 +223,8 @@ export type ElementSummary = {
   revision: number;
 };
 
-export type Element = ElementSummary & { source: string };
+/** У скрипта — ещё и адрес текущей версии: `/_cms/scripts/<имя>.<хэш>.js`. */
+export type Element = ElementSummary & { source: string; url?: string | null };
 
 /** Компонент набора: missing — не установлен, installed — как в наборе, changed — правлен на сайте. */
 export type KitItem = {
