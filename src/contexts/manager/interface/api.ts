@@ -50,6 +50,7 @@ import {
 import type { MediaService } from '../../media/index.ts';
 import {
   type ChannelKind,
+  type Delivery,
   message,
   type NotifyService,
 } from '../../notify/index.ts';
@@ -181,6 +182,7 @@ const _STATUS: Readonly<Record<string, number>> = {
   loop: 409,
   chain: 409,
   no_deliveries: 409,
+  no_webhook: 409,
   kit_not_found: 404,
   // Уведомления: канал не настроен — конфликт с настройками; канал отказал при проверке — шлюз.
   not_configured: 409,
@@ -504,6 +506,16 @@ const _routes = (
       .map((_) => _.value)
       .join(' · ')
       .slice(0, 200),
+  });
+
+  const deliveryOf = (delivery: Delivery) => ({
+    id: delivery.id,
+    channel: delivery.channel,
+    recipient: delivery.recipient,
+    status: delivery.status,
+    attempts: delivery.attempts,
+    lastError: delivery.lastError,
+    sentAt: delivery.sentAt,
   });
 
   // Значение посетителя, которое начинается с = + - @ или табуляции, Excel счёл бы формулой: перед ним
@@ -1448,15 +1460,19 @@ const _routes = (
             ...submission,
             deliveries: notify.outbox
               .bySource(`submission:${submission.id}`)
-              .map((_) => ({
-                id: _.id,
-                channel: _.channel,
-                recipient: _.recipient,
-                status: _.status,
-                attempts: _.attempts,
-                lastError: _.lastError,
-                sentAt: _.sentAt,
-              })),
+              .map(deliveryOf),
+            // Письмо отправителю — отдельно: «отправить ещё раз» уведомлений его не повторяет.
+            confirmations: notify.outbox
+              .bySource(`confirmation:${submission.id}`)
+              .map(deliveryOf),
+            webhook: ((delivery) =>
+              delivery && {
+                url: delivery.url,
+                status: delivery.status,
+                attempts: delivery.attempts,
+                lastError: delivery.lastError,
+                deliveredAt: delivery.deliveredAt,
+              })(forms.webhooks.of(submission.id)),
             files: forms.inbox.files(submission.id),
           }))(forms.inbox.open(Number(params.id), user!.id)),
     ],
@@ -1505,6 +1521,14 @@ const _routes = (
               _json(200, { resent: deliveries.length })))(
           notify.outbox.bySource(`submission:${Number(params.id)}`)
         ),
+    ],
+    [
+      'POST',
+      '/inbox/:id/webhook',
+      'inbox.read',
+      ({ params }) => (
+        forms.webhooks.retry(Number(params.id)), _json(200, { resent: 1 })
+      ),
     ],
     ['GET', '/forms', 'inbox.read', () => _json(200, forms.forms.list())],
     [

@@ -54,6 +54,25 @@ export var formsMigrations: readonly Migration[] = [
       CREATE INDEX forms_files_submission ON forms_files (submission_id);
     `,
   },
+  {
+    // Доставка заявки на вебхук формы — рядом с заявкой и в копии сайта вместе с ней: тело запроса собирается
+    // из заявки на каждую попытку, личные данные второй раз не хранятся.
+    id: 'forms/003_webhooks',
+    sql: `
+      CREATE TABLE forms_webhooks (
+        submission_id INTEGER PRIMARY KEY,
+        form TEXT NOT NULL,
+        url TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_at TEXT NOT NULL,
+        last_error TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        delivered_at TEXT
+      );
+      CREATE INDEX forms_webhooks_due ON forms_webhooks (next_at) WHERE status = 'pending';
+    `,
+  },
 ];
 
 /** Секрет печатей — этого сервера: в копию сайта не попадает, у другого сервера свой. */

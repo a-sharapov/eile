@@ -27,7 +27,8 @@ const _READY_LIMIT = 16;
 // Полный текст сайта для ИИ — не больше 5 МБ: дальше llms-full.txt перестаёт помещаться в контекст.
 const _FULL_LIMIT = 5 * 1024 * 1024;
 
-const _TAG = /\[\[[A-Z][\s\S]*?\]\]|\[#[A-Z][A-Za-z0-9]*:[a-z0-9-]+\]/g;
+const _TAG =
+  /\[\[[A-Z][\s\S]*?\]\]|\[#[A-Z][A-Za-z0-9]*:[a-z0-9-]+(?:\s+hidden)?\]/g;
 
 const _text =
   (contentType: string) =>

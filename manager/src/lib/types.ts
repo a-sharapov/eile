@@ -493,8 +493,28 @@ export type FormDetail = FormSummary & {
   minSeconds: number;
   allowLinks: boolean;
   goal: string;
+  /** Письмо отправителю: адрес из поля, тема и текст с подстановками. */
+  confirmation: {
+    enabled: boolean;
+    field: string;
+    subject: string;
+    text: string;
+  };
+  /** Вебхук: секрет выдаёт сервер; `renew` — попросить новый при сохранении. */
+  webhook: { url: string; secret: string; renew?: boolean };
   createdAt: string;
   fields: FieldSpec[];
+};
+
+/** Доставка уведомления или письма из очереди. */
+export type DeliveryRow = {
+  id: number;
+  channel: ChannelKind;
+  recipient: string;
+  status: 'pending' | 'sent' | 'failed';
+  attempts: number;
+  lastError: string;
+  sentAt: string | null;
 };
 
 export type SourceChoice = { value: string; label: string; needsKey?: boolean };
@@ -540,15 +560,17 @@ export type SubmissionDetail = {
   note: string;
   readAt: string | null;
   createdAt: string;
-  deliveries: {
-    id: number;
-    channel: ChannelKind;
-    recipient: string;
-    status: 'pending' | 'sent' | 'failed';
+  deliveries: DeliveryRow[];
+  /** Письмо отправителю. */
+  confirmations: DeliveryRow[];
+  /** Как заявка ушла на вебхук формы; null — не уходила. */
+  webhook: {
+    url: string;
+    status: 'pending' | 'delivered' | 'failed';
     attempts: number;
     lastError: string;
-    sentAt: string | null;
-  }[];
+    deliveredAt: string | null;
+  } | null;
   /** Присланные файлы: скачиваются по ссылке, содержимое в заявку не входит. */
   files: {
     id: number;

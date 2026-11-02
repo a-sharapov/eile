@@ -79,9 +79,11 @@ const _text = (item: Message, site: string): string =>
     ...(site ? ['', `— ${site}`] : []),
   ].join('\n');
 
-/** Тема письма: заголовок уведомления и сайт. */
+/** Тема письма: заголовок уведомления и сайт; у письма посетителю — тема, как её написал владелец сайта. */
 export var subjectOf = (item: Message, site: string): string =>
-  site ? `${headline(item)} — ${site}` : headline(item);
+  site && item.topic !== 'confirmation'
+    ? `${headline(item)} — ${site}`
+    : headline(item);
 
 /**
  * Письмо целиком: заголовки и multipart/alternative из текста и HTML, оба в base64 — восьмибитные

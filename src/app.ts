@@ -61,13 +61,17 @@ import {
 } from './contexts/manager/index.ts';
 import {
   defineMedia,
+  defineMediaCache,
   MEDIA_PREFIX,
   type Media,
+  type MediaCache,
+  mediaCacheDir,
   mediaMigrations,
   stemOf,
 } from './contexts/media/index.ts';
 import {
   defineNotify,
+  message,
   NOTIFY_TABLES,
   type Notify,
   notifyMigrations,
@@ -97,7 +101,7 @@ import {
   type Upkeep,
   upkeepMigrations,
 } from './contexts/upkeep/index.ts';
-import { KIT, KIT_ENGLISH, kitFor } from './kit/index.ts';
+import { KIT, KIT_ENGLISH, KIT_GERMAN, kitFor } from './kit/index.ts';
 import {
   type Archive,
   databaseFromArchive,
@@ -145,6 +149,8 @@ export type AppOptions = {
   readonly updateCheck?: boolean;
   /** HTTPS без прокси: сервер сам выпускает и продлевает сертификат Let's Encrypt на эти домены. */
   readonly https?: HttpsOptions;
+  /** Каталог кэша медиатеки; по умолчанию `<база>.media-cache` рядом с файлом базы, у базы в памяти кэша нет. */
+  readonly mediaCache?: string;
 };
 
 /** То, что Bun передаёт в fetch вторым аргументом: по нему узнаём адрес посетителя. */
@@ -285,6 +291,7 @@ const _compose = (
   db: Database,
   options: AppOptions,
   backup: Backup,
+  cache: MediaCache,
   setup: string | null = null
 ): Parts => {
   const clock = options.clock ?? (() => new Date());
@@ -358,7 +365,7 @@ const _compose = (
   });
   const identity = defineIdentity({ db, bus, clock, setup });
   const scope = defineRenderScope();
-  const media = defineMedia({ db, bus });
+  const media = defineMedia({ db, bus, cache });
   // Переводы и свои настройки — для `{i18n.key}`, `[@key]`, `t()` и `setting()` в шаблонах и контенте.
   const dictionary = {
     text: site.translations.text,
@@ -432,6 +439,16 @@ const _compose = (
     },
     notify: (notice, channels, source) =>
       void notify.send(notice, channels, source),
+    mail: (letter, source) =>
+      void notify.email.queue(
+        letter.to,
+        message({
+          topic: 'confirmation',
+          title: letter.subject,
+          text: letter.text,
+        }),
+        source
+      ),
     noticeLanguage: notify.language,
   });
   const redirects = defineRedirects({
@@ -484,6 +501,7 @@ const _compose = (
     repository: REPOSITORY,
     releasesUrl: options.releasesUrl,
     updateCheck: options.updateCheck ?? process.env.CMS_NO_UPDATE_CHECK !== '1',
+    tidy: media.cache.sweep,
   });
   serverChecks({
     upkeep,
@@ -505,7 +523,7 @@ const _compose = (
     kit: () =>
       kitFor(settings().language).map((_) => ({
         ..._,
-        translations: [KIT, KIT_ENGLISH].map(
+        translations: [KIT, KIT_ENGLISH, KIT_GERMAN].map(
           (kit) => kit.find((entry) => entry.name === _.name)!.source
         ),
       })),
@@ -628,6 +646,8 @@ export var createApp = (options: AppOptions = {}): App => {
           .map((_) => ({ id: _.id, email: _.email }));
         restoreDatabase(db, source, _DERIVED);
         clearSearchIndex(db);
+        // В восстановленной базе другие файлы: прежний кэш не нужен, он наберётся заново.
+        parts.media.cache.clear();
         recompose();
         parts.identity.sessions.closeChanged(before);
         return { pages: parts.content.drafts.tree().length, savedTo };
@@ -645,7 +665,12 @@ export var createApp = (options: AppOptions = {}): App => {
     restore,
   };
 
-  let parts = _compose(db, options, backup);
+  // Кэш медиатеки — один на процесс: пересборка контекстов не теряет его состояние.
+  const mediaCache = defineMediaCache({
+    dir:
+      options.mediaCache ?? mediaCacheDir(options.databasePath ?? ':memory:'),
+  });
+  let parts = _compose(db, options, backup, mediaCache);
   // Фон — у собранных заново контекстов: восстановление копии останавливает прежний и запускает новый.
   const startBackground = (): (() => void) =>
     options.background
@@ -671,6 +696,7 @@ export var createApp = (options: AppOptions = {}): App => {
       db,
       { ...options, scaffold: undefined },
       backup,
+      mediaCache,
       parts.identity.setup.token()
     );
     stopBackground = startBackground();

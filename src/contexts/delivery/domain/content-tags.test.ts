@@ -3,6 +3,7 @@ import {
   contentComponents,
   parseContent,
   resolvePageLinks,
+  withoutHidden,
 } from './content-tags.ts';
 
 describe('теги в контенте', () => {
@@ -79,5 +80,56 @@ describe('теги в контенте', () => {
         (id) => paths[id] ?? null
       )
     ).toBe('<a href="/kontakty">Контакты</a> <a href="#">x</a> /a&quot;b');
+  });
+});
+
+describe('скрытый блок', () => {
+  it('скрытого компонента и скрытой формы нет среди частей', () => {
+    expect(
+      parseContent(
+        '<p>До</p>\n[[Hero title="Акция" hidden]]\n[#Form:callback hidden]\n[#Form:faq]<p>После</p>'
+      )
+    ).toEqual([
+      { html: '<p>До</p>\n\n\n' },
+      { module: 'Form', name: 'faq' },
+      { html: '<p>После</p>' },
+    ]);
+  });
+
+  it('флаг стоит где угодно среди параметров; hidden=true — тоже скрыт', () => {
+    expect(
+      parseContent('[[A hidden x=1]][[B x=1 hidden=true]][[C hidden y="z"]]')
+    ).toEqual([]);
+  });
+
+  it('видимому компоненту флаг не передаётся, даже hidden=false', () => {
+    expect(
+      parseContent('[[A hidden=false wide]][[B hidden="yes"]][[C data-hidden]]')
+    ).toEqual([
+      { component: 'A', props: { wide: true } },
+      { component: 'B', props: {} },
+      { component: 'C', props: { 'data-hidden': true } },
+    ]);
+  });
+
+  it('тег один в абзаце уходит вместе с абзацем, в тексте — только сам тег', () => {
+    expect(
+      withoutHidden(
+        '<p>[[A hidden]]</p><p> [#Form:x hidden] </p><p>Цена [[Price hidden]] руб.</p>'
+      )
+    ).toBe('<p>Цена  руб.</p>');
+  });
+
+  it('текст без скрытых тегов не меняется, слово hidden в тексте — не флаг', () => {
+    const content =
+      '<p>hidden</p>[[A wide]]<p>[#Form:x]</p>[#Form:hidden][[Hidden]]';
+    expect(withoutHidden(content)).toBe(content);
+  });
+
+  it('скрытые компоненты не загружаются', () => {
+    expect(contentComponents('[[A]] [[B hidden]] [[C hidden=false]]')).toEqual([
+      'A',
+      'C',
+    ]);
   });
 });

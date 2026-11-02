@@ -11,7 +11,7 @@ import {
   stemOf,
   variantWidth,
 } from '../domain/media.ts';
-import type { MediaRepository } from '../domain/ports.ts';
+import type { MediaCache, MediaRepository } from '../domain/ports.ts';
 
 export type Upload = {
   readonly path: string;
@@ -42,9 +42,11 @@ export var mediaUrl = (file: MediaFile): string =>
 
 export var defineMediaService = ({
   files,
+  cache,
   bus,
 }: {
   files: MediaRepository;
+  cache: MediaCache;
   bus: EventBus;
 }) => {
   const event = (type: MediaEvent['type'], path: MediaPath): MediaEvent => ({
@@ -118,8 +120,24 @@ export var defineMediaService = ({
       read: (raw: string) => {
         const path = parseMediaPath(raw);
         const meta = files.meta(path);
-        return meta && { meta, data: () => files.data(path)! };
+        return (
+          meta && {
+            meta,
+            data: () => files.content(path)!.data,
+            /** Файл из кэша медиатеки; null — кэша нет, читать кусками из базы. */
+            local: () => cache.local(meta, () => files.content(path)),
+            /** `length` байт с `start` прямо из базы, без всего файла в памяти. */
+            chunk: (start: number, length: number): Uint8Array =>
+              files.chunk(path, start, length) ?? new Uint8Array(0),
+          }
+        );
       },
+    },
+    cache: {
+      /** Уборка: с диска — файлы кэша, которых больше нет в базе. */
+      sweep: (): number => cache.sweep(files.list()),
+      /** Весь кэш — с диска: база сменилась целиком (восстановление копии). */
+      clear: (): number => cache.sweep([]),
     },
     url: (raw: string): string | null => {
       const file = files.meta(parseMediaPath(raw));

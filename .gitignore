@@ -5,6 +5,8 @@ dist/
 *.db
 *.db-shm
 *.db-wal
+# Кэш медиатеки рядом с базой: выводится из неё
+*.media-cache/
 
 .DS_Store
 

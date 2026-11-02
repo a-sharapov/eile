@@ -183,7 +183,9 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
     <p>
       Der Text einer Seite besteht aus Blöcken. Darunter steht „Block hinzufügen: Text / Komponente“. Eine Komponente ist ein fertiger Baustein
       der Website, etwa ein Infokasten oder ein Banner: Wählen Sie sie aus und füllen Sie die Felder aus. Blöcke verschieben Sie mit den Pfeilen und
-      entfernen sie mit dem Kreuz – einen entfernten Block holen Sie über die Meldung zurück.
+      entfernen sie mit dem Kreuz – einen entfernten Block holen Sie über die Meldung zurück. Das Häkchen „Auf der Website ausblenden“ in einem
+      Komponenten- oder Formularblock nimmt ihn von der Website, ohne ihn zu löschen: Der Block bleibt mit dem Hinweis „Ausgeblendet“ im Text, Besucher,
+      die Suche und die Markdown-Version der Seite sehen ihn aber nicht.
     </p>
   </section>
   <section id="text-keys" data-topic hidden={!shown('text-keys')}>
@@ -254,8 +256,9 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
       <p>
         <a href={resolve('/(app)/forms')}>„Formulare“</a> im oberen Menü → „Neues Formular“ beginnt mit fertigen Feldern: Name, Telefon, Kommentar und Einwilligung. Weitere Felder fügen Sie
         mit den Schaltflächen unten hinzu; jedes hat Beschriftung, Typ, Pflichtangabe und Regeln: Muster, Länge, Grenzwerte. Rechts sehen Sie das Formular so, wie
-        Besucher es sehen. Ein verstecktes Feld merkt sich die Seite, Werbeparameter oder einen Parameter der Adresse – Werte der Seite setzt der Server
-        selbst ein, sie lassen sich nicht fälschen. Ein Formular löschen Sie mit dem Papierkorb auf seiner Karte oder mit „Löschen“ im Editor:
+        Besucher es sehen. Ein verstecktes Feld merkt sich die Seite, Werbeparameter, einen Parameter der Adresse oder ein Cookie des Besuchers (etwa
+        einen Partnercode) – Werte der Seite und Cookies setzt der Server selbst ein, sie lassen sich nicht fälschen; eigene Cookies des CMS
+        werden nie übernommen. Ein Formular löschen Sie mit dem Papierkorb auf seiner Karte oder mit „Löschen“ im Editor:
         Der Manager nennt die Seiten, auf denen es steht, und seine Anfragen bleiben noch 30 Tage erhalten.
       </p>
       <p>
@@ -273,6 +276,13 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         von @BotFather, dann „Chats suchen“) und E-Mail (SMTP-Server). Dorthin kommen auch Meldungen über Störungen der Website – ab einer gewählten
         Stufe; Wiederholungen innerhalb von 15 Minuten werden zusammengefasst. Für ein Formular können Sie eigene Kanäle und einen eigenen Betreff festlegen.
         Dort legen Sie auch die Sprache der Benachrichtigungen fest; standardmäßig ist es die Sprache der Website.
+      </p>
+      <p>
+        Die <strong>E-Mail an den Absender</strong> auf dem Tab „Benachrichtigungen“ des Formulars bestätigt eine Anfrage an die Adresse
+        aus ihrem E-Mail-Feld: Betreff und Text schreiben Sie selbst, {'{name}'} wird durch den Wert des Felds ersetzt. Sie geht über dieselbe
+        E-Mail, nur für echte Anfragen und höchstens einmal pro Adresse in 10 Minuten. Ein <strong>Webhook</strong> auf dem Tab
+        „Integrationen“ sendet jede angenommene Anfrage als JSON an einen anderen Dienst, etwa ein CRM, signiert mit dem Schlüssel des
+        Formulars; ob sie angekommen ist, steht bei der Anfrage.
       </p>
     </section>
   {/if}
@@ -443,7 +453,8 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         <dd>
           Der einzige Weg, Code im Browser auszuführen: <code>{'<Island name="…"\u00a0/>'}</code> aus <code>$core/Island</code>. Sie
           hat kein <code>$core</code> und erhält Serverdaten über ihre Parameter – die sieht der Besucher, also keine Geheimnisse
-          darin übergeben.
+          darin übergeben. Eine Insel kann auch in einer Komponente stehen, die mit <code>Uncached</code> eingebunden ist: Dann werden
+          ihre Parameter bei jeder Anfrage berechnet – etwa ein Preis zum Partnercode aus einem Cookie –, die Seite drumherum bleibt im Cache.
         </dd>
       </dl>
       <p>Komponenten importieren nur <code>svelte</code>, <code>$core</code> und andere Komponenten, Plugins nur <code>$core</code>.</p>

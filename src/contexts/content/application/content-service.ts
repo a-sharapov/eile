@@ -90,11 +90,16 @@ const _ref = (page: Page): PageRef => ({
   trashed: page.trashedAt !== null,
 });
 
+const _escaped = (text: string): string =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // Тег компонента в тексте: [[Name]] или [[Name параметры]], но не [[NameOther]].
 const _componentTag = (name: string): RegExp =>
-  new RegExp(
-    `\\[\\[${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9])`
-  );
+  new RegExp(`\\[\\[${_escaped(name)}(?![A-Za-z0-9])`);
+
+// Скрытый тег `[#Form:name hidden]` — тоже место формы: блок лежит в тексте.
+const _moduleTag = (module: string, name: string): RegExp =>
+  new RegExp(`\\[#${_escaped(module)}:${_escaped(name)}(?:\\s+hidden)?\\]`);
 
 export var defineContentService = ({
   pages,
@@ -561,7 +566,11 @@ export var defineContentService = ({
           .map(_ref),
       /** Страницы, в тексте которых есть тег модуля [#Module:name] — например, форма. */
       module: (module: string, name: string): PageRef[] =>
-        pages.mentioning(`[#${module}:${name}]`).map(load).map(_ref),
+        pages
+          .mentioning(`[#${module}:${name}`)
+          .map(load)
+          .filter((_) => _moduleTag(module, name).test(_.content))
+          .map(_ref),
       /** Страницы, где лежит файл медиатеки: в тексте, в полях или картинкой для соцсетей. */
       media: (path: string): PageRef[] =>
         pages.referencingMedia(path).map(load).map(_ref),

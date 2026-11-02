@@ -48,7 +48,10 @@ CMS_API=http://localhost:8090 bun run dev:manager     # если сервер н
 | `bun run site`            | Промо-сайт Eile в `eile.db` (см. «Промо-сайт»)                        |
 
 Параметры сервера: `--port` (или `PORT`), `--db` (или `CMS_DB`), `--trust-proxy` (или
-`CMS_TRUST_PROXY=1`).
+`CMS_TRUST_PROXY=1`), `--media-cache` (или `CMS_MEDIA_CACHE`). Медиатека отдаётся из кэша на диске
+`site.media-cache` рядом с базой ([ADR 0038](docs/adr/0038-media-cache.md)); `bun run dev` кладёт его рядом с
+`site.db`, удалять его можно когда угодно. Тесты на базе в памяти работают без кэша, прямо из базы; кэш на диске
+проверяет `tests/media-cache.test.ts`.
 
 ## Где что
 

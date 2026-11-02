@@ -97,7 +97,7 @@ export var agentsGuide = (
       '- `templates/Name.svelte`: a page template; a page names its template.',
       '- `components/Name.svelte`: a component, imported as `$components/Name` or put into page text as `[[Name]]`.',
       '- `plugins/Name.ts`: a server plugin.',
-      '- `forms/name.html` and `forms/name.json`: form markup and its settings (title, submitLabel, successText, successPage, subject, channels, retentionDays, minSeconds, allowLinks, goal).',
+      '- `forms/name.html` and `forms/name.json`: form markup and its settings (title, submitLabel, successText, successPage, subject, channels, retentionDays, minSeconds, allowLinks, goal, confirmation, webhook; the webhook secret stays on the site).',
       '- `fields.json`: page fields.',
       '',
       '## Templates',

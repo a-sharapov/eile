@@ -5,8 +5,11 @@ export type ChannelKind = 'telegram' | 'email';
 
 export var CHANNELS: readonly ChannelKind[] = ['telegram', 'email'];
 
-/** Что уведомление сообщает: заявку с сайта, сбой, проверку канала или письмо пользователю менеджера. */
-export type Topic = 'forms' | 'incidents' | 'test' | 'account';
+/**
+ * Что уведомление сообщает: заявку с сайта, сбой, проверку канала, письмо пользователю менеджера или
+ * подтверждение посетителю, отправившему форму.
+ */
+export type Topic = 'forms' | 'incidents' | 'test' | 'account' | 'confirmation';
 
 /** Важность сбоя: ниже порога из настроек сбой идёт только в журнал. */
 export type Severity = 'critical' | 'error' | 'warning' | 'info';

@@ -9,9 +9,12 @@ import { resolve } from '$app/paths';
 
 let {
   name = $bindable(''),
+  hidden = $bindable(false),
   actions,
 }: {
   name: string;
+  /** Форма остаётся в тексте, но сайт её не выводит: `[#Form:name hidden]`. */
+  hidden?: boolean;
   actions?: Snippet;
 } = $props();
 
@@ -24,9 +27,10 @@ $effect(
 const known = $derived(forms.items?.some((_) => _.name === name) ?? true);
 </script>
 
-<div class="form-block" role="group" aria-label={`${t('formsBlock.title')} ${name}`}>
+<div class="form-block" class:hidden role="group" aria-label={`${t('formsBlock.title')} ${name}${hidden ? `, ${t('blocks.hidden')}` : ''}`}>
   <div class="head">
-    <span class="title">{@html icons.forms}<strong>{t('formsBlock.title')}</strong> <code>[#Form:{name}]</code></span>
+    <span class="title">{@html icons.forms}<strong>{t('formsBlock.title')}</strong> <code>[#Form:{name}{hidden ? ' hidden' : ''}]</code></span>
+    {#if hidden}<span class="hidden-mark">{@html icons.eyeOff}{t('blocks.hidden')}</span>{/if}
     {@render actions?.()}
   </div>
   <div class="body">
@@ -47,6 +51,11 @@ const known = $derived(forms.items?.some((_) => _.name === name) ?? true);
     {:else if !known}
       <p class="field-error">{t('formsBlock.missingHint')}</p>
     {/if}
+    <label class="check hide">
+      <input type="checkbox" bind:checked={hidden} />
+      {t('blocks.hide')}
+    </label>
+    {#if hidden}<p class="muted">{t('blocks.hiddenNote')}</p>{/if}
   </div>
 </div>
 
@@ -72,6 +81,58 @@ const known = $derived(forms.items?.some((_) => _.name === name) ?? true);
     display: inline-flex;
     gap: 0.4rem;
     align-items: center;
+    margin-right: auto;
+  }
+
+  /* Скрытая форма читается приглушённой, но правится как обычно: под мышью и в фокусе — в полную силу. */
+  .hidden .title,
+  .hidden .row {
+    opacity: 0.6;
+    transition: opacity 150ms ease-out;
+  }
+
+  .hidden:hover .title,
+  .hidden:focus-within .title,
+  .hidden:hover .row,
+  .hidden:focus-within .row {
+    opacity: 1;
+  }
+
+  .hidden {
+    border-style: dashed;
+  }
+
+  .hidden-mark {
+    display: inline-flex;
+    flex: none;
+    gap: 0.3rem;
+    align-items: center;
+    height: 1.375rem;
+    padding: 0 0.55rem;
+    border: 0.0625rem solid var(--line);
+    border-radius: 99rem;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .hidden-mark :global(svg) {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+
+  .hide {
+    margin-top: 0.35rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hidden .title,
+    .hidden .row {
+      transition: none;
+    }
   }
 
   .title :global(svg) {

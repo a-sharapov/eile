@@ -19,6 +19,8 @@
 - [x] Ссылки как вид страницы (`kind: 'link'`, weblink в Evo).
 - [x] Стандартные поля документа в camelCase: `longTitle`, `menuTitle`, `description`, `introText`,
   `publishedAt`.
+- [x] Скрытый блок `[[Name hidden]]`, `[#Form:name hidden]`: в тексте лежит, нигде не выводится; галочка
+  в блоке менеджера ([ADR 0035](adr/0035-hidden-blocks.md)).
 
 ## M2 — Менеджер ✅
 
@@ -61,6 +63,8 @@
 
 - [x] `<Island>`: гидрация отдельных компонентов, клиентская компиляция во время работы, рантайм Svelte
   одним общим чанком, JS только на страницах с островами ([ADR 0008](adr/0008-islands.md)).
+- [x] Остров внутри `<Uncached>`: props с каждого запроса (cookie, query), в кэш не попадают, загрузчик
+  один на страницу ([ADR 0036](adr/0036-islands-in-uncached.md)).
 
 ## M5 — Расширения ✅
 

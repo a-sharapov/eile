@@ -103,6 +103,7 @@ const addForm = () =>
     kind: 'module',
     module: 'Form',
     name: forms.items?.[0]?.name ?? '',
+    hidden: false,
   });
 
 const addComponent = (signature: ComponentSignature) =>
@@ -111,6 +112,7 @@ const addComponent = (signature: ComponentSignature) =>
     kind: 'component',
     name: signature.name,
     props: {},
+    hidden: false,
   });
 
 const openInsert = (index: number) => (
@@ -233,11 +235,11 @@ const position = (index: number): string =>
             {#snippet actions()}{@render controls(block, index)}{/snippet}
           </TextBlock>
         {:else if block.kind === 'module'}
-          <FormBlock bind:name={() => block.name, (_) => ((block.name = _), update())}>
+          <FormBlock bind:name={() => block.name, (_) => ((block.name = _), update())} bind:hidden={() => block.hidden, (_) => ((block.hidden = _), update())}>
             {#snippet actions()}{@render controls(block, index)}{/snippet}
           </FormBlock>
         {:else}
-          <ComponentBlock name={block.name} signature={catalog.items === null ? null : signatureOf(block.name)} bind:props={() => block.props, (_) => ((block.props = _), update())}>
+          <ComponentBlock name={block.name} signature={catalog.items === null ? null : signatureOf(block.name)} bind:props={() => block.props, (_) => ((block.props = _), update())} bind:hidden={() => block.hidden, (_) => ((block.hidden = _), update())}>
             {#snippet actions()}{@render controls(block, index)}{/snippet}
           </ComponentBlock>
         {/if}

@@ -1,8 +1,19 @@
 import { describe, expect, it } from 'bun:test';
 import { isDomainError } from '../../../shared/kernel/errors.ts';
 import { createForm, editForm, parseFormName } from './form.ts';
-import { checkValues, type FieldSpec, isShown } from './schema.ts';
-import { resolveSource, type SourceContext, utmOf } from './sources.ts';
+import {
+  checkValues,
+  type FieldSpec,
+  formTextsFor,
+  isShown,
+  messagesFor,
+} from './schema.ts';
+import {
+  assertSources,
+  resolveSource,
+  type SourceContext,
+  utmOf,
+} from './sources.ts';
 import {
   changeSubmission,
   looksLikeSpam,
@@ -67,6 +78,83 @@ describe('форма', () => {
     expect(codeOf(() => createForm(parseFormName('a'), {}, 'now'))).toBe(
       'forms.invalid_title'
     );
+  });
+
+  it('тексты по умолчанию — на языке сайта: немецкий, английский, незнакомый — английский', () => {
+    const textsOf = (language: string) =>
+      createForm(parseFormName('a'), { title: 'A' }, 'now', {
+        language,
+        secret: '',
+      }).state;
+    expect(textsOf('de')).toMatchObject({
+      submitLabel: 'Absenden',
+      subject: 'Anfrage: {form}',
+    });
+    expect(textsOf('de-AT').successText).toStartWith('Vielen Dank!');
+    expect(textsOf('en').submitLabel).toBe('Send');
+    expect(textsOf('fr').submitLabel).toBe('Send');
+    expect(textsOf('ru').submitLabel).toBe('Отправить');
+  });
+
+  it('письмо отправителю: включённое — с текстом; вебхук — https и секрет от сервера', () => {
+    const setup = { language: 'de', secret: 'fresh' };
+    const form = createForm(
+      parseFormName('order'),
+      {
+        title: 'Bestellung',
+        confirmation: { enabled: true, subject: 'Danke', text: 'Hallo {name}' },
+        webhook: { url: 'https://crm.example.com/hook' },
+      },
+      'now',
+      setup
+    ).state;
+    expect(form.confirmation).toEqual({
+      enabled: true,
+      field: '',
+      subject: 'Danke',
+      text: 'Hallo {name}',
+    });
+    expect(form.webhook).toEqual({
+      url: 'https://crm.example.com/hook',
+      secret: 'fresh',
+    });
+    // Секрет не меняется от правки адреса и не задаётся снаружи; новый — по просьбе.
+    const moved = editForm(
+      {
+        webhook: { url: 'https://crm.example.com/v2', secret: 'mine' } as never,
+      },
+      'later',
+      { language: 'de', secret: 'other' }
+    )(form).state;
+    expect(moved.webhook).toEqual({
+      url: 'https://crm.example.com/v2',
+      secret: 'fresh',
+    });
+    expect(
+      editForm({ webhook: { renew: true } }, 'later', {
+        language: 'de',
+        secret: 'other',
+      })(form).state.webhook.secret
+    ).toBe('other');
+    expect(
+      codeOf(() =>
+        createForm(
+          parseFormName('a'),
+          { title: 'A', confirmation: { enabled: true } },
+          'now'
+        )
+      )
+    ).toBe('forms.invalid_confirmation');
+    expect(
+      codeOf(() =>
+        createForm(
+          parseFormName('a'),
+          { title: 'A', webhook: { url: 'http://crm.example.com/hook' } },
+          'now',
+          setup
+        )
+      )
+    ).toBe('forms.invalid_webhook');
   });
 
   it('правка без изменений — без событий и новой ревизии', () => {
@@ -136,6 +224,25 @@ describe('проверка значений по HTML5', () => {
     expect(check({ required: true }, [], 'en').errors).toEqual({
       x: 'Please fill in this field',
     });
+  });
+
+  it('немецкий сайт — ошибки и подписи шагов по-немецки, незнакомый язык — по-английски', () => {
+    expect(check({ required: true }, [], 'de').errors).toEqual({
+      x: 'Bitte füllen Sie dieses Feld aus',
+    });
+    expect(check({ kind: 'email' }, ['nope'], 'de-CH').errors).toEqual({
+      x: 'Bitte geben Sie eine E-Mail-Adresse ein: name@example.com',
+    });
+    expect(messagesFor('de').invalid).toBe(
+      'Bitte überprüfen Sie Ihre Angaben im Formular'
+    );
+    expect(formTextsFor('de')).toMatchObject({
+      next: 'Weiter',
+      back: 'Zurück',
+      progress: 'Schritt {n} von {m}',
+    });
+    expect(messagesFor('fr').required).toBe('Please fill in this field');
+    expect(formTextsFor('fr').next).toBe('Next');
   });
 
   it('верные значения — с подписями, варианты — подписями, лишнее отброшено', () => {
@@ -355,6 +462,15 @@ describe('источники скрытых полей', () => {
     siteName: 'Сайт',
     field: (name) => (name === 'price' ? '100' : null),
     setting: (key) => (key === 'phone' ? '+7 900' : null),
+    cookie: (name) =>
+      (
+        ({
+          partner: 'P-42',
+          cms_session: 'secret-session',
+          '__Host-cms_session': 'secret-session',
+          cms_form: 'flash',
+        }) as Record<string, string>
+      )[name] ?? null,
     now: '2026-10-30T10:00:00Z',
   };
 
@@ -370,9 +486,26 @@ describe('источники скрытых полей', () => {
     ['site.name', 'Сайт'],
     ['setting:phone', '+7 900'],
     ['time', '2026-10-30T10:00:00Z'],
+    ['cookie:partner', 'P-42'],
+    ['cookie:nope', ''],
+    ['cookie:cms_session', ''],
+    ['cookie:CMS_Session', ''],
+    ['cookie:__Host-cms_session', ''],
+    ['cookie:cms_form', ''],
     ['unknown', ''],
   ])('%p → %p', (source, value) => {
     expect(resolveSource(source, context)).toBe(value);
+  });
+
+  it('cookie самой CMS и не имя cookie в поле не сохранить; пустое имя — ещё не выбрано', () => {
+    const sources = (...list: string[]) =>
+      codeOf(() => assertSources(list.map((source) => field({ source }))));
+    expect(sources('cookie:partner', 'page.title', 'cookie:')).toBeNull();
+    expect(sources('cookie:cms_session')).toBe('forms.reserved_cookie');
+    expect(sources('page.id', 'cookie:__Secure-token')).toBe(
+      'forms.reserved_cookie'
+    );
+    expect(sources('cookie:a b')).toBe('forms.invalid_cookie');
   });
 
   it('UTM — только пять известных меток', () => {

@@ -263,6 +263,13 @@ const _accept = (
     (request.headers.get('content-type') ?? '').includes('multipart/form-data')
   );
 
+// Cookie запроса с заявкой: значения скрытых полей `cookie:имя` сервер берёт отсюда, а не из присланного.
+const _cookies = (request: Request): ((name: string) => string | null) =>
+  (
+    (jar) => (name: string) =>
+      jar.get(name)
+  )(new Bun.CookieMap(request.headers.get('cookie') ?? ''));
+
 const _status = (status: number): Error =>
   Object.assign(new Error(), { status });
 
@@ -304,6 +311,7 @@ export var defineFormsHandler =
                       files,
                       ip: client,
                       userAgent: request.headers.get('user-agent') ?? '',
+                      cookie: _cookies(request),
                     })
                   ),
                 (error: { status?: number }) =>

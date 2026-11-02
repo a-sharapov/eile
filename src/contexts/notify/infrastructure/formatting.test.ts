@@ -126,3 +126,29 @@ describe('важность в заголовке', () => {
     expect(subjectOf(item, '')).toBe('Критично: Boom');
   });
 });
+
+describe('письмо отправителю формы', () => {
+  it('тема — как её написал владелец сайта, без названия сайта; текст экранирован в HTML', () => {
+    const item = message({
+      topic: 'confirmation',
+      title: 'Ihre Bestellung bei Küchenly',
+      text: 'Hallo <b>Anna</b>',
+    });
+    expect(subjectOf(item, 'Küchenly')).toBe('Ihre Bestellung bei Küchenly');
+    const mime = mimeMessage({
+      from: 'shop@example.com',
+      to: ['anna@example.com'],
+      item,
+      site: 'Küchenly',
+      id: 'x',
+    });
+    expect(mime).not.toContain('Reply-To');
+    expect(mime).toContain('To: <anna@example.com>');
+    const html = new TextDecoder().decode(
+      Uint8Array.fromBase64(
+        mime.split('\r\n\r\n')[3]!.split('\r\n--')[0]!.replaceAll('\r\n', '')
+      )
+    );
+    expect(html).toContain('Hallo &lt;b&gt;Anna&lt;/b&gt;');
+  });
+});

@@ -41,6 +41,7 @@ export var defineUpkeep = ({
   repository,
   releasesUrl,
   updateCheck,
+  tidy,
 }: {
   db: Database;
   /** Файл базы; `:memory:` — автокопий нет. */
@@ -54,6 +55,8 @@ export var defineUpkeep = ({
   repository: string;
   releasesUrl?: string;
   updateCheck: boolean;
+  /** Уборка раз в сутки: файлы, которые больше не нужны (кэш медиатеки). */
+  tidy: () => unknown;
 }) => {
   let reschedule: (schedule: BackupSchedule) => void = () => undefined;
   const service = defineUpkeepService({
@@ -70,7 +73,7 @@ export var defineUpkeep = ({
   });
   return {
     ...service,
-    /** Фон сервера: копии по расписанию и проверка обновлений раз в сутки. */
+    /** Фон сервера: копии по расписанию, проверка обновлений и уборка раз в сутки. */
     start: (): (() => void) =>
       ((background) => (
         (reschedule = background.reschedule),
@@ -83,6 +86,7 @@ export var defineUpkeep = ({
             service.updates.enabled()
               ? service.updates.check()
               : Promise.resolve(),
+          tidy: () => Promise.resolve().then(tidy),
         })
       ),
   };

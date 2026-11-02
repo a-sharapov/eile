@@ -16,13 +16,13 @@ CMS — **модульный монолит** в духе DDD. Каждый ог
 | `identity`     | Пользователи менеджера, роли, сессии, первичная настройка                                   | `defineIdentity` → `setup`, `login`, `logout`, `authenticate`, `users.*`                                                                                                                           |
 | `manager`      | JSON API `/manager/api`, SPA `/manager`, инструменты агента и MCP `/manager/mcp`            | `defineManager` → `handle(Request)`, `mcp(message, user)`                                                                                                                                          |
 | `extensions`   | Плагины на TypeScript и их хуки                                                             | `defineExtensions` → `plugins.*`, `hooks.{render,notFound,dispatch}`                                                                                                                               |
-| `media`        | Файлы сайта в SQLite, отдача `/media/*`, варианты изображений                               | `defineMedia` → `files.*`, `url`, `image`, `handle`                                                                                                                                                |
+| `media`        | Файлы сайта в SQLite, отдача `/media/*` через кэш на диске, варианты изображений            | `defineMedia` → `files.*`, `url`, `image`, `handle`, `cache.{sweep,clear}`                                                                                                                         |
 | `assistant`    | Подключение ИИ (OpenAI-совместимый API), палочка у полей, памятка для моделей и цикл агента | `defineAssistant` → `connection.{status,save,remove,test}`, `generate`, `target`, `agent`; `GUIDE`                                                                                                 |
 | `notify`       | Каналы Telegram и почты, очередь отправки, сбои сайта                                       | `defineNotify` → `settings.{status,save}`, `send`, `test`, `telegram.{me,chats}`, `outbox.{run,recent,bySource,retry}`, `incidents.{report,list}`, `purge`, `start`                                |
 | `forms`        | Формы как HTML5-разметка, приём заявок, их хранение и обработка                             | `defineForms` → `forms.{list,get,save,remove,fieldsOf,preview}`, `render`, `submit`, `inbox.{stats,list,open,change,remove}`, `purge`, `handle`, `start`                                           |
 | `certificates` | HTTPS без прокси: сертификат Let's Encrypt по ACME, его выпуск и продление                  | `defineCertificates` → `status`, `current`, `ensure`, `challenge`, `start`; `defineHttpListener`                                                                                                   |
 | `search`       | Поиск по опубликованным страницам: индекс FTS5, основы слов, отрывки                        | `defineSearch` → `search`, `reindex`, `invalidate`, `rebuild`, `warm`, `handler`                                                                                                                   |
-| `upkeep`       | Автокопии сайта по расписанию, проверка обновлений и `cms update`                           | `defineUpkeep` → `backups.{schedule,configure,run,status}`, `updates.{enabled,configure,check,latest,status}`, `start`; `updateProgram`                                                            |
+| `upkeep`       | Автокопии сайта по расписанию, проверка обновлений, `cms update`, ночная уборка             | `defineUpkeep` → `backups.{schedule,configure,run,status}`, `updates.{enabled,configure,check,latest,status}`, `start`; `updateProgram`                                                            |
 | `redirects`    | Правила переадресации с адресов без страниц                                                 | `defineRedirects` → `rules.{list,create,edit,remove,import,export}`, `match`, `hit`                                                                                                                |
 | `diagnostics`  | Быстрая проверка сайта: ссылки, страницы, медиа, настройки                                  | `defineDiagnostics` → `report`, `register`                                                                                                                                                         |
 
@@ -89,6 +89,7 @@ src/contexts/<context>/
   - `content` сбрасывает индекс путей на `content.*`;
   - `design` сбрасывает разрешённые виды на `design.*`;
   - `delivery` сбрасывает записи кэша по тегам события ([ADR 0007](adr/0007-two-phase-cache.md)).
+  - `media` убирает из кэша на диске прежние версии файла на `media.file_saved` и `media.file_removed`.
 
 ## Конвейер запроса
 
@@ -148,6 +149,9 @@ sequenceDiagram
 - Одна база SQLite: WAL, `foreign_keys = ON`.
 - Таблицы принадлежат контекстам и названы с их префиксом: `content_pages`, `design_elements`,
   `site_settings`. Чужие таблицы напрямую не читаем.
+- Медиатека — BLOB в `media_files`. Отдаёт её кэш на диске рядом с базой (`site.media-cache`): файл выносится
+  из базы при первом запросе и уходит через sendfile. Источник — база, кэш в копию не входит
+  ([ADR 0038](adr/0038-media-cache.md)).
 - Миграции — SQL в TS-модулях `infrastructure/migrations.ts`. Они компилируются в бинарник, применяются при
   старте и записываются в `_migrations`. Опубликованную миграцию не меняем, только добавляем новую.
 

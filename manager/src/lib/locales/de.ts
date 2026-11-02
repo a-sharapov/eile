@@ -489,12 +489,15 @@ export var messages: Dictionary['messages'] = {
     'Keine Benachrichtigungen: Es sind keine Kanäle eingerichtet.',
   'inbox.spamNoNotice':
     'Sieht nach Spam aus – es wurde keine Benachrichtigung gesendet.',
+  'inbox.confirmation': 'E-Mail an den Absender',
+  'inbox.webhook': 'Webhook',
   'inbox.note': 'Notiz',
   'inbox.notePlaceholder':
     'Zum Beispiel: zurückgerufen, Antwort bis Freitag erwartet',
   'inbox.saveNote': 'Notiz speichern',
   'inbox.saved': 'Anfrage gespeichert',
   'inbox.resent': 'Benachrichtigung wird erneut gesendet',
+  'inbox.webhookResent': 'Anfrage wird erneut an den Webhook gesendet',
   'inbox.remove': 'Löschen',
   'inbox.removeTitle': 'Anfrage löschen?',
   'inbox.removeBody':
@@ -524,6 +527,7 @@ export var messages: Dictionary['messages'] = {
   'formEditor.tabAfter': 'Nach dem Absenden',
   'formEditor.tabNotify': 'Benachrichtigungen',
   'formEditor.tabProtect': 'Schutz und Speicherung',
+  'formEditor.tabIntegrations': 'Integrationen',
   'formEditor.save': 'Speichern',
   'formEditor.saved': 'Formular gespeichert',
   'formEditor.remove': 'Löschen',
@@ -624,6 +628,20 @@ export var messages: Dictionary['messages'] = {
     'Anfragen folgen der Zuordnung unter „Einstellungen → Benachrichtigungen“.',
   'formEditor.channels': 'Eigene Kanäle dieses Formulars',
   'formEditor.channelsSettings': 'Telegram und E-Mail einrichten',
+  'formEditor.confirmTitle': 'E-Mail an den Absender',
+  'formEditor.confirmHint':
+    'Eine Bestätigung an die Adresse aus der Anfrage: „Vielen Dank, Ihre Bestellung ist eingegangen.“ Sie wird über die E-Mail aus „Einstellungen → Benachrichtigungen“ gesendet, nur für Anfragen, die alle Prüfungen bestanden haben, und höchstens einmal pro Adresse in 10 Minuten.',
+  'formEditor.confirmEnabled': 'E-Mail an den Absender senden',
+  'formEditor.confirmField': 'Adresse aus dem Feld',
+  'formEditor.confirmFieldDefault': 'Das erste E-Mail-Feld',
+  'formEditor.confirmNoField':
+    'Das Formular hat kein E-Mail-Feld: Fügen Sie eines hinzu oder wählen Sie das Feld mit der Adresse.',
+  'formEditor.confirmSubject': 'Betreff',
+  'formEditor.confirmSubjectHint':
+    'Leer bedeutet den Namen des Formulars. {form} und {Feldname} wie im Betreff der Benachrichtigung.',
+  'formEditor.confirmText': 'E-Mail-Text',
+  'formEditor.confirmTextHint':
+    'Reiner Text ohne Formatierung. {form} ist der Name des Formulars, {Feldname} der Wert des Feldes: „Guten Tag, {name}!“',
   'formEditor.protectTitle': 'Spamschutz',
   'formEditor.protectHint':
     'Bot-Falle, Einmal-Token und Sendelimit wirken immer; hier steht, was vom Formular abhängt.',
@@ -636,6 +654,20 @@ export var messages: Dictionary['messages'] = {
   'formEditor.storeHint':
     'Anfragen mit personenbezogenen Daten werden nach Ablauf der Frist gelöscht – so verlangt es die DSGVO.',
   'formEditor.retention': 'Aufbewahrung (Tage)',
+  'formEditor.webhookTitle': 'Webhook',
+  'formEditor.webhookHint':
+    'Jede angenommene Anfrage geht als JSON an diese Adresse, zum Beispiel an ein CRM. Spam wird nicht gesendet; eine fehlgeschlagene Zustellung wird bis zu fünfmal wiederholt, das Ergebnis steht bei der Anfrage.',
+  'formEditor.webhookUrl': 'Adresse',
+  'formEditor.webhookUrlHint':
+    'https://…; leer lassen, um den Webhook abzuschalten. http:// nur für localhost.',
+  'formEditor.webhookSecret': 'Signaturschlüssel',
+  'formEditor.webhookSecretHint':
+    'Der Header X-Eile-Signature enthält sha256= und den HMAC-SHA256 des Anfrageinhalts mit diesem Schlüssel. Der Empfänger berechnet ihn selbst und vergleicht.',
+  'formEditor.webhookNoSecret':
+    'Der Schlüssel erscheint, sobald die Adresse gespeichert ist.',
+  'formEditor.webhookRenew': 'Neuer Schlüssel',
+  'formEditor.webhookRenewPending':
+    'Beim Speichern wird ein neuer Schlüssel ausgegeben; mit dem alten stimmt die Signatur dann nicht mehr.',
   'elements.tabSite': 'Website-Elemente',
   'kit.title': 'Komponenten-Baukasten',
   'kit.about':
@@ -753,11 +785,11 @@ export var messages: Dictionary['messages'] = {
   'settings.tabUpkeep': 'Wartung',
   'settings.tabRedirects': 'Weiterleitungen',
   'redirects.intro':
-    'Weiterleitung von einer Adresse ohne Seite auf die richtige. Ein Sternchen am Ende steht für den ganzen Bereich: /blog/* → /news/* überträgt auch den Rest der Adresse. Eine Seite der Website hat Vorrang vor einer Regel, eine Regel vor früheren Seitenadressen.',
+    'Weiterleitung von einer Adresse ohne Seite auf die richtige. /old und /old/ sind dieselbe Adresse. Ein Sternchen am Ende steht für den ganzen Bereich: /blog/* → /news/* überträgt auch den Rest der Adresse. Eine Seite der Website hat Vorrang vor einer Regel, eine Regel vor früheren Seitenadressen.',
   'redirects.from': 'Von',
   'redirects.to': 'Nach',
   'redirects.toHint':
-    'Adresse, vollständige URL oder Seite [~id~] – sie wird auch nach dem Verschieben gefunden',
+    'Adresse, vollständige URL oder Seite [~id~] – sie wird auch nach dem Verschieben gefunden. Auch mit Anker: /faq#lieferung',
   'redirects.code': 'Code',
   'redirects.code301': '301 – dauerhaft',
   'redirects.code302': '302 – vorübergehend',
@@ -1438,6 +1470,10 @@ export var messages: Dictionary['messages'] = {
   'blocks.extra': 'Weitere Parameter:',
   'blocks.default': 'Standard:',
   'blocks.byDefault': 'Standard',
+  'blocks.hidden': 'Ausgeblendet',
+  'blocks.hide': 'Auf der Website ausblenden',
+  'blocks.hiddenNote':
+    'Der Block bleibt im Seitentext, aber Besucher, die Suche und die Markdown-Version sehen ihn nicht.',
   'picker.image': 'Bild aus der Mediathek',
   'picker.file': 'Datei aus der Mediathek',
   'picker.search': 'Nach Namen suchen',
@@ -1672,6 +1708,15 @@ export var errors: Dictionary['errors'] = {
   'forms.invalid_status': 'Diesen Status gibt es nicht.',
   'forms.no_deliveries':
     'Zu dieser Anfrage gab es keine Benachrichtigungen – es gibt nichts zu senden.',
+  'forms.no_webhook': 'Diese Anfrage wurde nicht an einen Webhook gesendet.',
+  'forms.invalid_webhook':
+    'Die Webhook-Adresse beginnt mit https://; http:// nur für localhost und 127.0.0.1.',
+  'forms.invalid_confirmation':
+    'Die E-Mail an den Absender braucht einen Text und ein Feld mit der E-Mail-Adresse.',
+  'forms.reserved_cookie':
+    'Das ist ein Cookie des CMS selbst (cms_…, __Host-…, __Secure-…): Ein Formularfeld kann seinen Wert nicht übernehmen.',
+  'forms.invalid_cookie':
+    'Das ist kein Cookie-Name: lateinische Buchstaben, Ziffern und Zeichen wie _ - . ohne Leerzeichen.',
   'manager.kit_changed':
     'Die Komponente wurde auf der Website geändert – auf die Fassung aus dem Baukasten lässt sie sich nur ausdrücklich zurücksetzen.',
   'manager.kit_not_found': 'Diese Komponente gibt es im Baukasten nicht.',

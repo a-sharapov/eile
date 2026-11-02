@@ -281,9 +281,11 @@ export var defineNotifyService = ({
     );
 
   // Попытки кончились: о недоставленной заявке — другим каналом; о недоставленном сбое — только журнал.
+  // Письмо посетителю не дошло (опечатка в адресе) — не сбой сайта: его видно в карточке заявки.
   const exhausted = (delivery: Delivery, failure: SendFailure): void =>
     void (
       delivery.message.topic !== 'incidents' &&
+      delivery.message.topic !== 'confirmation' &&
       report({
         kind: 'notify.delivery_failed',
         severity: 'critical',
@@ -422,6 +424,28 @@ export var defineNotifyService = ({
      */
     email: {
       ready: (): boolean => settings.get().email !== null,
+      /**
+       * Письмо одному адресату через очередь — с повторами, как уведомление: подтверждение посетителю.
+       * Почта не настроена — null, письма нет.
+       */
+      queue: (
+        to: string,
+        item: Message,
+        source: string | null
+      ): number | null =>
+        settings.get().email
+          ? ((id) => (kick(), id))(
+              outbox.add(
+                {
+                  channel: 'email',
+                  recipient: to,
+                  message: { ...item, language: item.language ?? language() },
+                  source,
+                },
+                iso()
+              )
+            )
+          : null,
       send: (to: string, item: Message): Promise<void> =>
         ((current) =>
           current

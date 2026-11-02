@@ -11,6 +11,12 @@ describe('HTML от редактора', () => {
     expect(sanitizeHtml(html)).toBe(html);
   });
 
+  it('скрытые блоки остаются скрытыми: флаг hidden в тегах не трогается', () => {
+    const html =
+      '<p>Текст</p>\n[[Hero title="Акция" hidden]]\n<p>[#Form:callback hidden]</p>';
+    expect(sanitizeHtml(html)).toBe(html);
+  });
+
   it('вырезает скрипты, обработчики, фреймы, SVG и стили вместе с содержимым', () => {
     expect(
       sanitizeHtml(

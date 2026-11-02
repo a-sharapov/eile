@@ -6,6 +6,8 @@ import type { Env } from './paint.ts';
 export type Options = {
   readonly port: string;
   readonly db: string;
+  /** Каталог кэша медиатеки; не задан — `<база>.media-cache` рядом с базой. */
+  readonly mediaCache?: string;
   readonly name?: string;
   readonly role?: string;
   readonly help: boolean;
@@ -48,6 +50,7 @@ export type Invocation =
 const _OPTIONS = {
   port: { type: 'string' },
   db: { type: 'string' },
+  'media-cache': { type: 'string' },
   name: { type: 'string' },
   role: { type: 'string' },
   help: { type: 'boolean', short: 'h' },
@@ -101,13 +104,14 @@ export var parseInvocation = (argv: readonly string[], env: Env): Invocation =>
   attempt<Invocation>(
     () =>
       ((parsed) =>
-        ((domain, email, httpsPort) => ({
+        ((domain, email, httpsPort, mediaCache) => ({
           command: parsed.positionals[0] ?? null,
           args: parsed.positionals.slice(1),
           options: {
             // С доменом сайт живёт на своём сервере: HTTP — на 80, рядом с HTTPS.
             port: parsed.values.port ?? env.PORT ?? (domain ? '80' : '8080'),
             db: parsed.values.db ?? env.CMS_DB ?? 'site.db',
+            ...(mediaCache ? { mediaCache } : {}),
             name: parsed.values.name,
             role: parsed.values.role,
             help: parsed.values.help ?? false,
@@ -131,7 +135,8 @@ export var parseInvocation = (argv: readonly string[], env: Env): Invocation =>
         }))(
           parsed.values.domain ?? env.CMS_DOMAIN,
           parsed.values.email ?? env.CMS_ACME_EMAIL,
-          parsed.values['https-port'] ?? env.CMS_HTTPS_PORT
+          parsed.values['https-port'] ?? env.CMS_HTTPS_PORT,
+          parsed.values['media-cache'] ?? env.CMS_MEDIA_CACHE
         ))(_parse(argv)),
     (error) => ({ error: _message(error, cliLanguage(env)) })
   );

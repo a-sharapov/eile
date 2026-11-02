@@ -106,8 +106,11 @@ const _BARE_NOT_FOUND =
 
 const _EMPTY: Rendered = { head: '', body: '' };
 
-// Регион, остров и модуль внутри региона не поддерживаются: во второй фазе они ничего не выводят.
-const _NESTED = new Map([
+/** Готовое место второй фазы; islands — в нём есть остров, и странице нужен загрузчик. */
+type Drawn = Rendered & { readonly islands?: boolean };
+
+// Внутри острова ничего вложенного нет: он гидрируется целиком, а вложенный остров в браузере не ожил бы.
+const _INSIDE_ISLAND = new Map([
   [REGIONS_CONTEXT, { mark: () => '', island: () => '', module: () => '' }],
 ]);
 
@@ -140,9 +143,13 @@ const _page =
     pageId,
   });
 
-// Props региона хранятся в кэше: снимок через JSON отвязывает их от объектов рендера.
+// Props региона хранятся в кэше: снимок через JSON отвязывает их от объектов рендера. Ключ `__proto__`
+// (например, из JSON в cookie) не доходит ни до компонента, ни до браузера: слияние в острове не подменит
+// прототип.
 const _frozen = (props: unknown): Readonly<Record<string, unknown>> =>
-  JSON.parse(JSON.stringify(props ?? {}));
+  JSON.parse(JSON.stringify(props ?? {}), (key, value) =>
+    key === '__proto__' ? undefined : value
+  );
 
 /** Ответ посетителю: канонический адрес, кэш страниц, поиск в дереве, двухфазный рендер. */
 /** Сколько хостов без адреса сайта получают свой кэш страниц. */
@@ -493,27 +500,61 @@ export var definePageDelivery = ({
       localized(source, languageOf(source, site))
     );
 
-  const ssr = (
-    request: RequestInfo,
-    region: Region,
-    hydratable: boolean
-  ): Promise<Rendered> =>
-    views
-      .component(region.name)
-      .then(
-        ({ view }) =>
-          scope.run(request, () =>
-            renderer.render(view, region.props, _NESTED, hydratable)
-          ).result
+  const island = (request: RequestInfo, region: Region): Promise<Drawn> =>
+    Promise.all([
+      views
+        .component(region.name)
+        .then(
+          ({ view }) =>
+            scope.run(request, () =>
+              renderer.render(view, region.props, _INSIDE_ISLAND, true)
+            ).result
+        ),
+      views.island(region.name),
+    ]).then(({ 0: rendered, 1: module }) => ({
+      head: rendered.head,
+      body: islandHtml(module, region.props, rendered.body),
+      islands: true,
+    }));
+
+  // Регион рисуется на каждом запросе, поэтому острова в нём получают props этого запроса и в кэш не
+  // попадают: маркеры — только в HTML региона, острова встают на них сразу. Регион и модуль в регионе
+  // по-прежнему ничего не выводят.
+  const uncached = (request: RequestInfo, region: Region): Promise<Drawn> =>
+    views.component(region.name).then(({ view }) => {
+      const islands: Region[] = [];
+      const context = new Map([
+        [
+          REGIONS_CONTEXT,
+          {
+            mark: () => '',
+            module: () => '',
+            island: (name: string, props: unknown): string =>
+              regionMarker(
+                islands.push({ kind: 'island', name, props: _frozen(props) }) -
+                  1
+              ),
+          },
+        ],
+      ]);
+      const rendered = scope.run(request, () =>
+        renderer.render(view, region.props, context)
+      ).result;
+      return Promise.all(islands.map(renderRegion(request))).then(
+        (drawn): Drawn => ({
+          ...fillRegions(rendered, drawn),
+          islands: drawn.some((_) => _.islands === true),
+        })
       );
+    });
 
   const _REGIONS: Readonly<
     Record<
       Region['kind'],
-      (request: RequestInfo, region: Region) => Promise<Rendered>
+      (request: RequestInfo, region: Region) => Promise<Drawn>
     >
   > = {
-    uncached: (request, region) => ssr(request, region, false),
+    uncached,
     module: (request, region) =>
       Promise.resolve().then(
         () =>
@@ -523,25 +564,20 @@ export var definePageDelivery = ({
             (region.props.page as ModulePage | undefined) ?? null
           ) ?? _EMPTY
       ),
-    island: (request, region) =>
-      Promise.all([ssr(request, region, true), views.island(region.name)]).then(
-        ({ 0: rendered, 1: module }) => ({
-          head: rendered.head,
-          body: islandHtml(module, region.props, rendered.body),
-        })
-      ),
+    island,
   };
 
   const renderRegion =
     (request: RequestInfo) =>
-    (region: Region): Promise<Rendered> =>
+    (region: Region): Promise<Drawn> =>
       _REGIONS[region.kind](request, region).then(
         undefined,
         regionFailed(request, region)
       );
 
-  const loader = (snapshot: Snapshot): Promise<string> =>
-    snapshot.regions.some((_) => _.kind === 'island')
+  // Один загрузчик на страницу — и для островов страницы, и для островов в регионах.
+  const loader = (regions: readonly Drawn[]): Promise<string> =>
+    regions.some((_) => _.islands === true)
       ? views.hydrator().then(islandLoader)
       : Promise.resolve('');
 
@@ -550,16 +586,16 @@ export var definePageDelivery = ({
     snapshot: Snapshot,
     site: SiteSettings
   ): Promise<string> =>
-    Promise.all([
-      Promise.all(snapshot.regions.map(renderRegion(request))),
-      loader(snapshot),
-    ]).then(({ 0: regions, 1: script }) =>
-      isHtml(snapshot.contentType)
-        ? pipe(
-            (_: Rendered) => ({ ..._, body: _.body + script }),
-            (_: Rendered) => htmlDocument(snapshot.language || site.language, _)
-          )(fillRegions(snapshot, regions))
-        : fillRegions(snapshot, regions).body
+    Promise.all(snapshot.regions.map(renderRegion(request))).then((regions) =>
+      loader(regions).then((script) =>
+        isHtml(snapshot.contentType)
+          ? pipe(
+              (_: Rendered) => ({ ..._, body: _.body + script }),
+              (_: Rendered) =>
+                htmlDocument(snapshot.language || site.language, _)
+            )(fillRegions(snapshot, regions))
+          : fillRegions(snapshot, regions).body
+      )
     );
 
   // Адрес сайта не задан — абсолютные адреса в шапке строятся по Host запроса, поэтому Host входит и в
@@ -645,14 +681,16 @@ export var definePageDelivery = ({
         : null;
   };
 
-  // Цель правила `[~id~]` идёт за страницей; страница снята с публикации — правило молчит.
+  // Цель правила `[~id~]` идёт за страницей, якорь `#…` после неё остаётся; страница снята с
+  // публикации — правило молчит.
   const ruleTarget = (to: string, site: SiteSettings): string | null =>
-    ((id) =>
-      id === null
+    ((match) =>
+      match === null
         ? to
-        : ((page) => page && pageUrl(page, site.homePageId))(
-            content.page(Number(id))
-          ))(/^\[~(\d+)~\]$/.exec(to)?.[1] ?? null);
+        : ((page) =>
+            page && `${pageUrl(page, site.homePageId)}${match[2] ?? ''}`)(
+            content.page(Number(match[1]))
+          ))(/^\[~(\d+)~\](#\S*)?$/.exec(to));
 
   // Правила владельца сайта: после живых страниц (ошибка в правиле не закроет страницу), но раньше
   // прежних адресов и плагинов — явное решение человека важнее автоматического.
@@ -667,6 +705,13 @@ export var definePageDelivery = ({
         ruleTarget(found.to, site)
       ))(redirects?.match(path) ?? null);
 
+  // Адрес без страницы: правило, иначе прежний адрес страницы; null — ни того, ни другого.
+  const redirectOf = (path: string, site: SiteSettings): Delivery | null =>
+    ruled(path, site) ??
+    ((moved) => (moved === null ? null : _redirect(moved)))(
+      movedTo(path, site)
+    );
+
   const notFound = (
     request: RequestInfo,
     site: SiteSettings
@@ -680,10 +725,7 @@ export var definePageDelivery = ({
               location === null
                 ? notFoundPage(request, site)
                 : _redirect(location, !location.startsWith('/'))
-            ))(
-      ruled(request.path, site) ??
-        ((path) => path && _redirect(path))(movedTo(request.path, site))
-    );
+            ))(redirectOf(request.path, site));
 
   const resolve = (path: string, site: SiteSettings): PageView | null =>
     path !== '/'
@@ -724,18 +766,35 @@ export var definePageDelivery = ({
         : Promise.resolve(_redirect(url));
   };
 
-  // Дерево важнее хвоста: настоящая страница `page-2` открывается сама, а не как порция родителя.
-  const fromTree = (request: RequestInfo): Promise<Delivery> => {
-    const site = settings();
-    const page = resolve(request.path, site);
-    const tail = page ? null : pagingTail(request.path, site.pagingSegment);
+  // Страница дерева и номер порции её списка. Дерево важнее хвоста: настоящая страница `page-2`
+  // открывается сама, а не как порция родителя.
+  const located = (
+    path: string,
+    site: SiteSettings
+  ): { readonly page: PageView; readonly number: number } | null => {
+    const page = resolve(path, site);
+    const tail = page ? null : pagingTail(path, site.pagingSegment);
     const base = tail && resolve(tail.base, site);
     return page
-      ? serve(request, site, page, 1)
+      ? { page, number: 1 }
       : base && tail
-        ? serve(request, site, base, tail.number)
-        : notFound(request, site);
+        ? { page: base, number: tail.number }
+        : null;
   };
+
+  const fromTree = (request: RequestInfo): Promise<Delivery> =>
+    ((site) =>
+      ((found) =>
+        found
+          ? serve(request, site, found.page, found.number)
+          : notFound(request, site))(located(request.path, site)))(settings());
+
+  // `/old/` и `//old`: правило и прежний адрес страницы ведут к цели сразу, без лишнего шага через
+  // `/old`. Живая страница важнее правила — у неё, как и без правил, 301 на `/old`.
+  const normalized = (canonical: string): Delivery =>
+    ((site) =>
+      (located(canonical, site) ? null : redirectOf(canonical, site)) ??
+      _redirect(canonical))(settings());
 
   const fromCache = (
     request: RequestInfo,
@@ -757,7 +816,7 @@ export var definePageDelivery = ({
       return canonical === null
         ? notFound(request, settings())
         : canonical !== request.path
-          ? Promise.resolve(_redirect(canonical))
+          ? Promise.resolve(normalized(canonical))
           : cached
             ? fromCache(request, cached)
             : fromTree(request);

@@ -50,13 +50,13 @@ const shown = $derived(
         ))(query.trim().toLowerCase())
 );
 
-// Цель-страница `[~id~]` — по названию: в таблице и в подсказке под полем.
+// Цель-страница `[~id~]` (можно с якорем `#…`) — по названию: в таблице и в подсказке под полем.
 const pages = $derived(tree.nodes.filter((_) => !_.trashed));
 const titleOf = (to: string): string | null =>
   ((match) =>
     match
       ? (pages.find((_) => _.id === Number(match[1]))?.title ?? null)
-      : null)(/^\[~(\d+)~\]$/.exec(to.trim()));
+      : null)(/^\[~(\d+)~\](?:#\S*)?$/.exec(to.trim()));
 
 const warningText = (warning: RuleWarning): string =>
   t(

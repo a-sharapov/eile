@@ -1,5 +1,13 @@
 import { Database } from 'bun:sqlite';
-import { afterAll, beforeAll, describe, expect, it, jest } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  jest,
+  spyOn,
+} from 'bun:test';
 import {
   chmodSync,
   mkdirSync,
@@ -134,6 +142,7 @@ describe('автокопии', () => {
       schedule: parseSchedule({ enabled: true, every: 24, at: '03:30' }),
       backup: () => ((runs += 1), Promise.resolve()),
       check: () => Promise.resolve(),
+      tidy: () => Promise.resolve(),
     });
     jest.advanceTimersByTime(60_000);
     await Promise.resolve();
@@ -149,6 +158,33 @@ describe('автокопии', () => {
     await Promise.resolve();
     expect(runs).toBe(4);
     background.stop();
+    jest.useRealTimers();
+  });
+
+  it('уборка — раз в сутки в 04:15; её сбой только пишется в журнал', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 9, 31, 4, 14, 30));
+    const logged = spyOn(console, 'error').mockImplementation(() => undefined);
+    let runs = 0;
+    const background = startUpkeep({
+      schedule: parseSchedule({ enabled: false }),
+      backup: () => Promise.resolve(),
+      check: () => Promise.resolve(),
+      tidy: () => ((runs += 1), Promise.reject(new Error('disk'))),
+    });
+    jest.advanceTimersByTime(60_000);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(runs).toBe(1);
+    expect(logged).toHaveBeenCalled();
+    jest.advanceTimersByTime(23 * 3_600_000);
+    await Promise.resolve();
+    expect(runs).toBe(1);
+    jest.advanceTimersByTime(3_600_000);
+    await Promise.resolve();
+    expect(runs).toBe(2);
+    background.stop();
+    logged.mockRestore();
     jest.useRealTimers();
   });
 

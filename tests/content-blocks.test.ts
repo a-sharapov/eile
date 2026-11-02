@@ -90,4 +90,38 @@ describe('блоки контента', () => {
       '<p>Оставьте заявку</p>\n[#Form:callback]\n<p>Или [#Form:faq] прямо тут</p>\n[[Menu]]'
     );
   });
+
+  it('скрытый блок: флаг — свойство блока, а не параметр; сборка возвращает тот же тег', () => {
+    const content =
+      '<p>До</p>\n[[Callout title="Акция" hidden]]\n<p>[#Form:callback hidden]</p>\n[[Menu hidden=false parent=5]]';
+    const blocks = parseBlocks(content);
+    expect(blocks.map((_) => (_.kind === 'text' ? 'text' : _.hidden))).toEqual([
+      'text',
+      true,
+      true,
+      false,
+    ]);
+    expect(blocks[1]).toMatchObject({ props: { title: 'Акция' } });
+    const rebuilt = serializeBlocks(blocks);
+    expect(rebuilt).toBe(
+      '<p>До</p>\n[[Callout title="Акция" hidden]]\n[#Form:callback hidden]\n[[Menu parent=5]]'
+    );
+    expect(calls(rebuilt)).toEqual(calls(content));
+    expect(calls(rebuilt)).toEqual([
+      { component: 'Menu', props: { parent: 5 } },
+    ]);
+  });
+
+  it('снятый флаг показывает блок снова', () => {
+    const blocks = parseBlocks(
+      '[[Callout text="x" hidden]]\n[#Form:faq hidden]'
+    );
+    const shown = blocks.map((_) =>
+      _.kind === 'text' ? _ : { ..._, hidden: false }
+    );
+    expect(serializeBlocks(shown)).toBe('[[Callout text="x"]]\n[#Form:faq]');
+    expect(tagOf('Callout', { hidden: true, text: 'x' }, true)).toBe(
+      '[[Callout text="x" hidden]]'
+    );
+  });
 });

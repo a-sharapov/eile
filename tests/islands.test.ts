@@ -104,3 +104,119 @@ describe('острова', () => {
     expect((await get('/_cms/islands/Nope.x.js')).status).toBe(404);
   });
 });
+
+// Цена партнёра: регион читает cookie на каждом запросе и отдаёт её острову, который считает в браузере.
+const _PARTNER_PRICE = `<script>
+import { request } from '$core';
+import Island from '$core/Island';
+let { base = 100 } = $props();
+const code = request()?.cookie('partner') ?? '';
+const extra = JSON.parse(request()?.cookie('cart') || '{}');
+const price = code === 'kuechenly' ? base * 0.9 : base;
+</script>
+<div class="partner"><Island name="Price" props={{ price, code, ...extra }} /></div>`;
+
+const _PRICE =
+  '<script>let { price = 0, code = \'\' } = $props(); let qty = $state(1);</script><p class="price">{price * qty} {code}</p><button onclick={() => qty++}>+</button><style>.price { font-weight: 700; }</style>';
+
+describe('остров в некэшируемом регионе', () => {
+  beforeEach(() => {
+    app.design.components.save('Price', _PRICE);
+    app.design.components.save('PartnerPrice', _PARTNER_PRICE);
+    app.design.templates.save(
+      'Base',
+      '<script>import Uncached from \'$core/Uncached\'; let { page } = $props();</script><h1>{page.title}</h1><Uncached name="PartnerPrice" props={{ base: 100 }} />'
+    );
+  });
+
+  const visit = (cookie = '') =>
+    app.fetch(
+      new Request('http://localhost/kontakty', {
+        headers: cookie ? { cookie } : {},
+      })
+    );
+
+  const fragment = /<div class="partner">[\s\S]*?<\/div>/;
+
+  it('props острова считаются на запросе: cookie меняет только фрагмент региона', async () => {
+    const partner = await visit('partner=kuechenly');
+    const guest = await visit('partner=other');
+    expect(partner.headers.get('x-cache')).toBe('miss');
+    expect(guest.headers.get('x-cache')).toBe('hit');
+    const first = await partner.text();
+    const second = await guest.text();
+    expect(islandOf(first)![2]).toBe(
+      '{&quot;price&quot;:90,&quot;code&quot;:&quot;kuechenly&quot;}'
+    );
+    expect(islandOf(second)![2]).toBe(
+      '{&quot;price&quot;:100,&quot;code&quot;:&quot;other&quot;}'
+    );
+    expect(first).toMatch(
+      /<p class="price svelte-[a-z0-9]+">90 kuechenly<\/p>/
+    );
+    expect(second).not.toContain('kuechenly');
+    expect(first.replace(fragment, '')).toBe(second.replace(fragment, ''));
+  });
+
+  it('в кэш попадает только место региона: страница из кэша без props прошлого запроса', async () => {
+    await visit('partner=kuechenly');
+    const cached = await visit();
+    expect(cached.headers.get('x-cache')).toBe('hit');
+    const html = await cached.text();
+    expect(html).not.toContain('kuechenly');
+    expect(html).not.toContain('<!--cms:region:');
+    expect(islandOf(html)![2]).toBe(
+      '{&quot;price&quot;:100,&quot;code&quot;:&quot;&quot;}'
+    );
+  });
+
+  it('остров гидрируется как обычный: маркеры, стили, модуль и один загрузчик', async () => {
+    const html = await (await visit('partner=kuechenly')).text();
+    const island = islandOf(html)!;
+    expect(island[1]).toMatch(/^\/_cms\/islands\/Price\.[a-z0-9]+\.js$/);
+    expect(html).toMatch(
+      /<cms-island [^>]+><!--\[-->\s*<p class="price svelte-[a-z0-9]+">/
+    );
+    expect(html).toContain('.price.svelte-');
+    expect(html.match(/<script type="module">/g)?.length).toBe(1);
+    expect((await get(island[1]!)).status).toBe(200);
+  });
+
+  it('острова страницы и региона делят один загрузчик', async () => {
+    app.design.templates.save(
+      'Base',
+      '<script>import Island from \'$core/Island\'; import Uncached from \'$core/Uncached\'; let { page } = $props();</script><h1>{page.title}</h1><Island name="Counter" props={{ start: 2 }} /><Uncached name="PartnerPrice" />'
+    );
+    const html = await (await visit('partner=kuechenly')).text();
+    expect(html.match(/<cms-island /g)?.length).toBe(2);
+    expect(html.match(/<script type="module">/g)?.length).toBe(1);
+  });
+
+  it('значение из cookie не вырывается из атрибута, __proto__ до острова не доходит', async () => {
+    const html = await (
+      await visit(
+        `partner=${encodeURIComponent('</script><script>alert(1)</script>')}; cart=${encodeURIComponent('{"__proto__":{"polluted":true},"items":2}')}`
+      )
+    ).text();
+    expect(html).not.toContain('<script>alert(1)');
+    const props = islandOf(html)![2]!;
+    expect(props).toContain('&lt;/script>&lt;script>alert(1)&lt;/script>');
+    expect(props).toContain('&quot;items&quot;:2');
+    expect(props).not.toContain('__proto__');
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it('остров в острове запрещён: острову нельзя импортировать $core/Island', async () => {
+    app.design.components.save(
+      'Wrapper',
+      '<script>import Island from \'$core/Island\';</script><div class="wrapper"><Island name="Price" /></div>'
+    );
+    app.design.templates.save(
+      'Base',
+      '<script>import Island from \'$core/Island\'; let { page } = $props();</script><h1>{page.title}</h1><Island name="Wrapper" />'
+    );
+    const html = await (await visit()).text();
+    expect(html).toContain('<h1>Контакты</h1>');
+    expect(html).not.toContain('<cms-island ');
+  });
+});

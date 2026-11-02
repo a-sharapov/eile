@@ -5,6 +5,7 @@ import type {
   Submission,
   SubmissionStatus,
 } from './submission.ts';
+import type { WebhookDelivery, WebhookStatus } from './webhook.ts';
 
 export type FormRepository = {
   readonly get: (name: FormName) => Form | null;
@@ -82,6 +83,43 @@ export type FileRepository = {
   /** Удаляет файлы заявок, которых больше нет. */
   readonly removeOrphans: () => number;
 };
+
+/** Очередь вебхука: строка на заявку, повторы с паузами, после перезапуска очередь продолжается. */
+export type WebhookRepository = {
+  readonly add: (
+    delivery: Pick<WebhookDelivery, 'submissionId' | 'form' | 'url'>,
+    now: string
+  ) => void;
+  /** Пора отправлять: `pending`, чей срок наступил, старые первыми. */
+  readonly due: (now: string, limit: number) => WebhookDelivery[];
+  readonly get: (submissionId: number) => WebhookDelivery | null;
+  readonly mark: (
+    submissionId: number,
+    change: {
+      readonly url: string;
+      readonly status: WebhookStatus;
+      readonly attempts: number;
+      readonly nextAt: string;
+      readonly lastError: string;
+      readonly deliveredAt: string | null;
+    }
+  ) => void;
+  /** Удаляет доставки заявок, которых больше нет. */
+  readonly removeOrphans: () => number;
+};
+
+/** Ответ приёмника вебхука: код HTTP и начало текста ответа. */
+export type WebhookAnswer = { readonly status: number; readonly text: string };
+
+/**
+ * POST тела на адрес вебхука с подписью секретом. Отказ — сеть или срок ответа: текст ошибки без адреса,
+ * в нём мог быть пароль.
+ */
+export type WebhookPost = (
+  url: string,
+  body: string,
+  secret: string
+) => Promise<WebhookAnswer>;
 
 /** Разметка формы: описание полей по её HTML и HTML для посетителя с подставленным состоянием. */
 export type FormMarkup = {

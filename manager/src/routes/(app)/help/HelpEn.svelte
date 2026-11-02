@@ -183,7 +183,8 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
     <p>
       Page text is made of blocks. Below it is “Add block: Text / Component”. A component is a ready-made piece of the site’s
       design, such as a callout or a banner: choose it and fill in its fields. Move blocks with the arrows and delete them with the cross —
-      a deleted block can be brought back from the notification.
+      a deleted block can be brought back from the notification. The “Hide on the site” box in a component or form block takes it off the
+      site without deleting it: the block stays in the text marked “Hidden”, while visitors, search and the Markdown version of the page don’t see it.
     </p>
   </section>
   <section id="text-keys" data-topic hidden={!shown('text-keys')}>
@@ -254,8 +255,8 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
       <p>
         <a href={resolve('/(app)/forms')}>“Forms”</a> in the top menu → “New form” starts with a ready-made set: name, phone, comment and consent. Add fields
         with the buttons at the bottom; each one has a label, a type, a required flag and rules: pattern, length, limits. On the right is the form as
-        a visitor will see it. A hidden field remembers the page, ad tags or a URL parameter — the server fills in page values
-        itself, so they can’t be tampered with. To delete a form, use the trash icon on its card or “Delete” in the editor:
+        a visitor will see it. A hidden field remembers the page, ad tags, a URL parameter or a visitor’s cookie (a partner code, say) — the server
+        fills in page and cookie values itself, so they can’t be tampered with; the CMS’s own cookies are never taken. To delete a form, use the trash icon on its card or “Delete” in the editor:
         the manager names the pages where the form is used, and its submissions stay for another 30 days.
       </p>
       <p>
@@ -273,6 +274,13 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         from @BotFather, then “Find chats”) and email (an SMTP server). Reports of site failures arrive there too, above a severity
         threshold you choose; repeats within 15 minutes are merged. A form can have its own channels and email subject.
         The notification language is set there too; by default it is the site language.
+      </p>
+      <p>
+        An <strong>email to the sender</strong>, on the form’s Notifications tab, confirms a submission to the address from its email
+        field: you write the subject and text, and {'{name}'} becomes the field’s value. It goes out through the same email, only for a
+        real submission and at most once per address in 10 minutes. A <strong>webhook</strong>, on the Integrations tab, sends every
+        accepted submission as JSON to another service, a CRM for example, signed with the form’s secret; whether it arrived shows on
+        the submission.
       </p>
     </section>
   {/if}
@@ -440,6 +448,8 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         <dd>
           The only way to run code in the browser: <code>{'<Island name="…"\u00a0/>'}</code> from <code>$core/Island</code>. It has
           no <code>$core</code> and gets server data through its parameters, which visitors can see: don’t pass secrets in them.
+          An island can also sit inside a component placed with <code>Uncached</code>: its parameters are then worked out on every
+          request — say, a price for the partner code in a cookie — while the page around it stays cached.
         </dd>
       </dl>
       <p>Components can import only <code>svelte</code>, <code>$core</code> and other components; plugins only <code>$core</code>.</p>

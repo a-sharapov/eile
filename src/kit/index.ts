@@ -1,4 +1,5 @@
 import breadcrumbs from './Breadcrumbs.svelte' with { type: 'text' };
+import { KIT_DE } from './de.ts';
 import { KIT_EN } from './en.ts';
 import menu from './Menu.svelte' with { type: 'text' };
 import menuKeys from './MenuKeys.svelte' with { type: 'text' };
@@ -48,9 +49,19 @@ export var KIT_ENGLISH: readonly KitEntry[] = KIT.map((_) => ({
   source: translated(_.source, KIT_EN[_.name] ?? []),
 }));
 
-/** Набор на языке сайта: русский — как в исходниках, любой другой — английский. */
+/** Набор по-немецки: английский набор, где всё, что видит посетитель, — по-немецки. */
+export var KIT_GERMAN: readonly KitEntry[] = KIT_ENGLISH.map((_) => ({
+  ..._,
+  source: translated(_.source, KIT_DE[_.name] ?? []),
+}));
+
+/** Набор на языке сайта: русский — как в исходниках, немецкий — свой, любой другой — английский. */
 export var kitFor = (language: string): readonly KitEntry[] =>
-  russian(language) ? KIT : KIT_ENGLISH;
+  russian(language)
+    ? KIT
+    : /^de(?:-|$)/i.test(language)
+      ? KIT_GERMAN
+      : KIT_ENGLISH;
 
 /** Что поставить ради компонента: он сам и всё, что ему нужно, зависимости первыми. */
 export var kitClosure = (name: string, language = 'ru'): KitEntry[] =>

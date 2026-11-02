@@ -4,6 +4,7 @@ import { parseCsv, rulesToCsv } from './csv.ts';
 import {
   indexRules,
   matchRule,
+  pageTarget,
   parseFrom,
   parseRule,
   parseTo,
@@ -60,6 +61,22 @@ describe('адрес «куда»', () => {
     );
     expect(parseTo('[~12~]', false)).toBe('[~12~]');
     expect(parseTo('/news/*', true)).toBe('/news/*');
+  });
+
+  it('цель с якорем: путь, URL и страница; якорь у цели-раздела и звёздочка у страницы — отказ', () => {
+    expect(parseTo('/guide/#section', false)).toBe('/guide#section');
+    expect(parseTo('/catalog?sort=new#top', false)).toBe(
+      '/catalog?sort=new#top'
+    );
+    expect(parseTo('https://example.com/a#b', false)).toBe(
+      'https://example.com/a#b'
+    );
+    expect(parseTo('[~12~]#map', false)).toBe('[~12~]#map');
+    expect(pageTarget('[~12~]#map')).toBe(12);
+    expect(code(() => parseTo('/news/*#top', true))).toBe(
+      'redirects.invalid_to'
+    );
+    expect(code(() => parseTo('[~12~]#x*', true))).toBe('redirects.invalid_to');
   });
 
   it('звёздочка в цели — только у правила-префикса', () => {

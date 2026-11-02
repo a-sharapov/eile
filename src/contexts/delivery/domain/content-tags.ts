@@ -7,6 +7,12 @@ export type ContentPart =
     }
   | { readonly module: string; readonly name: string };
 
+/**
+ * Флаг ядра у тега: `[[Name hidden]]`, `[#Form:name hidden]` — блок лежит в тексте, но нигде не выводится.
+ * Компоненту он не передаётся: имя занято за ядром.
+ */
+export var HIDDEN_FLAG = 'hidden';
+
 // [[Gallery folder="leto" columns=3 wide]] — как вызов сниппета в Evo, только без `?` и `&`.
 const _TAG =
   /\[\[([A-Z][A-Za-z0-9]*)((?:\s+[a-zA-Z_][\w-]*(?:=(?:"[^"]*"|[^\s\]"]+))?)*)\s*\]\]/g;
@@ -32,8 +38,46 @@ const _props = (raw: string): Record<string, string | number | boolean> =>
     {}
   );
 
+// Флаг ядра компоненту не достаётся, даже `hidden=false`.
+const _ownProps = (raw: string): Record<string, string | number | boolean> =>
+  Object.fromEntries(
+    Object.entries(_props(raw)).filter((_) => _[0] !== HIDDEN_FLAG)
+  );
+
 // [#Form:callback] — модуль сайта и имя его записи: форма, а не компонент; тег переживает смену вида.
-const _MODULE = /\[#([A-Z][A-Za-z0-9]*):([a-z0-9][a-z0-9-]{0,63})\]/g;
+const _MODULE =
+  /\[#([A-Z][A-Za-z0-9]*):([a-z0-9][a-z0-9-]{0,63})(?:\s+(hidden))?\]/g;
+
+// Тег один в абзаце — вместе с абзацем: от скрытого блока не остаётся пустого `<p></p>`.
+const _ANY = new RegExp(
+  `(<p>\\s*)?(?:${_TAG.source}|${_MODULE.source})(\\s*</p>)?`,
+  'g'
+);
+
+// Группы `_ANY`: абзац до, имя и props компонента, модуль, имя записи и флаг модуля, абзац после.
+const _drop = (
+  match: string,
+  open?: string,
+  _component?: string,
+  props?: string,
+  module?: string,
+  _record?: string,
+  flag?: string,
+  close?: string
+): string =>
+  (
+    module === undefined
+      ? _props(props ?? '')[HIDDEN_FLAG] === true
+      : flag !== undefined
+  )
+    ? open !== undefined && close !== undefined
+      ? ''
+      : (open ?? '') + (close ?? '')
+    : match;
+
+/** Текст без скрытых тегов — таким его видят посетители и всё, что выводит страницу. */
+export var withoutHidden = (content: string): string =>
+  content.includes(HIDDEN_FLAG) ? content.replace(_ANY, _drop) : content;
 
 // Текст между тегами — HTML-частями, сами теги — частями по `toPart`.
 const _split = (
@@ -56,9 +100,9 @@ const _split = (
   );
 
 export var parseContent = (content: string): ContentPart[] =>
-  _split(content, _TAG, (match) => ({
+  _split(withoutHidden(content), _TAG, (match) => ({
     component: match[1]!,
-    props: _props(match[2] ?? ''),
+    props: _ownProps(match[2] ?? ''),
   }))
     .flatMap((part) =>
       'html' in part && part.html.includes('[#')
@@ -72,7 +116,7 @@ export var parseContent = (content: string): ContentPart[] =>
 
 /** Компоненты, которые вызывает контент: их надо загрузить до синхронного рендера. */
 export var contentComponents = (content: string): string[] => [
-  ...new Set([...content.matchAll(_TAG)].map((_) => _[1]!)),
+  ...new Set([...withoutHidden(content).matchAll(_TAG)].map((_) => _[1]!)),
 ];
 
 // [~5~] — ссылка на страницу по id, как в Evo: адрес подставляется при рендере, переименование её не ломает.

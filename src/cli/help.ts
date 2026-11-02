@@ -16,6 +16,10 @@ export type CommandHelp = {
 };
 
 const _DB = ['--db <файл>', 'Файл базы SQLite: site.db или $CMS_DB'] as const;
+const _MEDIA_CACHE = [
+  '--media-cache <папка>',
+  'Кэш медиатеки: site.media-cache рядом с базой или $CMS_MEDIA_CACHE',
+] as const;
 const _PASSWORD_STDIN = [
   '--password-stdin',
   'Прочитать пароль из stdin (для скриптов)',
@@ -36,10 +40,12 @@ const _RU: readonly CommandHelp[] = [
       'За nginx или Caddy с HTTPS — --trust-proxy: протокол и адрес посетителя берутся из X-Forwarded-*, cookie входа получает Secure. Без прокси этот флаг не включайте: заголовки подделает любой.',
       "HTTPS без прокси — --domain: сервер сам получает сертификат Let's Encrypt и продлевает его за 30 дней до конца. HTTP (порт 80) отвечает на проверку домена и ведёт на HTTPS (443); пока сертификата нет, сайт открывается по HTTP. DNS доменов должен указывать на этот сервер.",
       'Порты 80 и 443 — от root или с правом на них: sudo setcap cap_net_bind_service=+ep $(which cms), в systemd — AmbientCapabilities=CAP_NET_BIND_SERVICE.',
+      'Медиатека живёт в базе. Чтобы отдавать картинки и видео без копии в памяти, сервер при первом запросе файла кладёт его в кэш на диске — папку site.media-cache рядом с базой (--media-cache — другая папка). Кэш можно удалить: он наберётся заново. Папка не пишется — файлы идут прямо из базы.',
     ],
     options: [
       ['--port <порт>', 'Порт: 8080 или $PORT'],
       _DB,
+      _MEDIA_CACHE,
       ['--trust-proxy', 'Доверять X-Forwarded-*: только за своим прокси'],
       ['--domain <домены>', 'HTTPS без прокси: example.com,www.example.com'],
       ['--email <почта>', "Почта для писем Let's Encrypt о сертификате"],
@@ -200,7 +206,7 @@ const _RU: readonly CommandHelp[] = [
     summary: 'Копия всего сайта в один файл',
     usage: ['cms backup [<файл>] [--db <файл>]'],
     details: [
-      'База, шаблоны, компоненты и медиатека — в одном файле SQLite. Можно на работающем сайте: копия согласованная (VACUUM INTO).',
+      'База, шаблоны, компоненты и медиатека — в одном файле SQLite. Можно на работающем сайте: копия согласованная (VACUUM INTO). Кэш медиатеки (site.media-cache) в копию не входит: он берётся из базы.',
       'Имя с .json — те же записи текстом: можно открыть, сравнить две копии, перенести. Сеансов входа в копии нет.',
       'Без имени файла — cms-ГГГГ-ММ-ДД.db в текущем каталоге. Существующий файл не перезаписывается.',
       'Восстановление — cms restore или раздел «Копии» в менеджере.',
@@ -223,8 +229,9 @@ const _RU: readonly CommandHelp[] = [
       'Сайт в базе становится таким, каким был в копии: страницы, элементы, медиатека, настройки, пользователи. Копия из более старой версии сначала доводится до текущей схемы.',
       'Если база уже есть, её прежнее состояние сохраняется рядом: site.before-restore-ГГГГММДД-ЧЧММСС.db. Новой базы не было — она создаётся: так сайт переезжает на другой сервер.',
       'Остановите сервер перед восстановлением из командной строки или восстанавливайте в менеджере: раздел «Копии».',
+      'Кэш медиатеки стирается: файлы в копии другие, он наберётся заново из восстановленной базы.',
     ],
-    options: [_DB],
+    options: [_DB, _MEDIA_CACHE],
     examples: [
       [
         'Вернуть вчерашнюю копию',
@@ -290,6 +297,10 @@ const _DB_EN = [
   '--db <file>',
   'SQLite database file: site.db or $CMS_DB',
 ] as const;
+const _MEDIA_CACHE_EN = [
+  '--media-cache <folder>',
+  'Media cache: site.media-cache next to the database or $CMS_MEDIA_CACHE',
+] as const;
 
 const _EN: readonly CommandHelp[] = [
   {
@@ -306,10 +317,12 @@ const _EN: readonly CommandHelp[] = [
       'Behind nginx or Caddy with HTTPS, use --trust-proxy: the protocol and the visitor address come from X-Forwarded-*, and the sign-in cookie gets Secure. Do not turn it on without a proxy: anyone can forge those headers.',
       "HTTPS without a proxy: --domain. The server gets a Let's Encrypt certificate itself and renews it 30 days before it expires. HTTP (port 80) answers the domain check and redirects to HTTPS (443); until the certificate arrives, the site opens over HTTP. The DNS of the domains must point at this server.",
       'Ports 80 and 443 need root or the right to bind them: sudo setcap cap_net_bind_service=+ep $(which cms), or AmbientCapabilities=CAP_NET_BIND_SERVICE in systemd.',
+      'The media library lives in the database. To serve images and video without a copy in memory, the server puts a file into a cache on disk the first time it is requested: the site.media-cache folder next to the database (--media-cache sets another one). The cache can be deleted: it fills up again. If the folder is not writable, files come straight from the database.',
     ],
     options: [
       ['--port <port>', 'Port: 8080 or $PORT'],
       _DB_EN,
+      _MEDIA_CACHE_EN,
       ['--trust-proxy', 'Trust X-Forwarded-*: only behind your own proxy'],
       [
         '--domain <domains>',
@@ -482,7 +495,7 @@ const _EN: readonly CommandHelp[] = [
     summary: 'A copy of the whole site in one file',
     usage: ['cms backup [<file>] [--db <file>]'],
     details: [
-      'The database, templates, components and media in one SQLite file. Safe on a running site: the copy is consistent (VACUUM INTO).',
+      'The database, templates, components and media in one SQLite file. Safe on a running site: the copy is consistent (VACUUM INTO). The media cache (site.media-cache) is not part of the copy: it comes from the database.',
       'A name ending in .json writes the same records as text: you can open it, compare two copies, move it. Sign-in sessions are not copied.',
       'Without a file name: cms-YYYY-MM-DD.db in the current directory. An existing file is never overwritten.',
       'To restore, use cms restore or Backups in the manager.',
@@ -505,8 +518,9 @@ const _EN: readonly CommandHelp[] = [
       'The site in the database becomes what it was in the copy: pages, elements, media, settings, users. A copy from an older version is brought up to the current schema first.',
       'If the database exists, its previous state is saved next to it: site.before-restore-YYYYMMDD-HHMMSS.db. If there was no database, it is created: that is how a site moves to another server.',
       'Stop the server before restoring from the command line, or restore in the manager under Backups.',
+      'The media cache is cleared: the copy has other files, and the cache fills up again from the restored database.',
     ],
-    options: [_DB_EN],
+    options: [_DB_EN, _MEDIA_CACHE_EN],
     examples: [
       [
         'Bring back yesterday’s copy',
@@ -600,6 +614,7 @@ const _TEXT = {
     ] as _Pairs,
     portDb: 'Значения --port и --db по умолчанию',
     trustProxy: '1 — то же, что --trust-proxy',
+    mediaCache: 'Папка кэша медиатеки, как --media-cache',
     noColor: 'Без цвета; FORCE_COLOR=1 — с цветом и в трубе',
     unknown: (name: string) => `Нет команды «${name}».`,
     near: (name: string) => `Возможно, вы имели в виду: cms ${name}`,
@@ -633,6 +648,7 @@ const _TEXT = {
     ] as _Pairs,
     portDb: 'Defaults for --port and --db',
     trustProxy: '1 is the same as --trust-proxy',
+    mediaCache: 'Media cache folder, like --media-cache',
     noColor: 'No color; FORCE_COLOR=1 keeps color in a pipe',
     unknown: (name: string) => `No command “${name}”.`,
     near: (name: string) => `Did you mean: cms ${name}`,
@@ -733,6 +749,7 @@ export var overview = (paint: Paint, language: Language): string =>
       ..._section(paint, text.environment, [
         `  ${padEnd(paint.flag('PORT, CMS_DB'), _COLUMN - 2)}${text.portDb}`,
         `  ${padEnd(paint.flag('CMS_TRUST_PROXY'), _COLUMN - 2)}${text.trustProxy}`,
+        `  ${padEnd(paint.flag('CMS_MEDIA_CACHE'), _COLUMN - 2)}${text.mediaCache}`,
         `  ${padEnd(paint.flag('NO_COLOR'), _COLUMN - 2)}${text.noColor}`,
       ]),
       '',

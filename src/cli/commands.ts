@@ -388,6 +388,10 @@ const _existingDb = (ctx: Context): Promise<string> =>
       exists ? ctx.options.db : _reject(_say(ctx).noDb(ctx.options.db))
     );
 
+// Свой каталог кэша медиатеки — тем командам, что его трогают: сервер, восстановление, агент по MCP.
+const _mediaCache = (ctx: Context): { mediaCache?: string } =>
+  ctx.options.mediaCache ? { mediaCache: ctx.options.mediaCache } : {};
+
 const _withApp = <T>(
   ctx: Context,
   run: (app: App) => T | Promise<T>
@@ -479,6 +483,7 @@ const _serve = (ctx: Context): Promise<void> =>
         : null;
       const app = createApp({
         databasePath: ctx.options.db,
+        ..._mediaCache(ctx),
         scaffold: _WELCOME[ctx.language],
         trustProxy: ctx.options.trustProxy,
         background: true,
@@ -1063,7 +1068,7 @@ const _answer = (reply: unknown): void =>
 
 const _mcp = (ctx: Context): Promise<void> =>
   _existingDb(ctx).then((path) => {
-    const app = createApp({ databasePath: path });
+    const app = createApp({ databasePath: path, ..._mediaCache(ctx) });
     return (
       _agentUser(ctx, app)
         // Один процесс — один сеанс агента: прочитал заявки — код и настройки до конца процесса закрыты.
@@ -1134,7 +1139,10 @@ const _restore = (ctx: Context): Promise<void> =>
         )
     )
     .then((bytes) => {
-      const app = createApp({ databasePath: ctx.options.db });
+      const app = createApp({
+        databasePath: ctx.options.db,
+        ..._mediaCache(ctx),
+      });
       return app
         .restore(bytes)
         .then((report) =>
@@ -1258,9 +1266,9 @@ const _UPDATE: Readonly<
     _.status === 'updated'
       ? [
           `${paint.ok('✓')} ${say.updated} ${_.current} → ${paint.bold(_.release.version)}`,
-          `  ${padEnd(paint.dim(say.previous), 10)}${paint.path(_.previous)}`,
+          `  ${padEnd(paint.dim(say.previous), 12)}${paint.path(_.previous)}`,
           ...(_.alias
-            ? [`  ${padEnd(paint.dim(say.alias), 10)}${paint.path(_.alias)}`]
+            ? [`  ${padEnd(paint.dim(say.alias), 12)}${paint.path(_.alias)}`]
             : []),
           `  ${paint.warn('▸')} ${say.restartServer}`,
         ].join('\n')

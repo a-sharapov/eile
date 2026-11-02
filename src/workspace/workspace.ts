@@ -62,10 +62,20 @@ const _SETTINGS = [
   'minSeconds',
   'allowLinks',
   'goal',
+  'confirmation',
+  'webhook',
 ] as const;
 
+// Секрет вебхука в файлы не попадает: папку кладут в git и дают агентам. Адрес остаётся, секрет — на сайте.
 const _settingsOf = (form: Readonly<Record<string, unknown>>): FormSettings =>
-  Object.fromEntries(_SETTINGS.map((_) => [_, form[_]])) as FormSettings;
+  Object.fromEntries(
+    _SETTINGS.map((_) => [
+      _,
+      _ === 'webhook'
+        ? { url: (form.webhook as { url?: string } | undefined)?.url ?? '' }
+        : form[_],
+    ])
+  ) as FormSettings;
 
 /** Сайт файлами: шаблоны, компоненты, плагины, формы с настройками и поля. */
 export var filesOf = (services: WorkspaceServices): Files =>

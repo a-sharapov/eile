@@ -6,7 +6,10 @@ const _TAG =
   /\[\[([A-Z][A-Za-z0-9]*)((?:\s+[a-zA-Z_][\w-]*(?:=(?:"[^"]*"|[^\s\]"]+))?)*)\s*\]\]/g;
 const _PROP = /([a-zA-Z_][\w-]*)(?:=(?:"([^"]*)"|([^\s\]"]+)))?/g;
 // Тег модуля [#Form:callback]: форма из раздела «Формы», а не компонент.
-const _MODULE = /\[#([A-Z][A-Za-z0-9]*):([a-z0-9][a-z0-9-]{0,63})\]/g;
+const _MODULE =
+  /\[#([A-Z][A-Za-z0-9]*):([a-z0-9][a-z0-9-]{0,63})(?:\s+(hidden))?\]/g;
+// Флаг ядра: блок остаётся в тексте, но сайт его не выводит; компоненту он не передаётся.
+const _HIDDEN = 'hidden';
 const _ANY = new RegExp(`${_TAG.source}|${_MODULE.source}`, 'g');
 const _NUMBER = /^-?\d+(?:\.\d+)?$/;
 const _BARE: Readonly<Record<string, boolean>> = { true: true, false: false };
@@ -30,12 +33,14 @@ export type Block =
       readonly kind: 'component';
       name: string;
       props: Record<string, PropValue>;
+      hidden: boolean;
     }
   | {
       readonly id: number;
       readonly kind: 'module';
       module: string;
       name: string;
+      hidden: boolean;
     };
 
 let _next = 0;
@@ -64,16 +69,28 @@ const _text = (html: string): Block[] =>
 
 type Cut = { readonly blocks: Block[]; readonly at: number };
 
+const _component = (name: string, raw: string): Block =>
+  ((props) => ({
+    id: blockId(),
+    kind: 'component',
+    name,
+    props: Object.fromEntries(
+      Object.entries(props).filter((_) => _[0] !== _HIDDEN)
+    ),
+    hidden: props[_HIDDEN] === true,
+  }))(parseProps(raw));
+
 // Совпадение тега — блок компонента или модуля.
 const _blockOf = (match: RegExpMatchArray): Block =>
   match[1] !== undefined
-    ? {
+    ? _component(match[1], match[2] ?? '')
+    : {
         id: blockId(),
-        kind: 'component',
-        name: match[1],
-        props: parseProps(match[2] ?? ''),
-      }
-    : { id: blockId(), kind: 'module', module: match[3]!, name: match[4]! };
+        kind: 'module',
+        module: match[3]!,
+        name: match[4]!,
+        hidden: match[5] !== undefined,
+      };
 
 /** Контент страницы → блоки: текст и отдельно стоящие вызовы компонентов и модулей. */
 export var parseBlocks = (content: string): Block[] => {
@@ -109,19 +126,26 @@ const _prop = ({ 0: name, 1: value }: [string, PropValue]): string =>
       ? ` ${name}="${value.replaceAll('"', "'")}"`
       : ` ${name}=${value}`;
 
-export var tagOf = (name: string, props: Record<string, PropValue>): string =>
-  `[[${name}${Object.entries(props).map(_prop).join('')}]]`;
+export var tagOf = (
+  name: string,
+  props: Record<string, PropValue>,
+  hidden = false
+): string =>
+  `[[${name}${Object.entries(props)
+    .filter((_) => _[0] !== _HIDDEN)
+    .map(_prop)
+    .join('')}${hidden ? ` ${_HIDDEN}` : ''}]]`;
 
-/** Тег модуля: `[#Form:callback]`. */
-export var moduleTag = (module: string, name: string): string =>
-  `[#${module}:${name}]`;
+/** Тег модуля: `[#Form:callback]`, скрытый — `[#Form:callback hidden]`. */
+export var moduleTag = (module: string, name: string, hidden = false): string =>
+  `[#${module}:${name}${hidden ? ` ${_HIDDEN}` : ''}]`;
 
 const _SERIALIZE: {
   readonly [K in Block['kind']]: (block: Extract<Block, { kind: K }>) => string;
 } = {
   text: (_) => _.html.trim(),
-  component: (_) => tagOf(_.name, _.props),
-  module: (_) => moduleTag(_.module, _.name),
+  component: (_) => tagOf(_.name, _.props, _.hidden),
+  module: (_) => moduleTag(_.module, _.name, _.hidden),
 };
 
 /** Блоки → контент: каждый блок с новой строки, теги — между блочными элементами. */

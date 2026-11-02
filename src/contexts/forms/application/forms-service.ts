@@ -2,10 +2,18 @@ import { attempt, fail } from '../../../shared/kernel/errors.ts';
 import type { DomainEvent, EventBus } from '../../../shared/kernel/events.ts';
 import type { ManagerLanguage } from '../../../shared/kernel/manager-language.ts';
 import { pipe } from '../../../shared/kernel/pipe.ts';
+import type { Report } from '../../../shared/kernel/report.ts';
+import {
+  admitConfirmation,
+  assertConfirmation,
+  type ConfirmationLog,
+  type Letter,
+  letterOf,
+} from '../domain/confirmation.ts';
 import {
   type Channel,
   createForm,
-  DEFAULTS,
+  defaultsFor,
   editForm,
   type Form,
   type FormChange,
@@ -25,6 +33,8 @@ import type {
   SubmissionQuery,
   SubmissionRepository,
   UploadedFile,
+  WebhookPost,
+  WebhookRepository,
 } from '../domain/ports.ts';
 import {
   checkValues,
@@ -38,6 +48,7 @@ import {
   type Value,
 } from '../domain/schema.ts';
 import {
+  assertSources,
   fromVisitor,
   parseUtm,
   resolveSource,
@@ -56,6 +67,13 @@ import {
   type SubmissionChange,
   type SubmissionStatus,
 } from '../domain/submission.ts';
+import {
+  answerFailure,
+  nextWebhookAttempt,
+  payloadOf,
+  type WebhookDelivery,
+  type WebhookFailure,
+} from '../domain/webhook.ts';
 
 /** Страница сайта глазами форм: для скрытых полей, адреса возврата и языка ошибок. */
 export type FormPage = {
@@ -98,6 +116,15 @@ export type FormsPorts = {
     channels: readonly Channel[] | null,
     source: string
   ) => void;
+  /** Письмо отправителю — в очередь почты уведомлений; почта не настроена — письма нет. */
+  readonly mail: (letter: Letter, source: string) => void;
+  readonly webhooks: WebhookRepository;
+  readonly post: WebhookPost;
+  /** Новый секрет вебхука. */
+  readonly secret: () => string;
+  readonly report: Report;
+  /** Очередь вебхуков пополнилась: отправить сейчас, не дожидаясь расписания. */
+  readonly kick: () => void;
 };
 
 /** Флеш после отправки без JS: значения и ошибки возвращаются в форму на странице. */
@@ -119,6 +146,8 @@ export type SubmitInput = {
   readonly files?: Readonly<Record<string, readonly UploadedFile[]>>;
   readonly ip: string;
   readonly userAgent: string;
+  /** Cookie запроса с заявкой: для скрытых полей `cookie:имя`. */
+  readonly cookie?: (name: string) => string | null;
 };
 
 /** sent — принята (или тихо отброшена ловушкой), invalid — ошибки полей, stale — нужна новая печать, wait — не сейчас. */
@@ -154,6 +183,11 @@ const _RATE_WINDOW_MS = 10 * 60 * 1000;
 const _RATE_LIMIT = 5;
 const _DUPLICATE_MS = 3 * 60 * 1000;
 const _ORPHAN_DAYS = 30;
+const _WEBHOOK_BATCH = 20;
+
+const _NO_COOKIE = (): string | null => null;
+
+const _gone = (message: string): Error => new Error(message);
 
 const _first = (posted: Posted, name: string): string =>
   posted[name]?.[0] ?? '';
@@ -204,11 +238,19 @@ export var defineFormsService = ({
   pages,
   notify,
   noticeLanguage,
+  mail,
+  webhooks,
+  post,
+  secret,
+  report,
+  kick,
 }: FormsPorts) => {
   // Поля формы — по ревизии: HTML разбирается раз на правку, а не на каждый показ.
   const parsed = new Map<string, { revision: number; fields: FieldSpec[] }>();
   let rates = new Map<string, { start: number; count: number }>();
   let recent = new Map<string, number>();
+  let confirmations: ConfirmationLog = new Map();
+  let running: Promise<number> | null = null;
 
   const iso = (): string => clock().toISOString();
 
@@ -229,6 +271,14 @@ export var defineFormsService = ({
   const publish = (events: readonly FormsEvent[]): void =>
     events.forEach((_) => void bus.publish(_ as FormsEvent & DomainEvent));
 
+  // Поля сохраняемой формы: служебную cookie CMS не взять в поле, письму отправителю нужно поле адреса.
+  const assertFields = (change: FormChange): FormChange =>
+    ((fields) => (
+      assertSources(fields),
+      assertConfirmation(fields, change.state.confirmation),
+      change
+    ))(markup.fields(change.state.source));
+
   const store = (change: FormChange): Form => (
     void (change.events.length > 0 && forms.save(change.state)),
     publish(change.events),
@@ -238,11 +288,13 @@ export var defineFormsService = ({
   const contextOf = (
     page: FormPage | null,
     query: Readonly<Record<string, string>>,
-    referrer: string
+    referrer: string,
+    cookie: (name: string) => string | null = _NO_COOKIE
   ): SourceContext => ({
     page,
     origin: site().url,
     query,
+    cookie,
     referrer,
     siteName: site().name,
     field: (name) =>
@@ -325,6 +377,39 @@ export var defineFormsService = ({
           : value)(fields.find((_) => _.name === value.name))
     );
 
+  // Письмо отправителю — одно на адрес с формы за окно; журнал решает, слать ли.
+  const confirm = (
+    form: Form,
+    fields: readonly FieldSpec[],
+    values: readonly Value[],
+    id: number
+  ): void =>
+    ((letter) =>
+      void (
+        letter &&
+        ((decided) => (
+          (confirmations = decided.log),
+          decided.allowed && mail(letter, `confirmation:${id}`)
+        ))(
+          admitConfirmation(
+            confirmations,
+            form.name,
+            letter.to,
+            clock().getTime()
+          )
+        )
+      ))(letterOf(form, fields, values));
+
+  const queueWebhook = (form: Form, id: number): void =>
+    void (
+      form.webhook.url &&
+      (webhooks.add(
+        { submissionId: id, form: form.name, url: form.webhook.url },
+        iso()
+      ),
+      kick())
+    );
+
   const accept = (
     form: Form,
     input: SubmitInput,
@@ -333,7 +418,12 @@ export var defineFormsService = ({
   ): SubmitResult => {
     const back = page?.path ?? '/';
     const fields = fieldsOf(form);
-    const context = contextOf(page, {}, _first(input.fields, '_ref'));
+    const context = contextOf(
+      page,
+      {},
+      _first(input.fields, '_ref'),
+      input.cookie
+    );
     const final = withServerValues(fields, values, context);
     // Имя файла вроде «site.com.pdf» — не ссылка: файлы фильтр спама не смотрит.
     const spam = looksLikeSpam(
@@ -383,15 +473,20 @@ export var defineFormsService = ({
         type: 'forms.submission_received',
         submissionId: id,
         form: form.name,
+        values: Object.fromEntries(final.map((_) => [_.name, _.value])),
+        spam,
       },
     ]);
+    // Спаму — ни уведомления, ни письма отправителю, ни вебхука: только запись, чтобы ошибку фильтра было видно.
     void (
       spam ||
-      notify(
+      (notify(
         noticeOf(form, { ...submission, id }, site().url, noticeLanguage()),
         form.channels,
         `submission:${id}`
-      )
+      ),
+      confirm(form, fields, final, id),
+      queueWebhook(form, id))
     );
     count(`${input.ip}|${form.name}`);
     return sent(form, back);
@@ -415,7 +510,7 @@ export var defineFormsService = ({
             .map((_) => [_.name, [resolveSource(_.source!, context)]])
         ),
       },
-    }))(contextOf(page, {}, _first(input.fields, '_ref')));
+    }))(contextOf(page, {}, _first(input.fields, '_ref'), input.cookie));
 
   const submit = (name: string, posted: SubmitInput): SubmitResult => {
     const form = find(name);
@@ -472,7 +567,7 @@ export var defineFormsService = ({
     );
     const page = at ? pages.page(at.id) : null;
     const referrer = request.header('referer') ?? '';
-    const context = contextOf(page, request.query, referrer);
+    const context = contextOf(page, request.query, referrer, request.cookie);
     return form === null
       ? { head: '', body: '' }
       : request.query.sent === name
@@ -512,6 +607,113 @@ export var defineFormsService = ({
     change.state
   );
 
+  // Тело — из заявки на каждую попытку, адрес и секрет — нынешние у формы: поправили адрес — повтор уйдёт туда.
+  const webhookRequest = (delivery: WebhookDelivery) =>
+    ((submission, form) =>
+      submission === null
+        ? Promise.reject(_gone('The submission was removed'))
+        : !form?.webhook.url
+          ? Promise.reject(_gone('The form has no webhook any more'))
+          : Promise.resolve({
+              url: form.webhook.url,
+              secret: form.webhook.secret,
+              body: JSON.stringify(
+                payloadOf(
+                  submission,
+                  files.list(submission.id).map((_) => _.name)
+                )
+              ),
+            }))(submissions.get(delivery.submissionId), find(delivery.form));
+
+  const webhookDelivered = (delivery: WebhookDelivery, url: string): void =>
+    webhooks.mark(delivery.submissionId, {
+      url,
+      status: 'delivered',
+      attempts: delivery.attempts + 1,
+      nextAt: delivery.nextAt,
+      lastError: '',
+      deliveredAt: iso(),
+    });
+
+  // Попытки кончились — владелец сайта узнаёт об этом сбоем: заявка до CRM не дошла. Вебхук убрали из
+  // формы — это его решение, а не сбой.
+  const webhookFailed = (
+    delivery: WebhookDelivery,
+    url: string,
+    failure: WebhookFailure,
+    reported = true
+  ): void => {
+    const attempts = delivery.attempts + 1;
+    const next = nextWebhookAttempt(attempts, failure, clock().getTime());
+    webhooks.mark(delivery.submissionId, {
+      url,
+      status: next === null ? 'failed' : 'pending',
+      attempts,
+      nextAt: next === null ? delivery.nextAt : new Date(next).toISOString(),
+      lastError: failure.message,
+      deliveredAt: null,
+    });
+    void (
+      next === null &&
+      reported &&
+      report({
+        kind: 'forms.webhook_failed',
+        severity: 'error',
+        title: {
+          en: `A submission of form ${delivery.form} did not reach its webhook`,
+          de: `Eine Anfrage des Formulars ${delivery.form} hat den Webhook nicht erreicht`,
+          ru: `Заявка формы ${delivery.form} не дошла до вебхука`,
+        },
+        detail: `#${delivery.submissionId}: ${failure.message}`,
+        key: `forms.webhook_failed:${delivery.form}`,
+      })
+    );
+  };
+
+  const messageOf = (error: unknown): string =>
+    (
+      (error instanceof Error ? error.message : String(error)) || 'unknown'
+    ).slice(0, 500);
+
+  const sendWebhook = (delivery: WebhookDelivery): Promise<void> =>
+    Promise.resolve(delivery)
+      .then(webhookRequest)
+      .then(
+        (request) =>
+          post(request.url, request.body, request.secret).then(
+            (answer) =>
+              ((failure) =>
+                failure
+                  ? webhookFailed(delivery, request.url, failure)
+                  : webhookDelivered(delivery, request.url))(
+                answerFailure(answer.status, answer.text)
+              ),
+            (error: unknown) =>
+              webhookFailed(delivery, request.url, {
+                permanent: false,
+                message: messageOf(error),
+              })
+          ),
+        (error: unknown) =>
+          webhookFailed(
+            delivery,
+            delivery.url,
+            { permanent: true, message: messageOf(error) },
+            false
+          )
+      );
+
+  // По одной: приёмник — обычно один CRM, ему не нужна пачка одновременных запросов.
+  const drainWebhooks = (): Promise<number> =>
+    Promise.resolve(webhooks.due(iso(), _WEBHOOK_BATCH)).then((due) =>
+      due
+        .reduce<Promise<void>>(
+          (chain, delivery) => chain.then(() => sendWebhook(delivery)),
+          Promise.resolve()
+        )
+        .then(() => due.length)
+    );
+
   return {
     forms: {
       list: (): FormSummary[] =>
@@ -538,7 +740,7 @@ export var defineFormsService = ({
           submitLabel:
             (typeof input.submitLabel === 'string' &&
               input.submitLabel.trim()) ||
-            DEFAULTS.submitLabel,
+            defaultsFor(site().language).submitLabel,
           goal: '',
           action: '#',
           pageId: null,
@@ -555,13 +757,18 @@ export var defineFormsService = ({
       sources: SOURCES,
       exists: (name: string): boolean => find(name) !== null,
       save: (name: string, input: FormInput): Form =>
-        pipe(parseFormName, (formName) =>
-          ((existing) =>
-            store(
+        pipe(
+          parseFormName,
+          (formName) =>
+            ((existing, setup) =>
               existing
-                ? editForm(input, iso())(existing)
-                : createForm(formName, input, iso())
-            ))(forms.get(formName))
+                ? editForm(input, iso(), setup)(existing)
+                : createForm(formName, input, iso(), setup))(
+              forms.get(formName),
+              { language: site().language, secret: secret() }
+            ),
+          assertFields,
+          store
         )(name),
       remove: (name: string): void =>
         ((form) =>
@@ -617,6 +824,7 @@ export var defineFormsService = ({
         ((submission) => (
           submissions.remove(id),
           files.removeOrphans(),
+          webhooks.removeOrphans(),
           publish([
             {
               type: 'forms.submission_removed',
@@ -626,14 +834,43 @@ export var defineFormsService = ({
           ])
         ))(load(id)),
     },
+    webhooks: {
+      /** Проход очереди вебхуков; одновременно идёт только один. */
+      run: (): Promise<number> =>
+        running ??
+        (running = drainWebhooks().finally(() => {
+          running = null;
+        })),
+      /** Как заявка ушла на вебхук; null — не уходила. */
+      of: (id: number): WebhookDelivery | null => webhooks.get(id),
+      /** Ещё раз — сейчас и с полным расписанием повторов. */
+      retry: (id: number): void =>
+        ((delivery) =>
+          delivery
+            ? (webhooks.mark(id, {
+                url: delivery.url,
+                status: 'pending',
+                attempts: 0,
+                nextAt: iso(),
+                lastError: delivery.lastError,
+                deliveredAt: null,
+              }),
+              kick())
+            : fail(
+                'forms.no_webhook',
+                `Submission ${id} was not sent to a webhook`
+              ))(webhooks.get(id)),
+    },
     /** Заявки старше срока своей формы; у удалённых форм — старше 30 дней. */
     purge: (): number => {
       const now = clock().getTime();
       const before = (days: number): string =>
         new Date(now - days * 86_400_000).toISOString();
       const all = forms.list();
-      // Файлы уходят вместе со своими заявками.
-      return ((removed) => (files.removeOrphans(), removed))(
+      // Файлы и доставки вебхука уходят вместе со своими заявками.
+      return ((removed) => (
+        files.removeOrphans(), webhooks.removeOrphans(), removed
+      ))(
         all.reduce(
           (sum, form) =>
             sum + submissions.purge(form.name, before(form.retentionDays), []),

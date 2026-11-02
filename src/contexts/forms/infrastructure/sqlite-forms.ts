@@ -1,11 +1,17 @@
 import type { Database } from '../../../platform/database.ts';
-import type { Form, FormName } from '../domain/form.ts';
+import {
+  type Form,
+  type FormName,
+  NO_CONFIRMATION,
+  NO_WEBHOOK,
+} from '../domain/form.ts';
 import type {
   FileRepository,
   FormRepository,
   InboxStats,
   SubmissionFile,
   SubmissionRepository,
+  WebhookRepository,
 } from '../domain/ports.ts';
 import type { Value } from '../domain/schema.ts';
 import type {
@@ -13,6 +19,7 @@ import type {
   SubmissionContext,
   SubmissionStatus,
 } from '../domain/submission.ts';
+import type { WebhookDelivery, WebhookStatus } from '../domain/webhook.ts';
 
 type FormRow = {
   name: string;
@@ -24,11 +31,22 @@ type FormRow = {
   updated_at: string;
 };
 
+// Настройки форм со старых версий — без письма отправителю и вебхука: у них умолчания.
 const _form = (row: FormRow): Form => ({
+  confirmation: NO_CONFIRMATION,
+  webhook: NO_WEBHOOK,
   ...(JSON.parse(row.settings) as Omit<
     Form,
-    'name' | 'title' | 'source' | 'revision' | 'createdAt' | 'updatedAt'
-  >),
+    | 'name'
+    | 'title'
+    | 'source'
+    | 'revision'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'confirmation'
+    | 'webhook'
+  > &
+    Partial<Pick<Form, 'confirmation' | 'webhook'>>),
   name: row.name as FormName,
   title: row.title,
   source: row.source,
@@ -289,6 +307,64 @@ export var defineFileRepository = (db: Database): FileRepository => {
     list: (submission) => list.all(submission).map(_file),
     get: (id) =>
       ((row) => (row ? { ..._file(row), bytes: row.data } : null))(get.get(id)),
+    removeOrphans: () => orphans.run().changes,
+  };
+};
+
+type WebhookRow = {
+  submission_id: number;
+  form: string;
+  url: string;
+  status: string;
+  attempts: number;
+  next_at: string;
+  last_error: string;
+  created_at: string;
+  delivered_at: string | null;
+};
+
+const _webhook = (row: WebhookRow): WebhookDelivery => ({
+  submissionId: row.submission_id,
+  form: row.form,
+  url: row.url,
+  status: row.status as WebhookStatus,
+  attempts: row.attempts,
+  nextAt: row.next_at,
+  lastError: row.last_error,
+  createdAt: row.created_at,
+  deliveredAt: row.delivered_at,
+});
+
+export var defineWebhookRepository = (db: Database): WebhookRepository => {
+  const insert = db.query(`
+    INSERT OR IGNORE INTO forms_webhooks (submission_id, form, url, next_at, created_at)
+    VALUES ($submission, $form, $url, $now, $now)`);
+  const due = db.query<WebhookRow, [string, number]>(
+    "SELECT * FROM forms_webhooks WHERE status = 'pending' AND next_at <= ? ORDER BY next_at, submission_id LIMIT ?"
+  );
+  const get = db.query<WebhookRow, [number]>(
+    'SELECT * FROM forms_webhooks WHERE submission_id = ?'
+  );
+  const mark = db.query(`
+    UPDATE forms_webhooks SET url = $url, status = $status, attempts = $attempts, next_at = $nextAt,
+      last_error = $lastError, delivered_at = $deliveredAt
+    WHERE submission_id = $submission`);
+  const orphans = db.query(
+    'DELETE FROM forms_webhooks WHERE submission_id NOT IN (SELECT id FROM forms_submissions)'
+  );
+  return {
+    add: (delivery, now) =>
+      void insert.run({
+        submission: delivery.submissionId,
+        form: delivery.form,
+        url: delivery.url,
+        now,
+      }),
+    due: (now, limit) => due.all(now, limit).map(_webhook),
+    get: (submissionId) =>
+      ((row) => (row ? _webhook(row) : null))(get.get(submissionId)),
+    mark: (submissionId, change) =>
+      void mark.run({ submission: submissionId, ...change }),
     removeOrphans: () => orphans.run().changes,
   };
 };

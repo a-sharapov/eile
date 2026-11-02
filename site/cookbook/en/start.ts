@@ -1,3 +1,4 @@
+import { VERSION } from '../../../src/cli/version.ts';
 import {
   aside,
   type Chapter,
@@ -113,7 +114,7 @@ const install: Chapter = {
       'The command downloads the installer and runs it. The installer works out which system you have, downloads the matching build of Eile, checks its checksum (this confirms the file arrived whole and nobody swapped it) and puts the <code>cms</code> program where the terminal can find it.'
     ),
     p('Let’s check that everything is in place:'),
-    code('sh', '$ cms version\nEile 0.1.0-alpha.3'),
+    code('sh', `$ cms version\nEile ${VERSION}`),
     p('Your version number may be newer. That’s fine.'),
     aside(
       'trouble',
@@ -135,7 +136,7 @@ const install: Chapter = {
     p('The terminal answers with something like this:'),
     code(
       'sh',
-      `  ●─┬─●  Eile 0.1.0-alpha.3
+      `  ●─┬─●  Eile ${VERSION}
     ├─◐  site and manager in one file
     └─○  pages, templates, media
 

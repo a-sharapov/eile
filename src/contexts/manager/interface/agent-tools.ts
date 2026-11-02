@@ -65,7 +65,7 @@ const _PAGE = {
   alias: _string('Address segment; empty — from the title'),
   template: _string('Template name: see list_templates'),
   content: _string(
-    'Page text: an HTML fragment; components as [[Name prop="x"]], forms as [#Form:name], page links as [~id~]'
+    'Page text: an HTML fragment; components as [[Name prop="x"]], forms as [#Form:name], page links as [~id~]; a trailing hidden ([[Name hidden]]) hides a block without deleting it'
   ),
   kind: {
     type: 'string',
@@ -114,6 +114,23 @@ const _ELEMENT_KIND = {
   description:
     'template renders a whole page, component is imported or put into the text',
 } as const;
+
+// Секрет вебхука агенту не показываем: им подписаны заявки, его берут в менеджере, а не из разговора.
+const _withoutSecret = (body: unknown): unknown =>
+  ((form) =>
+    form?.webhook
+      ? {
+          ...form,
+          webhook: {
+            url: form.webhook.url,
+            secret: form.webhook.secret
+              ? 'hidden: copy it in the manager, form settings'
+              : '',
+          },
+        }
+      : body)(
+    body as { webhook?: { url: string; secret: string } } | null | undefined
+  );
 
 // Имя — один сегмент пути: «a/../users» не уведёт запрос на другой маршрут.
 const _seg = (value: unknown): string => encodeURIComponent(String(value));
@@ -451,6 +468,7 @@ export var AGENT_TOOLS: readonly AgentTool[] = [
     input: _object({ name: _string('Form name') }, ['name']),
     readOnly: true,
     request: (_) => ({ method: 'GET', path: `/forms/${_seg(_.name)}` }),
+    result: _withoutSecret,
   },
   {
     name: 'save_form',
@@ -472,6 +490,20 @@ export var AGENT_TOOLS: readonly AgentTool[] = [
         },
         subject: _string('Notification subject: {form} and {field name}'),
         goal: _string('Analytics goal in the cms:form-sent event'),
+        confirmation: _object({
+          enabled: _boolean('Send a confirmation email to the submitter'),
+          field: _string(
+            'Field with the address; empty — the first type=email field'
+          ),
+          subject: _string('Email subject: {form} and {field name}'),
+          text: _string('Plain-text email body: {form} and {field name}'),
+        }),
+        webhook: _object({
+          url: _string(
+            'https:// address that receives every accepted submission as signed JSON; empty — off'
+          ),
+          renew: _boolean('Issue a new signing secret'),
+        }),
       },
       ['name']
     ),
@@ -480,6 +512,7 @@ export var AGENT_TOOLS: readonly AgentTool[] = [
       path: `/forms/${_seg(_.name)}`,
       body: _without(_, 'name'),
     }),
+    result: _withoutSecret,
   },
   {
     name: 'list_submissions',

@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { type App, createApp } from '../src/app.ts';
-import { KIT, KIT_ENGLISH, kitClosure, kitFor } from '../src/kit/index.ts';
+import {
+  KIT,
+  KIT_ENGLISH,
+  KIT_GERMAN,
+  kitClosure,
+  kitFor,
+} from '../src/kit/index.ts';
 
 let app: App;
 let ids: Record<string, number>;
@@ -92,10 +98,37 @@ it('английский набор: те же компоненты, сохра�
   english.close();
   expect(kitFor('ru')).toBe(KIT);
   expect(kitFor('en')).toBe(KIT_ENGLISH);
-  expect(kitFor('de')).toBe(KIT_ENGLISH);
+  expect(kitFor('fr')).toBe(KIT_ENGLISH);
   expect(kitClosure('PostList', 'en')[1]!.source).toBe(
     KIT_ENGLISH.find((_) => _.name === 'PostList')!.source
   );
+});
+
+it('немецкий набор: те же компоненты, подписи для посетителя по-немецки, без кириллицы', () => {
+  const german = createApp();
+  KIT_GERMAN.forEach(
+    (_) => void german.design.components.save(_.name, _.source)
+  );
+  expect(
+    german.design.components
+      .catalog()
+      .map((_) => String(_.name))
+      .toSorted()
+  ).toEqual(KIT.map((_) => _.name).toSorted());
+  german.close();
+  expect(
+    KIT_GERMAN.filter((_) => /[А-Яа-яЁё]/.test(_.source)).map((_) => _.name)
+  ).toEqual([]);
+  expect(kitFor('de')).toBe(KIT_GERMAN);
+  expect(kitFor('de-AT')).toBe(KIT_GERMAN);
+  const source = (name: string) =>
+    KIT_GERMAN.find((_) => _.name === name)!.source;
+  expect(source('Pagination')).toContain("prevLabel = 'Zurück',");
+  expect(source('SearchForm')).toContain("placeholder = 'Suche',");
+  expect(source('Modal')).toContain("closeLabel = 'Schließen',");
+  // Английские подписи, которые видит посетитель, не остались.
+  expect(source('SearchResults')).not.toContain("'Search the site'");
+  expect(source('Menu')).not.toContain('aria-label="Close"');
 });
 
 describe('меню', () => {

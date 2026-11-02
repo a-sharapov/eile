@@ -177,9 +177,12 @@ export var siteFacts =
               ]
             : [])(forms.forms.get(summary.name))
       ),
+      // Письмо посетителю на адрес с опечаткой — не отказ канала: оно видно в карточке заявки.
       undelivered: notify.outbox
         .recent(500)
-        .filter((_) => _.status === 'failed').length,
+        .filter(
+          (_) => _.status === 'failed' && _.message.topic !== 'confirmation'
+        ).length,
       settingValues: site.customSettings.list().map((_) => String(_.value)),
       listers: _listers(design),
     };

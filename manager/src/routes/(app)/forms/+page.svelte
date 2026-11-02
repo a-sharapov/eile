@@ -160,6 +160,28 @@ const resend = () =>
     .then(() => notify(t('inbox.resent')))
     .then(undefined, failed);
 
+const resendWebhook = () =>
+  detail &&
+  api
+    .send('POST', `/inbox/${detail.id}/webhook`)
+    .then(() => {
+      detail = detail && {
+        ...detail,
+        webhook: detail.webhook && { ...detail.webhook, status: 'pending' },
+      };
+      notify(t('inbox.webhookResent'));
+    })
+    .then(undefined, failed);
+
+const _DELIVERY_STATUS: Readonly<Record<string, MessageKey>> = {
+  sent: 'inbox.deliverySent',
+  delivered: 'inbox.deliverySent',
+  failed: 'inbox.deliveryFailed',
+};
+
+const statusLabel = (status: string) =>
+  t(_DELIVERY_STATUS[status] ?? 'inbox.deliveryPending');
+
 const remove = () =>
   detail &&
   ask({
@@ -405,6 +427,28 @@ const copyTag = (name: string) =>
           </ul>
           {#if detail.deliveries.some((_) => _.status !== 'sent')}
             <button type="button" class="button" onclick={resend}>{@html icons.send}{t('notify.retry')}</button>
+          {/if}
+        {/if}
+        {#if detail.confirmations.length > 0 || detail.webhook}
+          <ul class="deliveries">
+            {#each detail.confirmations as delivery (delivery.id)}
+              <li data-status={delivery.status}>
+                <span>{t('inbox.confirmation')}</span>
+                <span class="code">{delivery.recipient}</span>
+                <span class="muted">{statusLabel(delivery.status)}</span>
+                {#if delivery.lastError && delivery.status !== 'sent'}<span class="code error">{delivery.lastError}</span>{/if}
+              </li>
+            {/each}
+            {#if detail.webhook}
+              <li data-status={detail.webhook.status}>
+                <span>{t('inbox.webhook')}</span>
+                <span class="muted">{statusLabel(detail.webhook.status)}</span>
+                {#if detail.webhook.lastError && detail.webhook.status !== 'delivered'}<span class="code error">{detail.webhook.lastError}</span>{/if}
+              </li>
+            {/if}
+          </ul>
+          {#if detail.webhook?.status === 'failed'}
+            <button type="button" class="button" onclick={resendWebhook}>{@html icons.send}{t('notify.retry')}</button>
           {/if}
         {/if}
         <h3><label for="inbox-note">{t('inbox.note')}</label></h3>

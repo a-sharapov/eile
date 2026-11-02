@@ -154,6 +154,23 @@ const _MESSAGES: Readonly<
     fast: 'Wait a couple of seconds and send it again',
     many: 'Too many submissions — try again in a few minutes',
   },
+  de: {
+    required: 'Bitte füllen Sie dieses Feld aus',
+    email: 'Bitte geben Sie eine E-Mail-Adresse ein: name@example.com',
+    url: 'Bitte geben Sie eine Webadresse ein: https://…',
+    number: 'Bitte geben Sie eine Zahl ein',
+    range: 'Der Wert liegt außerhalb des zulässigen Bereichs',
+    pattern: 'Der Wert entspricht nicht dem erwarteten Format',
+    option: 'Bitte wählen Sie eine Option aus der Liste',
+    short: 'Die Eingabe ist zu kurz',
+    long: 'Die Eingabe ist zu lang',
+    large: 'Die Datei ist zu groß',
+    type: 'Dieser Dateityp ist hier nicht zulässig',
+    invalid: 'Bitte überprüfen Sie Ihre Angaben im Formular',
+    stale: 'Das Formular ist abgelaufen – bitte senden Sie es noch einmal ab',
+    fast: 'Bitte warten Sie einen Moment und senden Sie das Formular dann noch einmal ab',
+    many: 'Zu viele Anfragen – bitte versuchen Sie es in ein paar Minuten erneut',
+  },
 };
 
 /** Тексты на языке сайта; язык без своего словаря — английский. */
@@ -192,6 +209,16 @@ const _TEXTS: Readonly<Record<string, FormTexts>> = {
     failed: 'The form could not be sent.',
     offline: 'No connection to the site. Please try again.',
     tooLarge: 'The files are too large for one submission.',
+  },
+  de: {
+    next: 'Weiter',
+    back: 'Zurück',
+    progress: 'Schritt {n} von {m}',
+    trap: 'Bitte leer lassen',
+    failed: 'Das Formular konnte nicht gesendet werden.',
+    offline:
+      'Keine Verbindung zur Website. Bitte versuchen Sie es noch einmal.',
+    tooLarge: 'Die Dateien sind für eine einzelne Anfrage zu groß.',
   },
 };
 

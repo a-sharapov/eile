@@ -45,6 +45,8 @@ type Settings = Pick<
   | 'minSeconds'
   | 'allowLinks'
   | 'goal'
+  | 'confirmation'
+  | 'webhook'
 >;
 
 let settings = $state<Settings | null>(null);
@@ -90,6 +92,18 @@ const names = (except: FormBlock) =>
   blocks
     .filter((_) => _ !== except && _.kind === 'field')
     .map((_) => (_.kind === 'field' ? _.field.name : ''));
+
+// Откуда письму отправителю взять адрес: поля почты и прочие текстовые, по умолчанию — первое поле почты.
+const addressFields = $derived(
+  blocks.flatMap((_) =>
+    _.kind === 'field' && ['email', 'text', 'hidden'].includes(_.field.kind)
+      ? [{ name: _.field.name, label: _.field.label.replace(/[{}]/g, '') }]
+      : []
+  )
+);
+const hasEmailField = $derived(
+  blocks.some((_) => _.kind === 'field' && _.field.kind === 'email')
+);
 
 // Поля, от которых может зависеть показ этого: видимые посетителю, кроме него самого.
 const others = (except: FormBlock) =>
@@ -190,9 +204,13 @@ const save = () =>
       ...settings,
       source: serializeForm(blocks),
     })
-    .then(
-      () => ((saved = snapshot()), notify(t('formEditor.saved')), loadForms())
-    )
+    // Сервер мог выдать секрет вебхука: настройки — из ответа.
+    .then(({ fields: _fields, source: _source, ...rest }) => {
+      settings = rest;
+      saved = snapshot();
+      notify(t('formEditor.saved'));
+      return loadForms();
+    })
     .then(undefined, failed)
     .finally(() => (busy = false)));
 
@@ -209,6 +227,15 @@ const copyTag = () =>
   navigator.clipboard
     .writeText(`[#Form:${name}]`)
     .then(() => notify(`${t('common.copied')} [#Form:${name}]`), failed);
+
+const copySecret = () =>
+  settings &&
+  navigator.clipboard
+    .writeText(settings.webhook.secret)
+    .then(
+      () => notify(`${t('common.copied')} ${t('formEditor.webhookSecret')}`),
+      failed
+    );
 
 const toggleChannel = (channel: ChannelKind, on: boolean) =>
   settings &&
@@ -359,6 +386,63 @@ crumbs={[{ label: t('nav.forms'), href: resolve('/(app)/forms') }]}
         <p class="muted"><a href={`${resolve('/(app)/settings')}?tab=notify`}>{t('formEditor.channelsSettings')}</a></p>
       </div>
     </section>
+    <section class="form-section">
+      <header><h2>{t('formEditor.confirmTitle')}</h2><p>{t('formEditor.confirmHint')}</p></header>
+      <div class="fields">
+        <label class="option">
+          <input type="checkbox" bind:checked={settings.confirmation.enabled} />
+          <span><strong>{t('formEditor.confirmEnabled')}</strong></span>
+        </label>
+        {#if settings.confirmation.enabled}
+          <label>
+            {t('formEditor.confirmField')}
+            <select bind:value={settings.confirmation.field}>
+              <option value="">{t('formEditor.confirmFieldDefault')}</option>
+              {#each addressFields as item (item.name)}<option value={item.name}>{item.label || item.name} ({item.name})</option>{/each}
+            </select>
+            {#if settings.confirmation.field === '' && !hasEmailField}<small class="warning">{t('formEditor.confirmNoField')}</small>{/if}
+          </label>
+          <label>
+            {t('formEditor.confirmSubject')}
+            <input bind:value={settings.confirmation.subject} maxlength="200" />
+            <small>{t('formEditor.confirmSubjectHint')}</small>
+          </label>
+          <label>
+            {t('formEditor.confirmText')}
+            <textarea rows="6" bind:value={settings.confirmation.text} maxlength="5000" required></textarea>
+            <small>{t('formEditor.confirmTextHint')}</small>
+          </label>
+        {/if}
+      </div>
+    </section>
+  {/if}
+{/snippet}
+
+{#snippet integrationsTab()}
+  {#if settings}
+    <section class="form-section">
+      <header><h2>{t('formEditor.webhookTitle')}</h2><p>{t('formEditor.webhookHint')}</p></header>
+      <div class="fields">
+        <label>
+          {t('formEditor.webhookUrl')}
+          <input class="code" type="url" bind:value={settings.webhook.url} maxlength="2000" spellcheck="false" placeholder="https://" />
+          <small>{t('formEditor.webhookUrlHint')}</small>
+        </label>
+        <div class="secret">
+          <span class="secret-label">{t('formEditor.webhookSecret')}</span>
+          {#if settings.webhook.secret}
+            <div class="secret-row">
+              <code>{settings.webhook.secret}</code>
+              <button type="button" class="button ghost" onclick={copySecret}>{@html icons.copy}{t('common.copy')}</button>
+              <button type="button" class="button ghost" aria-pressed={settings.webhook.renew === true} onclick={() => settings && (settings.webhook = { ...settings.webhook, renew: !settings.webhook.renew })}>{t('formEditor.webhookRenew')}</button>
+            </div>
+            <small class="muted">{settings.webhook.renew ? t('formEditor.webhookRenewPending') : t('formEditor.webhookSecretHint')}</small>
+          {:else}
+            <small class="muted">{t('formEditor.webhookNoSecret')}</small>
+          {/if}
+        </div>
+      </div>
+    </section>
   {/if}
 {/snippet}
 
@@ -399,6 +483,7 @@ crumbs={[{ label: t('nav.forms'), href: resolve('/(app)/forms') }]}
       { id: 'after', label: t('formEditor.tabAfter'), content: afterTab },
       { id: 'notify', label: t('formEditor.tabNotify'), content: notifyTab },
       { id: 'protect', label: t('formEditor.tabProtect'), content: protectTab },
+      { id: 'integrations', label: t('formEditor.tabIntegrations'), content: integrationsTab },
     ]}
   />
 </LoadState>
@@ -612,6 +697,35 @@ crumbs={[{ label: t('nav.forms'), href: resolve('/(app)/forms') }]}
     border: 0.0625rem solid var(--line);
     border-radius: var(--radius-l);
     background: #fff;
+  }
+
+  .secret {
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .secret-label {
+    font-weight: 600;
+  }
+
+  .secret-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .secret-row code {
+    overflow-wrap: anywhere;
+    padding: 0.3rem 0.5rem;
+    border: 0.0625rem solid var(--line);
+    border-radius: var(--radius);
+    background: var(--sunken);
+    font-size: 0.8125rem;
+  }
+
+  .warning {
+    color: var(--danger);
   }
 
   .channels {

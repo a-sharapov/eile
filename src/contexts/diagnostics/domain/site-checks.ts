@@ -267,6 +267,11 @@ export var linkChecks = (index: Indexed, say: CheckTexts): Finding[] => {
 
 const _TAG = /\[\[([A-Z][A-Za-z0-9]*)([^\]]*)\]\]/g;
 
+// Скрытый блок `[[Name hidden]]` ничего не выводит: его список не ведёт к страницам. Слово в кавычках
+// значения — не флаг.
+const _hidden = (props: string): boolean =>
+  /(?:^|\s)hidden(?:=true)?(?=\s|$)/.test(props.replace(/"[^"]*"/g, '""'));
+
 const _visible = (index: Indexed): FactPage[] =>
   index.facts.pages.filter(
     (_) =>
@@ -299,7 +304,9 @@ export var reachable = (
     .flatMap((page) => [
       ...(facts.listers.has(`template/${page.template}`) ? [page.id] : []),
       ...[...page.content.matchAll(_TAG)]
-        .filter((_) => facts.listers.has(`component/${_[1]}`))
+        .filter(
+          (_) => facts.listers.has(`component/${_[1]}`) && !_hidden(_[2] ?? '')
+        )
         .map((_) => {
           const parent = /\bparent\s*=\s*"?(\d+)/.exec(_[2] ?? '');
           return parent ? Number(parent[1]) : page.id;

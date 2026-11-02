@@ -478,12 +478,15 @@ export var messages: Dictionary['messages'] = {
   'inbox.deliveryPending': 'waiting to be sent',
   'inbox.noDeliveries': 'No notifications were sent: no channels are set up.',
   'inbox.spamNoNotice': 'Looks like spam — no notification was sent.',
+  'inbox.confirmation': 'Email to the sender',
+  'inbox.webhook': 'Webhook',
   'inbox.note': 'Note',
   'inbox.notePlaceholder':
     'For example: called back, waiting for an answer by Friday',
   'inbox.saveNote': 'Save note',
   'inbox.saved': 'Submission saved',
   'inbox.resent': 'Sending the notification again',
+  'inbox.webhookResent': 'Sending the submission to the webhook again',
   'inbox.remove': 'Delete',
   'inbox.removeTitle': 'Delete submission?',
   'inbox.removeBody':
@@ -512,6 +515,7 @@ export var messages: Dictionary['messages'] = {
   'formEditor.tabAfter': 'After sending',
   'formEditor.tabNotify': 'Notifications',
   'formEditor.tabProtect': 'Protection and storage',
+  'formEditor.tabIntegrations': 'Integrations',
   'formEditor.save': 'Save',
   'formEditor.saved': 'Form saved',
   'formEditor.remove': 'Delete',
@@ -613,6 +617,20 @@ export var messages: Dictionary['messages'] = {
     'Submissions follow the route set in “Settings → Notifications”.',
   'formEditor.channels': 'This form’s own channels',
   'formEditor.channelsSettings': 'Set up Telegram and email',
+  'formEditor.confirmTitle': 'Email to the sender',
+  'formEditor.confirmHint':
+    'A confirmation to the address from the submission: “Thank you, we have your order.” It goes out through the email set up in Settings → Notifications, only for a submission that passed every check, and at most once per address in 10 minutes.',
+  'formEditor.confirmEnabled': 'Send an email to the sender',
+  'formEditor.confirmField': 'Address from the field',
+  'formEditor.confirmFieldDefault': 'The first Email field',
+  'formEditor.confirmNoField':
+    'The form has no Email field: add one or choose the field with the address.',
+  'formEditor.confirmSubject': 'Subject',
+  'formEditor.confirmSubjectHint':
+    'Empty means the form title. {form} and {field name} work as in the notification subject.',
+  'formEditor.confirmText': 'Email text',
+  'formEditor.confirmTextHint':
+    'Plain text, no markup. {form} is the form title, {field name} is its value: “Hello, {name}!”',
   'formEditor.protectTitle': 'Spam protection',
   'formEditor.protectHint':
     'The bot trap, the one-time stamp and the rate limit always work; here are the parts that depend on the form.',
@@ -625,6 +643,19 @@ export var messages: Dictionary['messages'] = {
   'formEditor.storeHint':
     'Submissions with personal data are deleted after a set period, as data protection laws require.',
   'formEditor.retention': 'Keep submissions, days',
+  'formEditor.webhookTitle': 'Webhook',
+  'formEditor.webhookHint':
+    'Every accepted submission goes to this address as JSON, to a CRM for example. Spam is not sent; a failed delivery is retried up to five times, and the result shows on the submission.',
+  'formEditor.webhookUrl': 'Address',
+  'formEditor.webhookUrlHint':
+    'https://…; leave it empty to turn the webhook off. http:// only for localhost.',
+  'formEditor.webhookSecret': 'Signing secret',
+  'formEditor.webhookSecretHint':
+    'The X-Eile-Signature header holds sha256= and the HMAC-SHA256 of the request body with this secret. The receiver computes it and compares.',
+  'formEditor.webhookNoSecret': 'The secret appears once the address is saved.',
+  'formEditor.webhookRenew': 'New secret',
+  'formEditor.webhookRenewPending':
+    'A new secret is issued when you save; signatures made with the old one will no longer match.',
   'elements.tabSite': 'Site elements',
   'kit.title': 'Component kit',
   'kit.about':
@@ -741,11 +772,11 @@ export var messages: Dictionary['messages'] = {
   'settings.tabUpkeep': 'Backups and updates',
   'settings.tabRedirects': 'Redirects',
   'redirects.intro':
-    'Sends visitors from an address with no page to the right one. An asterisk at the end covers a whole section: /blog/* → /news/* carries over the rest of the address too. A site page takes priority over a rule, and a rule over former page addresses.',
+    'Sends visitors from an address with no page to the right one. /old and /old/ are the same address. An asterisk at the end covers a whole section: /blog/* → /news/* carries over the rest of the address too. A site page takes priority over a rule, and a rule over former page addresses.',
   'redirects.from': 'From',
   'redirects.to': 'To',
   'redirects.toHint':
-    'A path, a full URL or a page as [~id~] — it’s found even after the page moves',
+    'A path, a full URL or a page as [~id~] — it’s found even after the page moves. An anchor is fine too: /faq#delivery',
   'redirects.code': 'Code',
   'redirects.code301': '301 — permanent',
   'redirects.code302': '302 — temporary',
@@ -1415,6 +1446,10 @@ export var messages: Dictionary['messages'] = {
   'blocks.extra': 'Other parameters:',
   'blocks.default': 'Default:',
   'blocks.byDefault': 'default',
+  'blocks.hidden': 'Hidden',
+  'blocks.hide': 'Hide on the site',
+  'blocks.hiddenNote':
+    'The block stays in the page text, but visitors, search and the Markdown version don’t see it.',
   'picker.image': 'Image from the media library',
   'picker.file': 'File from the media library',
   'picker.search': 'Search by name',
@@ -1635,6 +1670,15 @@ export var errors: Dictionary['errors'] = {
   'forms.invalid_status': 'There’s no such status.',
   'forms.no_deliveries':
     'No notifications were sent for this submission — there’s nothing to resend.',
+  'forms.no_webhook': 'This submission was not sent to a webhook.',
+  'forms.invalid_webhook':
+    'The webhook address is https://…; http:// only for localhost and 127.0.0.1.',
+  'forms.invalid_confirmation':
+    'The email to the sender needs a text and a field with the email address.',
+  'forms.reserved_cookie':
+    'This is a cookie of the CMS itself (cms_…, __Host-…, __Secure-…): a form field cannot take its value.',
+  'forms.invalid_cookie':
+    'This is not a cookie name: Latin letters, digits and signs like _ - . without spaces.',
   'manager.kit_changed':
     'This component was changed on the site — it can be restored from the kit only on explicit confirmation.',
   'manager.kit_not_found': 'The kit has no such component.',

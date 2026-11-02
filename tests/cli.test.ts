@@ -76,6 +76,21 @@ describe('разбор вызова', () => {
     });
   });
 
+  it('кэш медиатеки — флаг или CMS_MEDIA_CACHE; без них — по умолчанию у базы', () => {
+    const cache = (argv: string[], env: Record<string, string>) =>
+      ((_) => ('options' in _ ? _.options.mediaCache : null))(
+        parseInvocation(argv, env)
+      );
+    expect(cache(['--media-cache', '/var/cache/cms'], {})).toBe(
+      '/var/cache/cms'
+    );
+    expect(cache([], { CMS_MEDIA_CACHE: '/srv/media' })).toBe('/srv/media');
+    expect(cache(['--media-cache', 'flag'], { CMS_MEDIA_CACHE: 'env' })).toBe(
+      'flag'
+    );
+    expect(cache([], { CMS_MEDIA_CACHE: '' })).toBeUndefined();
+  });
+
   it('аргументы команды и короткие флаги', () => {
     expect(
       parseInvocation(

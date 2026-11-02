@@ -472,11 +472,14 @@ export var messages = {
   'inbox.deliveryPending': 'ждёт отправки',
   'inbox.noDeliveries': 'Уведомлений не было: каналы не настроены.',
   'inbox.spamNoNotice': 'Похоже на спам — уведомление не отправлялось.',
+  'inbox.confirmation': 'Письмо отправителю',
+  'inbox.webhook': 'Вебхук',
   'inbox.note': 'Заметка',
   'inbox.notePlaceholder': 'Например: перезвонили, ждём ответа до пятницы',
   'inbox.saveNote': 'Сохранить заметку',
   'inbox.saved': 'Заявка сохранена',
   'inbox.resent': 'Отправляем уведомление ещё раз',
+  'inbox.webhookResent': 'Отправляем заявку на вебхук ещё раз',
   'inbox.remove': 'Удалить',
   'inbox.removeTitle': 'Удалить заявку?',
   'inbox.removeBody':
@@ -505,6 +508,7 @@ export var messages = {
   'formEditor.tabAfter': 'После отправки',
   'formEditor.tabNotify': 'Уведомления',
   'formEditor.tabProtect': 'Защита и хранение',
+  'formEditor.tabIntegrations': 'Интеграции',
   'formEditor.save': 'Сохранить',
   'formEditor.saved': 'Форма сохранена',
   'formEditor.remove': 'Удалить',
@@ -604,6 +608,20 @@ export var messages = {
     'Заявки уходят по маршруту из «Настройки → Уведомления».',
   'formEditor.channels': 'Свои каналы этой формы',
   'formEditor.channelsSettings': 'Настроить Telegram и почту',
+  'formEditor.confirmTitle': 'Письмо отправителю',
+  'formEditor.confirmHint':
+    'Подтверждение на адрес из заявки: «Спасибо, заказ получен». Уходит через почту из «Настройки → Уведомления», только за заявку, которая прошла все проверки, и не чаще одного письма на адрес за 10 минут.',
+  'formEditor.confirmEnabled': 'Отправлять письмо отправителю',
+  'formEditor.confirmField': 'Адрес из поля',
+  'formEditor.confirmFieldDefault': 'Первое поле «Почта»',
+  'formEditor.confirmNoField':
+    'В форме нет поля «Почта»: добавьте его или выберите поле с адресом.',
+  'formEditor.confirmSubject': 'Тема письма',
+  'formEditor.confirmSubjectHint':
+    'Пусто — название формы. {form} и {имя поля} — как в теме уведомления.',
+  'formEditor.confirmText': 'Текст письма',
+  'formEditor.confirmTextHint':
+    'Обычный текст, без разметки. {form} — название формы, {имя поля} — его значение: «Здравствуйте, {name}!».',
   'formEditor.protectTitle': 'Защита от спама',
   'formEditor.protectHint':
     'Ловушка для ботов, одноразовая печать и лимит отправок работают всегда; здесь — то, что зависит от формы.',
@@ -616,6 +634,19 @@ export var messages = {
   'formEditor.storeHint':
     'Заявки с личными данными удаляются по сроку — так требует 152-ФЗ.',
   'formEditor.retention': 'Хранить заявки, дней',
+  'formEditor.webhookTitle': 'Вебхук',
+  'formEditor.webhookHint':
+    'Каждая принятая заявка уходит JSON-ом на этот адрес — например, в CRM. Спам не уходит; неудачная отправка повторяется до пяти раз, итог виден в карточке заявки.',
+  'formEditor.webhookUrl': 'Адрес',
+  'formEditor.webhookUrlHint':
+    'https://…; пусто — вебхук выключен. http:// — только для localhost.',
+  'formEditor.webhookSecret': 'Секрет подписи',
+  'formEditor.webhookSecretHint':
+    'Заголовок X-Eile-Signature: sha256= и HMAC-SHA256 тела запроса этим секретом. Приёмник считает подпись сам и сравнивает.',
+  'formEditor.webhookNoSecret': 'Секрет появится после сохранения адреса.',
+  'formEditor.webhookRenew': 'Новый секрет',
+  'formEditor.webhookRenewPending':
+    'Новый секрет выдадим при сохранении — со старым подпись перестанет сходиться.',
   'elements.tabSite': 'Элементы сайта',
   'kit.title': 'Набор компонентов',
   'kit.about':
@@ -732,11 +763,11 @@ export var messages = {
   'settings.tabUpkeep': 'Копии и обновления',
   'settings.tabRedirects': 'Редиректы',
   'redirects.intro':
-    'Переадресация с адреса, где страницы нет, на нужный. Звёздочка в конце — весь раздел: /blog/* → /news/* переносит и остаток адреса. Страница сайта важнее правила, правило важнее прежних адресов страниц.',
+    'Переадресация с адреса, где страницы нет, на нужный. /old и /old/ — один адрес. Звёздочка в конце — весь раздел: /blog/* → /news/* переносит и остаток адреса. Страница сайта важнее правила, правило важнее прежних адресов страниц.',
   'redirects.from': 'Откуда',
   'redirects.to': 'Куда',
   'redirects.toHint':
-    'Адрес, полный URL или страница [~id~] — она найдётся и после переноса',
+    'Адрес, полный URL или страница [~id~] — она найдётся и после переноса. Можно с якорем: /faq#dostavka',
   'redirects.code': 'Код',
   'redirects.code301': '301 — навсегда',
   'redirects.code302': '302 — временно',
@@ -1396,6 +1427,10 @@ export var messages = {
   'blocks.extra': 'Другие параметры:',
   'blocks.default': 'По умолчанию:',
   'blocks.byDefault': 'по умолчанию',
+  'blocks.hidden': 'Скрыт',
+  'blocks.hide': 'Скрыть на сайте',
+  'blocks.hiddenNote':
+    'Блок остаётся в тексте страницы, но посетители, поиск и Markdown-версия его не видят.',
   'picker.image': 'Изображение из медиатеки',
   'picker.file': 'Файл из медиатеки',
   'picker.search': 'Поиск по имени',
@@ -1605,6 +1640,15 @@ export var errors = {
   'forms.invalid_status': 'Такого статуса нет.',
   'forms.no_deliveries':
     'Уведомлений по этой заявке не было — отправлять нечего.',
+  'forms.no_webhook': 'Эта заявка на вебхук не уходила.',
+  'forms.invalid_webhook':
+    'Адрес вебхука — https://…; http:// — только localhost и 127.0.0.1.',
+  'forms.invalid_confirmation':
+    'Письму отправителю нужны текст и поле с адресом почты.',
+  'forms.reserved_cookie':
+    'Это cookie самой CMS (cms_…, __Host-…, __Secure-…): поле формы её значение не берёт.',
+  'forms.invalid_cookie':
+    'Это не имя cookie: латиница, цифры и знаки вроде _ - . без пробелов.',
   'manager.kit_changed':
     'Компонент на сайте изменён — вернуть его из набора можно только явно.',
   'manager.kit_not_found': 'Такого компонента в наборе нет.',

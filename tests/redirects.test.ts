@@ -33,6 +33,16 @@ const code = (run: () => unknown): string | null =>
 
 const pageId = (path: string): number => app.content.published.byPath(path)!.id;
 
+// Все переадресации до ответа без Location: каждая — отдельный запрос; внешний адрес — последний шаг.
+const hops = async (path: string, left = 5): Promise<string[]> => {
+  const location = (await get(path)).headers.get('location');
+  return location === null
+    ? []
+    : location.startsWith('/') && left > 0
+      ? [location, ...(await hops(location, left - 1))]
+      : [location];
+};
+
 beforeEach(async () => {
   app = createApp({ scaffold: DEMO });
   admin = cookieOf(
@@ -143,6 +153,67 @@ describe('правила переадресации на сайте', () => {
     });
     app.redirects.rules.remove(rule.id);
     expect(app.redirects.rules.list()).toEqual([]);
+  });
+});
+
+describe('старый адрес со слэшем на конце', () => {
+  it('/old/ и /old ведут к цели правила одним 301, query сохраняется', async () => {
+    app.redirects.rules.create({ from: '/old-page', to: '/kontakty' });
+    const moved = await get('/old-page/?utm_source=mail');
+    expect(moved.status).toBe(301);
+    expect(moved.headers.get('location')).toBe('/kontakty?utm_source=mail');
+    expect(await hops('/old-page/')).toEqual(['/kontakty']);
+    expect(await hops('/old-page')).toEqual(['/kontakty']);
+    expect(await hops('//old-page//')).toEqual(['/kontakty']);
+    expect(app.redirects.rules.list()[0]!.hits).toBe(4);
+  });
+
+  it('раздел со звёздочкой: адрес со слэшем — сразу в цель, остаток без слэша', async () => {
+    app.redirects.rules.create({ from: '/news/*', to: '/blog/*' });
+    expect(await hops('/news/2024/spring/?ref=menu')).toEqual([
+      '/blog/2024/spring?ref=menu',
+    ]);
+    expect((await get('/news/')).headers.get('location')).toBe('/blog');
+  });
+
+  it('правило на весь сайт /* не перехватывает живые страницы со слэшем', async () => {
+    app.redirects.rules.create({ from: '/*', to: 'https://old.example/*' });
+    expect(await hops('/wp-content/uploads/a.jpg/')).toEqual([
+      'https://old.example/wp-content/uploads/a.jpg',
+    ]);
+    expect(await hops('/kontakty/')).toEqual(['/kontakty']);
+  });
+
+  it('якорь цели доходит до Location как есть: путь, страница, URL; query — перед якорем', async () => {
+    const contacts = pageId('/kontakty');
+    app.redirects.rules.create({ from: '/map', to: '/kontakty#map' });
+    app.redirects.rules.create({ from: '/office', to: `[~${contacts}~]#form` });
+    app.redirects.rules.create({
+      from: '/docs',
+      to: 'https://docs.example/a#b',
+    });
+    expect(await hops('/map/?x=1')).toEqual(['/kontakty?x=1#map']);
+    expect(await hops('/office/')).toEqual(['/kontakty#form']);
+    expect(await hops('/docs/')).toEqual(['https://docs.example/a#b']);
+    app.content.pages.edit(contacts, { alias: 'svyaz' });
+    expect(await hops('/office')).toEqual(['/svyaz#form']);
+  });
+
+  it('CSV со слэшами и якорем: одна переадресация на старый адрес', async () => {
+    const report = app.redirects.rules.import(
+      'from;to\n/ueber-uns/;/o-proekte/#team\n/kategorie/*;/blog/*\n'
+    );
+    expect(report).toMatchObject({ added: 2, updated: 0, skipped: [] });
+    expect(await hops('/ueber-uns/')).toEqual(['/o-proekte#team']);
+    expect(await hops('/kategorie/kuechen/')).toEqual(['/blog/kuechen']);
+  });
+
+  it('без правила — как раньше: /b/ → /b; прежний адрес страницы — сразу на новый', async () => {
+    expect(await hops('/b/')).toEqual(['/b']);
+    expect((await get('/b')).status).toBe(404);
+    expect(await hops('/o-proekte/')).toEqual(['/o-proekte']);
+    app.content.pages.edit(pageId('/o-proekte'), { alias: 'about' });
+    expect(await hops('/o-proekte/')).toEqual(['/about']);
   });
 });
 
