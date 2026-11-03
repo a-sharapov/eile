@@ -21,6 +21,7 @@ export type { Release, UpdateInfo } from './domain/version.ts';
 export { compareVersions } from './domain/version.ts';
 export {
   buildTarget,
+  restorePrevious,
   type UpdateResult,
   updateProgram,
 } from './infrastructure/installer.ts';

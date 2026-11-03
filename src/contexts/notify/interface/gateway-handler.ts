@@ -1,15 +1,17 @@
+import { bytesOf, readBody, spoolBody } from '../../../platform/body.ts';
 import { attempt } from '../../../shared/kernel/errors.ts';
 import type {
   GatewayOutcome,
   GatewaySent,
   GatewayService,
 } from '../application/gateway-service.ts';
+import type { GatewayToken } from '../domain/gateway.ts';
 import type { SmtpProbe } from '../domain/ports.ts';
 import type { GatewayStatus } from '../domain/settings.ts';
 
 /**
  * Потолок тела запроса: письмо с вложениями в base64. Больше почтовые серверы обычно и не принимают,
- * а тело читается в память целиком.
+ * а тело — JSON: оно разбирается в памяти целиком.
  */
 export var GATEWAY_BODY_LIMIT = 40 * 1024 * 1024;
 
@@ -64,41 +66,42 @@ const _bearer = (request: Request): string | null =>
 
 const _TOO_LARGE = 'The gateway request body is too large';
 
-// Счётчик байтов в потоке: ни ложный Content-Length, ни chunked не протащат больше потолка.
-const _counting = (limit: number): TransformStream<Uint8Array, Uint8Array> => {
-  let size = 0;
-  return new TransformStream({
-    transform: (chunk, controller) =>
-      (size += chunk.byteLength) > limit
-        ? controller.error(new Error(_TOO_LARGE))
-        : controller.enqueue(chunk),
-  });
-};
-
 type _Read =
-  | { readonly body: unknown }
+  | { readonly body: unknown; readonly size: number }
   | { readonly outcome: 'too_large' | 'invalid_json' };
 
-const _read = (request: Request): Promise<_Read> =>
-  Number(request.headers.get('content-length') ?? 0) > GATEWAY_BODY_LIMIT
-    ? Promise.resolve({ outcome: 'too_large' })
-    : new Response(
-        request.body?.pipeThrough(_counting(GATEWAY_BODY_LIMIT)) ?? null
-      )
+// После большого тела — полная сборка мусора: текст тела, его base64 и куски письма уходят из памяти
+// сразу, а не когда-нибудь потом. Сборка останавливает сервер на 5–20 мс, поэтому только после тел от
+// 4 МБ (ADR 0043).
+const _BIG = 4 * 1024 * 1024;
+
+const _collect = (size: number): void => void (size >= _BIG && Bun.gc(true));
+
+// Тело — во временный файл на диске, без него — одним буфером; в память оно приходит уже текстом, и
+// пока идёт JSON.parse, рядом нет ни буфера, ни кусков, из которых он собран (ADR 0043).
+const _read = (request: Request, spool: () => string | null): Promise<_Read> =>
+  ((tooLarge, path) =>
+    (path === null
+      ? readBody(request, GATEWAY_BODY_LIMIT, tooLarge).then(bytesOf)
+      : spoolBody(request, GATEWAY_BODY_LIMIT, tooLarge, path)
+    ).then((body) =>
+      body
         .text()
-        .then(
-          (text): _Read =>
-            attempt<_Read>(
-              () => ({ body: JSON.parse(text) as unknown }),
-              () => ({ outcome: 'invalid_json' })
-            ),
-          (error): _Read => ({
-            outcome:
-              error instanceof Error && error.message === _TOO_LARGE
-                ? 'too_large'
-                : 'invalid_json',
-          })
-        );
+        .then((text) => ({ text, size: body.size }))
+        .finally(body.close)
+    ))(() => new Error(_TOO_LARGE), spool()).then(
+    ({ text, size }): _Read =>
+      attempt<_Read>(
+        () => ({ body: JSON.parse(text) as unknown, size }),
+        () => ({ outcome: 'invalid_json' })
+      ),
+    (error): _Read => ({
+      outcome:
+        error instanceof Error && error.message === _TOO_LARGE
+          ? 'too_large'
+          : 'invalid_json',
+    })
+  );
 
 // Как у PHP-шлюза: ?probe=1 — да, пусто и 0 — нет.
 const _probeWanted = (url: URL): boolean =>
@@ -155,9 +158,12 @@ const _status = (
 export var defineGatewayHandler = ({
   gateway,
   clock,
+  spool,
 }: {
   gateway: GatewayService;
   clock: () => Date;
+  /** Временный файл для тела запроса на диске; null — тело читается в память. */
+  spool: () => string | null;
 }) => {
   const finish = (sent: GatewaySent, token: string | null = null): Response => (
     gateway.record({ ...sent, token }), _answer(sent.outcome)
@@ -165,6 +171,18 @@ export var defineGatewayHandler = ({
 
   const refused = (outcome: GatewayOutcome): Promise<Response> =>
     Promise.resolve(finish({ outcome, ..._NOTHING }));
+
+  // Тело — аргументом: замыкание ответа держит размер, а не разобранное письмо.
+  const deliver = (
+    token: GatewayToken,
+    size: number,
+    body: unknown
+  ): Promise<Response> => (
+    _collect(size),
+    gateway
+      .send(body, token)
+      .then((sent) => (_collect(size), finish(sent, token.label)))
+  );
 
   const post = (request: Request, client: string): Promise<Response> =>
     ((state) =>
@@ -175,15 +193,13 @@ export var defineGatewayHandler = ({
           : ((token) =>
               token === null
                 ? refused('unauthorized')
-                : _read(request).then((read) =>
+                : _read(request, spool).then((read) =>
                     'outcome' in read
                       ? finish(
                           { outcome: read.outcome, ..._NOTHING },
                           token.label
                         )
-                      : gateway
-                          .send(read.body, token)
-                          .then((sent) => finish(sent, token.label))
+                      : deliver(token, read.size, read.body)
                   ))(gateway.authorize(_bearer(request))))(gateway.state());
 
   // Проверка почтового сервера открывает соединение: она — в пределе запросов, простой GET — нет.

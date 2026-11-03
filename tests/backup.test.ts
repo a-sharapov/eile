@@ -107,9 +107,10 @@ describe('копия сайта', () => {
     expect(archive.format).toBe('cms-archive');
     expect(archive.migrations).toContain('media/002_alt');
     expect(Object.keys(archive.tables)).not.toContain('identity_sessions');
-    expect(archive.tables.media_files[0].data.$base64).toBe(
+    expect(archive.tables.media_chunks[0].data.$base64).toBe(
       Buffer.from('png').toString('base64')
     );
+    expect(archive.tables.media_files[0].data).toBeUndefined();
 
     await call('PATCH', `/pages/${contacts()}`, { title: 'Другое' });
     app.media.files.remove('images/logo.png');
@@ -120,6 +121,46 @@ describe('копия сайта', () => {
     );
     expect(app.content.drafts.view(contacts())?.title).toBe('Контакты');
     expect(app.media.files.read('images/logo.png')).not.toBeNull();
+  });
+
+  it('JSON прежней версии, где файл целиком в media_files, восстанавливается кусками', async () => {
+    const big = new Uint8Array(2_500_000).map((_, i) => (i * 7) % 256);
+    const saved = app.media.files.save({ path: 'video/clip.mp4', data: big });
+    const archive = JSON.parse(
+      new TextDecoder().decode(await download('json'))
+    );
+    // Так писала копию версия до кусков: содержимое — колонка data, миграции media/005 нет.
+    const old = {
+      ...archive,
+      migrations: archive.migrations.filter(
+        (_: string) => _ !== 'media/005_chunks'
+      ),
+      tables: {
+        ...Object.fromEntries(
+          Object.entries(archive.tables).filter(
+            ({ 0: name }) => name !== 'media_chunks'
+          )
+        ),
+        media_files: archive.tables.media_files.map(
+          (_: Record<string, unknown>) => ({
+            ..._,
+            data: { $base64: big.toBase64() },
+          })
+        ),
+      },
+    };
+    app.media.files.remove('video/clip.mp4');
+    await call(
+      'POST',
+      '/backup',
+      new TextEncoder().encode(JSON.stringify(old))
+    );
+    const file = app.media.files.read('video/clip.mp4')!;
+    expect(file.meta).toEqual(saved);
+    expect(Bun.deepEquals(file.data(), big)).toBe(true);
+    expect(file.chunk(1_048_570, 12)).toEqual(
+      big.subarray(1_048_570, 1_048_582)
+    );
   });
 
   it('чужой файл, битый JSON и копия из более новой версии не принимаются', async () => {

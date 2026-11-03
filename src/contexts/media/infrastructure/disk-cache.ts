@@ -1,10 +1,10 @@
-import { readdirSync, rmdirSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, readdirSync, rmdirSync, rmSync, statSync } from 'node:fs';
 import { mkdir, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { attempt } from '../../../shared/kernel/errors.ts';
 import { pipe } from '../../../shared/kernel/pipe.ts';
 import type { MediaFile } from '../domain/media.ts';
-import type { MediaCache, MediaContent } from '../domain/ports.ts';
+import type { MediaCache, MediaPiece } from '../domain/ports.ts';
 
 /** Каталог кэша рядом с базой: site.db → site.media-cache; у базы в памяти кэша нет. */
 export var mediaCacheDir = (databasePath: string): string | null =>
@@ -21,6 +21,8 @@ const _FOLDER = /^[a-z0-9][a-z0-9._@-]*(~[a-z0-9][a-z0-9._@-]*)*$/;
 // Версия — хэш содержимого (`MediaFile.hash`); недописанная — `.<хэш>.<uuid>.part` рядом.
 const _VERSION = /^[0-9a-f]{16}$/;
 const _PART = /^\.[0-9a-f]{16}\.[0-9a-f-]+\.part$/;
+// Тело загрузки, пока оно разбирается, — в корне каталога: `.upload.<uuid>.part`.
+const _UPLOAD = /^\.upload\.[0-9a-f-]+\.part$/;
 
 // Недописанный файл старше часа — остаток упавшего процесса; моложе — его, возможно, ещё пишут.
 const _STALE_PART_MS = 3_600_000;
@@ -83,15 +85,47 @@ const _tidy = (folder: string, keep: string | null, before: number): number =>
     removed
   ))(_prune(folder, keep, before));
 
-// Временный файл в той же папке и переименование: недописанный файл не отдаётся никогда.
-const _write = (target: string, data: Uint8Array): Promise<unknown> =>
+// Куски из базы — в файл по одному: в памяти один кусок, а не весь файл. Кусок другой версии (файл
+// заменили, пока шла выгрузка) обрывает поток: под этим хэшем другого содержимого быть не может.
+const _pieces = (
+  file: MediaFile,
+  piece: (n: number) => MediaPiece | null
+): ReadableStream<Uint8Array> => {
+  let n = 0;
+  let size = 0;
+  return new ReadableStream(
+    {
+      pull: (controller) =>
+        ((found) =>
+          found === null || found.hash !== file.hash
+            ? controller.close()
+            : ((n += 1),
+              (size += found.data.byteLength),
+              controller.enqueue(found.data)))(
+          size < file.size ? piece(n) : null
+        ),
+    },
+    { highWaterMark: 0 }
+  );
+};
+
+// Временный файл в той же папке и переименование: недописанный файл не отдаётся никогда. Ответ false —
+// выгрузка оборвалась на другой версии файла, временный файл удалён.
+const _write = (
+  target: string,
+  file: MediaFile,
+  piece: (n: number) => MediaPiece | null
+): Promise<boolean> =>
   ((part) =>
     Promise.resolve(dirname(target))
       .then(
         pipe(
           (_: string) => mkdir(_, { recursive: true, mode: 0o700 }),
-          () => Bun.write(part, data),
-          () => rename(part, target)
+          () => Bun.write(part, new Response(_pieces(file, piece))),
+          (written) =>
+            written === file.size
+              ? rename(part, target).then(() => true)
+              : rm(part, { force: true }).then(() => false)
         )
       )
       .then(undefined, (error) =>
@@ -107,6 +141,7 @@ const _NONE: MediaCache = {
   local: () => Promise.resolve(null),
   forget: () => undefined,
   sweep: () => 0,
+  spool: () => null,
 };
 
 const _disk = (dir: string, now: () => number): MediaCache => {
@@ -130,15 +165,12 @@ const _disk = (dir: string, now: () => number): MediaCache => {
   const extract = (
     target: string,
     file: MediaFile,
-    content: () => MediaContent | null
+    piece: (n: number) => MediaPiece | null
   ): Promise<Blob | null> =>
-    Promise.resolve()
-      .then(content)
-      .then((found) =>
-        found === null || found.hash !== file.hash
-          ? null
-          : _write(target, found.data).then(() => Bun.file(target), failed)
-      );
+    _write(target, file, piece).then(
+      (whole) => (whole ? Bun.file(target) : null),
+      failed
+    );
 
   // Одновременные промахи по одному файлу ждут одну выгрузку.
   const once = (
@@ -150,7 +182,7 @@ const _disk = (dir: string, now: () => number): MediaCache => {
       run().finally(() => void pending.delete(target))
     );
 
-  const local: MediaCache['local'] = (file, content) =>
+  const local: MediaCache['local'] = (file, piece) =>
     ((target) =>
       target === null
         ? Promise.resolve(null)
@@ -158,7 +190,7 @@ const _disk = (dir: string, now: () => number): MediaCache => {
           ? Promise.resolve(Bun.file(target))
           : now() < resumeAt
             ? Promise.resolve(null)
-            : once(target, () => extract(target, file, content)))(
+            : once(target, () => extract(target, file, piece)))(
       _target(dir, file)
     );
 
@@ -169,21 +201,41 @@ const _disk = (dir: string, now: () => number): MediaCache => {
         _folderOf(path)
       ),
     sweep: (live) =>
-      ((keep, before) =>
-        attempt(
-          () => readdirSync(dir, { withFileTypes: true }),
-          () => []
-        )
+      ((keep, before, entries) =>
+        entries
           .filter((_) => _.isDirectory() && _isFolder(_.name))
           .reduce(
             (removed, _) =>
               removed +
               _tidy(join(dir, _.name), keep.get(_.name) ?? null, before),
             0
-          ))(
+          ) +
+        entries
+          .filter(
+            (_) =>
+              _.isFile() &&
+              _UPLOAD.test(_.name) &&
+              _modified(join(dir, _.name)) < before
+          )
+          .reduce((removed, _) => removed + _unlink(join(dir, _.name)), 0))(
         new Map(live.map((_) => [_folderOf(_.path), _.hash])),
-        now() - _STALE_PART_MS
+        now() - _STALE_PART_MS,
+        attempt(
+          () => readdirSync(dir, { withFileTypes: true }),
+          () => []
+        )
       ),
+    // Пока кэш отдыхает после сбоя записи, тело загрузки идёт в память.
+    spool: () =>
+      now() < resumeAt
+        ? null
+        : attempt(
+            () => (
+              mkdirSync(dir, { recursive: true, mode: 0o700 }),
+              join(dir, `.upload.${Bun.randomUUIDv7()}.part`)
+            ),
+            failed
+          ),
   };
 };
 

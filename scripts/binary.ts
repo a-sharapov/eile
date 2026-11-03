@@ -45,6 +45,10 @@ export var prepareEntry = (): Promise<number> =>
       Bun.write(ENTRY, _entry(files, runtime)).then(() => files.length)
     );
 
-/** Бинарник из входного файла: под эту машину или под `target` другой платформы (`bun-linux-arm64`…). */
+/**
+ * Бинарник из входного файла: под эту машину или под `target` другой платформы (`bun-linux-arm64`…).
+ * Код вшит байткодом JavaScriptCore: команды и сервер стартуют быстрее, бинарник на 6 МБ больше (ADR 0023).
+ * Байткод без --format=esm собирается как CommonJS, а входной файл ждёт main.ts через await верхнего уровня.
+ */
 export var compile = (outfile: string, target?: string): Promise<unknown> =>
-  $`bun build --compile --minify ${target ? [`--target=${target}`] : []} --define process.env.NODE_ENV='"production"' ${ENTRY} --outfile ${outfile}`.quiet();
+  $`bun build --compile --minify --bytecode --format=esm ${target ? [`--target=${target}`] : []} --define process.env.NODE_ENV='"production"' ${ENTRY} --outfile ${outfile}`.quiet();

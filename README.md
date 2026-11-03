@@ -96,7 +96,8 @@ CMS_NO_MODIFY_PATH=1 bash install.sh           # не трогать файлы 
 с `SHA256SUMS`, распакуйте `gunzip` и сделайте файл исполняемым. Второе имя — `ln -s cms eile` в том же
 каталоге.
 
-Обновление — тот же установщик ещё раз; работающий сервер перезапустите.
+Обновление — `sudo cms update` или тот же установщик ещё раз. `cms update` сам перезапускает службу из
+`cms service install`; сервер, запущенный иначе, перезапустите.
 
 ## Быстрый старт
 
@@ -157,50 +158,46 @@ claude mcp add site -- cms mcp --db /srv/site.db  # агент правит ст
 
 ## На сервере
 
-Проще всего — без прокси: с `--domain` сервер сам получает сертификат Let's Encrypt, продлевает его и
-переводит HTTP на HTTPS ([ADR 0028](docs/adr/0028-https-without-proxy.md)). DNS домена должен указывать
-на сервер, порты 80 и 443 — быть открыты.
-
-```ini
-# /etc/systemd/system/cms.service
-[Unit]
-Description=Eile CMS
-After=network.target
-
-[Service]
-ExecStart=/usr/local/bin/cms --domain example.com,www.example.com --email you@example.com
-Environment=CMS_DB=/var/lib/cms/site.db
-DynamicUser=yes
-StateDirectory=cms
-# Порты 80 и 443 без root.
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Без systemd право на порты даёт `sudo setcap cap_net_bind_service=+ep "$(command -v cms)"` — заново после
-каждого обновления бинарника. Попробовать без лимитов боевого центра — `--acme-staging`: сертификат
-выпустится, но браузеры ему не поверят.
-
-За своим nginx или Caddy запускайте с `--trust-proxy` вместо `--domain`: протокол, адрес сайта и
-посетителя берутся из `X-Forwarded-*`, cookie входа получает `Secure`. Без прокси этот флаг не включайте —
-эти заголовки подделает любой. В «Настройках» задайте адрес сайта: по нему строятся canonical, sitemap и
-проверка Origin.
+Одна команда ставит сайт службой systemd: свой пользователь в песочнице, база в `/var/lib/cms`, перезапуск
+после сбоя и HTTPS от Let's Encrypt без прокси ([ADR 0042](docs/adr/0042-service-install.md),
+[ADR 0028](docs/adr/0028-https-without-proxy.md)).
 
 ```sh
-sudo systemctl enable --now cms
+sudo cms service install --domain example.com,www.example.com --email you@example.com
 ```
+
+DNS домена должен указывать на сервер, порты 80 и 443 — быть открыты. Команда проверит порты, DNS и память,
+включит службу, дождётся ответа сайта и напечатает адреса сайта и менеджера, а на новой базе — ссылку, по
+которой создаётся администратор. Сайт, сделанный у себя, переезжает той же командой: `--from site.db` кладёт
+в службу согласованную копию базы, можно и с работающего сервера. Попробовать без лимитов боевого центра —
+`--acme-staging`: сертификат выпустится, но браузеры ему не поверят.
+
+За своим nginx или Caddy — `--trust-proxy`: служба слушает только `127.0.0.1:8080` (`--port` — другой порт),
+протокол, адрес сайта и посетителя берутся из `X-Forwarded-*`, cookie входа получает `Secure`. В «Настройках»
+задайте адрес сайта: по нему строятся canonical, sitemap и проверка Origin.
+
+```sh
+sudo cms service install --trust-proxy   # в nginx: proxy_pass http://127.0.0.1:8080;
+cms service status                       # работает ли, с какого времени, версия, адрес, память
+cms service logs -f                      # журнал службы
+sudo cms update                          # новая версия: копия базы, перезапуск, не поднялась — откат
+sudo cms service uninstall               # остановить и удалить службу; база и копии остаются
+```
+
+На машине меньше 1 ГиБ без подкачки команда предупредит и напечатает, как сделать файл подкачки: на дроплете в
+512 МБ сайт без неё может не пережить загрузку большого файла под нагрузкой. Сама она подкачку не создаёт.
+
+Юнит, который пишет команда, показывает `cms service install … --print` — ничего не меняя, без root. Его
+можно поставить и руками: в `/etc/systemd/system/cms.service`, затем `sudo systemctl enable --now cms`. Без
+systemd право на порты 80 и 443 даёт `sudo setcap cap_net_bind_service=+ep "$(command -v cms)"` — заново после
+каждого обновления бинарника.
 
 Медиатека хранится в базе, а отдаётся с диска: при первом запросе файл ложится в папку `site.media-cache`
 рядом с базой, дальше картинки и видео уходят без копии в памяти. Это кэш: в копию сайта он не входит, удалить
 его можно когда угодно, восстановление копии его стирает, а раз в сутки сервер убирает из него файлы, которых
-больше нет. Другая папка — `--media-cache` или `CMS_MEDIA_CACHE`, в systemd, например, `CacheDirectory=cms` и
-`Environment=CMS_MEDIA_CACHE=/var/cache/cms`. Если папка не пишется (диск только для чтения, кончилось
-место), сайт работает и так: файлы идут из базы, в журнале — одна строка
-([ADR 0038](docs/adr/0038-media-cache.md)).
+больше нет. Служба держит его в `/var/cache/cms` (`CacheDirectory`), другая папка — `--media-cache` или
+`CMS_MEDIA_CACHE`. Если папка не пишется (диск только для чтения, кончилось место), сайт работает и так: файлы
+идут из базы, в журнале — одна строка ([ADR 0038](docs/adr/0038-media-cache.md)).
 
 ## Документация
 

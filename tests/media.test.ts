@@ -4,7 +4,11 @@ import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type App, createApp } from '../src/app.ts';
-import type { MediaFile } from '../src/contexts/media/index.ts';
+import {
+  type MediaFile,
+  mediaMigrations,
+} from '../src/contexts/media/index.ts';
+import { migrate } from '../src/platform/database.ts';
 import { attempt, isDomainError } from '../src/shared/kernel/errors.ts';
 import { DEMO } from './fixtures/demo.ts';
 
@@ -410,22 +414,42 @@ describe('размеры картинок', () => {
     ]);
   });
 
-  it('миграция дописывает размеры картинкам, которые лежат без них', () => {
+  it('миграции старой базы: размеры картинок из файла, содержимое — в куски', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cms-sizes-'));
     const path = join(dir, 'site.db');
-    const site = createApp({ databasePath: path });
-    site.media.files.save({ path: 'img/old.png', data: png(1024, 768) });
-    site.media.files.save({
-      path: 'img/old.svg',
-      data: bytes('<svg width="40" height="30"/>'),
-    });
-    site.media.files.save({ path: 'img/broken.jpg', data: bytes('jpg') });
-    site.media.files.save({ path: 'docs/a.txt', data: bytes('a') });
-    site.close();
-    // Строки без размеров и база, где миграция ещё не прошла.
-    const db = new Database(path);
-    db.run('UPDATE media_files SET width = NULL, height = NULL');
-    db.run("DELETE FROM _migrations WHERE id = 'media/004_image_size'");
+    // База версии до media/004: файл целиком в media_files.data, размеров нет.
+    const db = new Database(path, { strict: true });
+    migrate(
+      db,
+      mediaMigrations.filter((_) => _.id < 'media/004_image_size')
+    );
+    const video = new Uint8Array(2_200_000).map((_, i) => (i * 31) % 256);
+    const old: readonly (readonly [string, string, Uint8Array])[] = [
+      ['docs/a.txt', 'text/plain; charset=utf-8', bytes('a')],
+      ['img/broken.jpg', 'image/jpeg', bytes('jpg')],
+      ['img/old.png', 'image/png', png(1024, 768)],
+      ['img/old.svg', 'image/svg+xml', bytes('<svg width="40" height="30"/>')],
+      ['video/clip.mp4', 'video/mp4', video],
+    ];
+    old.forEach(
+      ({ 0: file, 1: type, 2: data }) =>
+        void db
+          .query(
+            `INSERT INTO media_files (path, stem, content_type, size, hash, data, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, '2026-01-01')`
+          )
+          .run(
+            file,
+            file.slice(0, file.lastIndexOf('.')),
+            type,
+            data.byteLength,
+            new Bun.CryptoHasher('sha256')
+              .update(data)
+              .digest('hex')
+              .slice(0, 16),
+            data
+          )
+    );
     db.close();
     const again = createApp({ databasePath: path });
     expect(
@@ -435,8 +459,38 @@ describe('размеры картинок', () => {
       ['img/broken.jpg', null, null],
       ['img/old.png', 1024, 768],
       ['img/old.svg', 40, 30],
+      ['video/clip.mp4', null, null],
     ]);
+    old.forEach(
+      ({ 0: file, 2: data }) =>
+        void expect(
+          Bun.deepEquals(again.media.files.read(file)!.data(), data)
+        ).toBe(true)
+    );
     again.close();
+    const check = new Database(path);
+    expect(
+      check
+        .query<{ path: string; n: number }, []>(
+          'SELECT path, count(*) AS n FROM media_chunks GROUP BY path ORDER BY path'
+        )
+        .all()
+    ).toEqual([
+      { path: 'docs/a.txt', n: 1 },
+      { path: 'img/broken.jpg', n: 1 },
+      { path: 'img/old.png', n: 1 },
+      { path: 'img/old.svg', n: 1 },
+      { path: 'video/clip.mp4', n: 3 },
+    ]);
+    expect(
+      check
+        .query<{ name: string }, []>(
+          "SELECT name FROM pragma_table_info('media_files')"
+        )
+        .all()
+        .map((_) => _.name)
+    ).not.toContain('data');
+    check.close();
     rmSync(dir, { recursive: true, force: true });
   });
 });

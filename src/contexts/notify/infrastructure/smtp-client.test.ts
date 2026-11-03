@@ -4,7 +4,7 @@ import { TLSSocket } from 'node:tls';
 import type { TCPSocketListener } from 'bun';
 import { message } from '../domain/message.ts';
 import type { EmailSettings } from '../domain/settings.ts';
-import { defineSmtpSender } from './smtp-client.ts';
+import { defineSmtpSender, dotStuffed } from './smtp-client.ts';
 
 type Script = Readonly<Record<string, string>>;
 
@@ -254,6 +254,37 @@ describe('письмо почтового шлюза по SMTP', () => {
     expect(server.mail()).toContain('filename="a.pdf"');
   });
 
+  it('вложения в несколько МБ уходят кусками и доходят целыми', async () => {
+    server = fakeServer();
+    const files = [1_999_000, 1_500_001].map((size, k) =>
+      new Uint8Array(size).map((_, i) => (i * (k + 3)) % 256)
+    );
+    await defineSmtpSender().mail(settingsFor(server.port), {
+      from: { address: 'site@example.com', name: 'Kuechenly' },
+      to: ['a@example.com'],
+      subject: 'Angebot',
+      html: '<p>Hallo</p>',
+      text: '',
+      attachments: files.map((content, k) => ({
+        filename: `f${k}.pdf`,
+        contentType: 'application/pdf',
+        content,
+        contentId: '',
+        inline: false,
+      })),
+    });
+    const received = files.map((_, k) =>
+      Uint8Array.fromBase64(
+        new RegExp(
+          `filename="f${k}\\.pdf"\\r\\nContent-Transfer-Encoding: base64\\r\\n\\r\\n([A-Za-z0-9+/=\\r\\n]+?)\\r\\n--`
+        )
+          .exec(server!.mail())![1]!
+          .replace(/\r\n/g, '')
+      )
+    );
+    expect(received).toEqual(files);
+  });
+
   it('проверка связи: приветствие 220 и QUIT, без входа', async () => {
     server = fakeServer();
     const probe = await defineSmtpSender().probe(settingsFor(server.port));
@@ -381,5 +412,35 @@ describe('TLS', () => {
     expect(heard).toEqual(['EHLO example.com', 'STARTTLS']);
     expect(failure?.permanent).toBe(true);
     expect(failure?.message).toStartWith('TLS:');
+  });
+});
+
+describe('тело после DATA кусками', () => {
+  // Так тело писалось одной строкой: точки в начале строк удвоены, последний перевод строки — в конце письма.
+  const whole = (body: string): string =>
+    `${body.replace(/^\./gm, '..').replace(/\r?\n?$/, '')}\r\n.\r\n`;
+
+  it.each([
+    ['одна строка', ['Hallo']],
+    ['точка в начале письма и строк', ['.a\r\n.b\r\n']],
+    ['точка в начале куска посреди строки', ['a', '.b\r\n']],
+    ['точка в начале куска после перевода строки', ['a\r\n', '.b']],
+    ['\\r\\n разрезан между кусками в конце', ['a\r', '\n']],
+    ['\\r\\n разрезан, дальше точка', ['a\r', '\n.b']],
+    ['пустые куски', ['', 'a\r\n', '', '.b\r\n', '']],
+    ['\\r — конец строки, как у ^ с флагом m', ['a\r.b\r', '.c']],
+  ])('%s', (_, pieces) => {
+    expect([...dotStuffed(pieces)].join('')).toBe(whole(pieces.join('')));
+  });
+
+  it('байты base64 уходят как есть', () => {
+    const base64 = new TextEncoder().encode('QUJD\r\nREVG');
+    const out = [...dotStuffed(['h\r\n\r\n', base64, '\r\n'])];
+    expect(out[1]).toBe(base64);
+    expect(
+      out
+        .map((_) => (typeof _ === 'string' ? _ : new TextDecoder().decode(_)))
+        .join('')
+    ).toBe(whole('h\r\n\r\nQUJD\r\nREVG\r\n'));
   });
 });

@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { chmodSync, readdirSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import { fail } from '../shared/kernel/errors.ts';
 import { pipe } from '../shared/kernel/pipe.ts';
 
 export type { Database };
@@ -36,6 +37,21 @@ const _apply = (db: Database) => (migration: Migration) => {
   ]);
 };
 
+// Базу вела более новая версия: в журнале миграции, которых эта программа не знает. Старый код на новой
+// схеме не падает сразу, а ломается на каждом чтении изменённых таблиц — лучше ясный отказ при открытии.
+const _known = (
+  applied: Set<string>,
+  migrations: readonly Migration[]
+): Set<string> =>
+  ((unknown) =>
+    unknown.length === 0
+      ? applied
+      : fail(
+          'database.newer',
+          `The database was migrated by a newer version: ${unknown.join(', ')}`
+        ))([...applied].filter((id) => !migrations.some((_) => _.id === id)));
+
+/** Недостающие миграции — по порядку; база с незнакомыми миграциями — отказ `database.newer`. */
 export var migrate = (db: Database, migrations: readonly Migration[]): void =>
   pipe(
     () =>
@@ -49,7 +65,8 @@ export var migrate = (db: Database, migrations: readonly Migration[]): void =>
           .all()
           .map((_) => _.id)
       ),
-    (applied: Set<string>) =>
+    (applied: Set<string>) => _known(applied, migrations),
+    (applied) =>
       migrations
         .filter((_) => !applied.has(_.id))
         .forEach((_) => void db.transaction(_apply(db))(_))

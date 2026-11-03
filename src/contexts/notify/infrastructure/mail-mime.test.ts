@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { Mail, MailAttachment } from '../domain/gateway.ts';
-import { mailMime, plainOf } from './mime.ts';
+import { mailMime, mailParts, plainOf } from './mime.ts';
 
 const _DATE = new Date('2026-11-03T10:00:00Z');
 
@@ -81,6 +81,40 @@ describe('письмо почтового шлюза', () => {
       mime.indexOf('--cms-m1-r--')
     );
     expect(mime.trimEnd().endsWith('--cms-m1-m--')).toBe(true);
+  });
+
+  it('большое вложение — base64 строками по 76 знаков, кусками, без письма одной строкой', () => {
+    const content = new Uint8Array(57 * 1024 * 3 + 100).map(
+      (_, i) => (i * 13) % 256
+    );
+    const big: MailAttachment = { ..._PDF, content };
+    const pieces = Array.from(
+      mailParts({
+        envelope: 'site@example.com',
+        mail: { ..._MAIL, attachments: [big] },
+        date: _DATE,
+        id: 'm1',
+      }),
+      (_) => (typeof _ === 'string' ? _ : new TextDecoder().decode(_))
+    );
+    // Кусок base64 — не больше блока в 1024 строки: вложение не собирается в одну строку.
+    expect(Math.max(...pieces.map((_) => _.length))).toBeLessThanOrEqual(
+      2 + 1024 * 78
+    );
+    const mime = build({ attachments: [big] });
+    expect(pieces.join('')).toBe(mime);
+    const body =
+      /filename="Angebot\.pdf"\r\nContent-Transfer-Encoding: base64\r\n\r\n([A-Za-z0-9+/=\r\n]+?)\r\n--/.exec(
+        mime
+      )![1]!;
+    expect(
+      body
+        .split('\r\n')
+        .every((line, k, all) =>
+          k < all.length - 1 ? line.length === 76 : line.length <= 76
+        )
+    ).toBe(true);
+    expect(Uint8Array.fromBase64(body.replace(/\r\n/g, ''))).toEqual(content);
   });
 
   it('только встроенные картинки — корень multipart/related', () => {

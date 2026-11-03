@@ -1,4 +1,37 @@
-import type { Migration } from '../../../platform/database.ts';
+import { chunksOf } from '../../../platform/chunks.ts';
+import type { Database, Migration } from '../../../platform/database.ts';
+
+// Содержимое файлов заявок — в куски по 1 МиБ, файл за файлом: запись и чтение не поднимают файл в SQLite
+// целиком (ADR 0043). Запросы — свои и закрываются: колонка data исчезает.
+const _toChunks = (db: Database): void => {
+  db.run(`
+    CREATE TABLE forms_file_chunks (
+      file_id INTEGER NOT NULL,
+      n INTEGER NOT NULL,
+      data BLOB NOT NULL,
+      PRIMARY KEY (file_id, n)
+    )`);
+  const read = db.prepare<{ data: Uint8Array }, [number]>(
+    'SELECT data FROM forms_files WHERE id = ?'
+  );
+  const insert = db.prepare<unknown, [number, number, Uint8Array]>(
+    'INSERT INTO forms_file_chunks (file_id, n, data) VALUES (?, ?, ?)'
+  );
+  const clear = db.prepare<unknown, [number]>(
+    "UPDATE forms_files SET data = x'' WHERE id = ?"
+  );
+  db.query<{ id: number }, []>('SELECT id FROM forms_files')
+    .all()
+    .forEach(
+      ({ id }) =>
+        void (chunksOf(read.get(id)?.data ?? new Uint8Array(0)).forEach(
+          (data, n) => void insert.run(id, n, data)
+        ),
+        clear.run(id))
+    );
+  [read, insert, clear].forEach((_) => void _.finalize());
+  db.run('ALTER TABLE forms_files DROP COLUMN data');
+};
 
 export var formsMigrations: readonly Migration[] = [
   {
@@ -73,6 +106,7 @@ export var formsMigrations: readonly Migration[] = [
       CREATE INDEX forms_webhooks_due ON forms_webhooks (next_at) WHERE status = 'pending';
     `,
   },
+  { id: 'forms/004_file_chunks', run: _toChunks },
 ];
 
 /** Секрет печатей — этого сервера: в копию сайта не попадает, у другого сервера свой. */

@@ -133,6 +133,21 @@ const _replace = (binary: string, bytes: Uint8Array): Promise<string> => {
     );
 };
 
+/**
+ * Откат обновления: прежний бинарник (`<бинарник>.old`) — снова на месте, той же заменой одним
+ * переименованием. `.old` остаётся.
+ */
+export var restorePrevious = (
+  binary: string,
+  previous = `${binary}.old`
+): void =>
+  ((back) => (
+    rmSync(back, { force: true }),
+    copyFileSync(previous, back),
+    chmodSync(back, 0o755),
+    renameSync(back, binary)
+  ))(join(dirname(binary), `.${basename(binary)}.back.${process.pid}`));
+
 /** Второе имя команды — как ставит install.sh. */
 export var ALIAS = 'eile';
 

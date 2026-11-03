@@ -1,5 +1,16 @@
 import type { Archive } from '../../../platform/archive.ts';
 import {
+  type BodyBytes,
+  bytesOf,
+  readBody,
+  spoolBody,
+} from '../../../platform/body.ts';
+import {
+  type FormPart,
+  fieldText,
+  parseMultipart,
+} from '../../../platform/multipart.ts';
+import {
   attempt,
   domainError,
   fail,
@@ -48,7 +59,7 @@ import {
   type Permission,
   type UserView,
 } from '../../identity/index.ts';
-import type { MediaService } from '../../media/index.ts';
+import type { MediaService, Upload } from '../../media/index.ts';
 import {
   type ChannelKind,
   type Delivery,
@@ -144,6 +155,10 @@ type Context = {
   readonly params: Readonly<Record<string, string>>;
   readonly user: UserView | null;
   readonly body: () => Promise<any>;
+  /** Тело одним буфером в пределах потолка маршрута; у маршрутов с файлами — единственная копия тела. */
+  readonly bytes: () => Promise<Uint8Array>;
+  /** Тело во временном файле рядом с кэшем медиатеки, без него — в памяти; после разбора — `close()`. */
+  readonly spooled: () => Promise<BodyBytes>;
   /** Запрос агента или скрипта (ключ API, инструмент): HTML от него чистится, как у редактора. */
   readonly agent: boolean;
 };
@@ -223,6 +238,9 @@ const _BODY_LIMIT: Readonly<Record<string, number>> = {
   'PUT /elements/:kind/:name': 8 * _MB,
 };
 
+// Большие тела маршрут читает сам — `bytes()` или `spooled()`: `_buffered` держал бы их в памяти трижды.
+const _RAW_BODY = new Set(['POST /media', 'POST /backup']);
+
 const _limitOf = (route: Route): number =>
   _BODY_LIMIT[`${route[0]} ${route[1]}`] ??
   (route[2] === 'public' ? 64 * _KB : 2 * _MB);
@@ -257,6 +275,57 @@ const _buffered = (request: Request, limit: number): Promise<Request> =>
                 body,
               })
           );
+
+// Тело — во временный файл рядом с кэшем медиатеки; кэша на диске нет — одним буфером в память.
+const _spooled = (
+  request: Request,
+  limit: number,
+  path: string | null
+): Promise<BodyBytes> =>
+  path === null
+    ? readBody(request, limit, () => _tooLarge(limit)).then(bytesOf)
+    : spoolBody(request, limit, () => _tooLarge(limit), path);
+
+// Форма загрузки — части тела без копий. В urlencoded файла не бывает: такая форма — «нет файла», как
+// у `Request#formData()`; иное тело — не форма.
+const _formParts = (body: BodyBytes, type: string): FormPart[] | null =>
+  /^\s*application\/x-www-form-urlencoded/i.test(type)
+    ? []
+    : parseMultipart(body, type);
+
+const _field = (
+  body: BodyBytes,
+  parts: readonly FormPart[],
+  name: string
+): string | null =>
+  ((part) =>
+    part === undefined
+      ? null
+      : part.filename === null
+        ? fieldText(body, part)
+        : '')(parts.find((_) => _.name === name));
+
+const _number = (value: string | null): number | null =>
+  value === null ? null : Number(value);
+
+// Загрузка в медиатеку: файл читается кусками прямо из тела — из временного файла или из памяти.
+const _mediaUpload = (body: BodyBytes, parts: readonly FormPart[]): Upload =>
+  ((file) =>
+    file === undefined || file.filename === null
+      ? fail('media.no_file', 'The form has no file')
+      : {
+          path: _field(body, parts, 'path') ?? '',
+          data: {
+            size: file.end - file.start,
+            read: (start: number, end: number) =>
+              body.read(
+                file.start + start,
+                file.start + Math.min(end, file.end - file.start)
+              ),
+          },
+          width: _number(_field(body, parts, 'width')),
+          height: _number(_field(body, parts, 'height')),
+        })(parts.find((_) => _.name === 'file'));
 
 // Ответы API — личные данные: ни прокси, ни браузер их не хранят.
 const _API_HEADERS = {
@@ -1155,10 +1224,9 @@ const _routes = (
       'POST',
       '/backup',
       'site.edit',
-      ({ request }) =>
-        request
-          .arrayBuffer()
-          .then((_) => backup.restore(new Uint8Array(_)))
+      ({ bytes }) =>
+        bytes()
+          .then(backup.restore)
           .then((_) => _json(200, _)),
     ],
     [
@@ -2027,35 +2095,23 @@ const _routes = (
       'POST',
       '/media',
       'content.edit',
-      ({ request }) =>
-        request
-          .formData()
-          .then(undefined, () =>
-            fail('manager.invalid_form', 'Expected a multipart form')
-          )
-          .then(
-            pipe(
-              (form) =>
-                ((file) =>
-                  file instanceof Blob
-                    ? file.arrayBuffer().then((buffer) =>
-                        media.files.save({
-                          path: String(form.get('path') ?? ''),
-                          data: new Uint8Array(buffer),
-                          width: form.has('width')
-                            ? Number(form.get('width'))
-                            : null,
-                          height: form.has('height')
-                            ? Number(form.get('height'))
-                            : null,
-                        })
-                      )
-                    : Promise.reject(
-                        domainError('media.no_file', 'The form has no file')
-                      ))(form.get('file')),
-              (_) => _json(201, _)
-            )
-          ),
+      // Тип с границей — до чтения тела: у запроса из FormData Bun после чтения его уже не отдаёт.
+      ({ request, spooled }) =>
+        ((type) =>
+          spooled().then((body) =>
+            Promise.resolve(body)
+              .then(
+                pipe(
+                  (_: BodyBytes) =>
+                    _formParts(_, type) ??
+                    fail('manager.invalid_form', 'Expected a multipart form'),
+                  (parts) => _mediaUpload(body, parts),
+                  (_) => media.files.save(_),
+                  (_) => _json(201, _)
+                )
+              )
+              .finally(body.close)
+          ))(request.headers.get('content-type') ?? ''),
     ],
     [
       'GET',
@@ -2369,8 +2425,11 @@ export var defineManagerApi = (services: ApiServices) => {
                 'Sign in to the manager for this: an API token cannot do it'
               )
             )
-          : _buffered(request, _limitOf(found.route))
-              .then(
+          : ((limit) =>
+              (_RAW_BODY.has(`${found.route[0]} ${found.route[1]}`)
+                ? Promise.resolve(request)
+                : _buffered(request, limit)
+              ).then(
                 pipe(
                   (buffered) => ({
                     request: buffered,
@@ -2378,12 +2437,18 @@ export var defineManagerApi = (services: ApiServices) => {
                     user,
                     params: found.params!,
                     body: () => buffered.json().catch(() => ({})),
+                    bytes: () =>
+                      readBody(buffered, limit, () => _tooLarge(limit)),
+                    spooled: () =>
+                      _spooled(buffered, limit, services.media.uploads.spool()),
                     agent: actor !== null || key !== null,
                   }),
                   found.route[3]
                 )
-              )
-              .then(undefined, _failure(services.report, request, client));
+              ))(_limitOf(found.route)).then(
+              undefined,
+              _failure(services.report, request, client)
+            );
   };
 
   // Тот же маршрут от имени пользователя, без сеанса и cookie: так работают инструменты агента. Язык

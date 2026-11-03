@@ -203,11 +203,12 @@ describe('кэш медиатеки на диске', () => {
       alt: '',
     } as unknown as MediaFile;
     let reads = 0;
-    const content = () => (
-      (reads += 1), { hash: file.hash, data: bytes('0123456789') }
+    const piece = (n: number) => (
+      (reads += 1),
+      n === 0 ? { hash: file.hash, data: bytes('0123456789') } : null
     );
     const blobs = await Promise.all(
-      Array.from({ length: 5 }, () => cache.local(file, content))
+      Array.from({ length: 5 }, () => cache.local(file, piece))
     );
     expect(reads).toBe(1);
     expect(await Promise.all(blobs.map((_) => _!.text()))).toEqual(
@@ -288,8 +289,11 @@ describe('кэш медиатеки на диске', () => {
     put('docs~a.txt/readme');
     put('notes.txt');
     put('backups/site.db');
+    // Тело загрузки, брошенное упавшим процессом, — старше часа; свежее, возможно, ещё разбирается.
+    put('.upload.0199aaaa-bbbb.part', 2);
+    put('.upload.0199cccc-dddd.part');
 
-    expect(app.media.cache.sweep()).toBe(3);
+    expect(app.media.cache.sweep()).toBe(4);
     expect(existsSync(join(dir, 'gone~old.mp4'))).toBe(false);
     expect(versions(dir, 'docs/a.txt')).toEqual([
       `.${live.hash}.0199cccc-dddd.part`,
@@ -297,6 +301,7 @@ describe('кэш медиатеки на диске', () => {
       'readme',
     ]);
     expect(readdirSync(dir).toSorted()).toEqual([
+      '.upload.0199cccc-dddd.part',
       'backups',
       'docs~a.txt',
       'notes.txt',
@@ -352,11 +357,10 @@ describe('кэш не пишется', () => {
     );
     expect(response.headers.get('content-length')).toBe(String(big.length));
     const parts = await Array.fromAsync(response.body!);
-    expect(parts.map((_) => _.byteLength)).toEqual([
-      4 * 1024 * 1024,
-      4 * 1024 * 1024,
-      1024 * 1024,
-    ]);
+    // По куску хранения на часть ответа: каждая — одна строка базы.
+    expect(parts.map((_) => _.byteLength)).toEqual(
+      Array.from({ length: 9 }, () => 1024 * 1024)
+    );
     const tail = await app.fetch(
       new Request('http://localhost/media/video/big.mp4', {
         headers: { range: `bytes=${big.length - 3}-` },
@@ -403,12 +407,13 @@ describe('кэш не пишется', () => {
       height: null,
       alt: '',
     } as unknown as MediaFile;
-    const content = () => ({ hash: file.hash, data: bytes('a') });
-    expect(await cache.local(file, content)).toBeNull();
+    const piece = (n: number) =>
+      n === 0 ? { hash: file.hash, data: bytes('a') } : null;
+    expect(await cache.local(file, piece)).toBeNull();
     rmSync(blocker);
-    expect(await cache.local(file, content)).toBeNull();
+    expect(await cache.local(file, piece)).toBeNull();
     now += 61_000;
-    expect(await (await cache.local(file, content))!.text()).toBe('a');
+    expect(await (await cache.local(file, piece))!.text()).toBe('a');
     expect(logged).toHaveBeenCalledTimes(1);
   });
 });

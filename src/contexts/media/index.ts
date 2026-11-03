@@ -10,6 +10,7 @@ export type {
   ImageSet,
   MediaService,
   Upload,
+  UploadContent,
 } from './application/media-service.ts';
 export {
   MAX_MEDIA_SIZE,

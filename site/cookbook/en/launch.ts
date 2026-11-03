@@ -6,7 +6,7 @@ const deploy: Chapter = {
   menuTitle: 'Go live',
   lead: 'So far the site lives on your computer. Let’s move it to a server, connect a domain and turn on HTTPS. You’ll need a Linux server and a domain, and Eile does the rest by itself.',
   description:
-    'How to put an Eile site on the internet: a VPS, a domain, moving site.db, systemd, HTTPS from Let’s Encrypt without a proxy, backups and updates.',
+    'How to put an Eile site on the internet: a VPS, a domain, moving site.db, a service in one command, HTTPS from Let’s Encrypt without a proxy, backups and updates.',
   content: [
     aside(
       'goal',
@@ -36,9 +36,9 @@ const deploy: Chapter = {
       '$ curl -fsSL https://github.com/a-sharapov/eile/releases/latest/download/install.sh | bash'
     ),
     p(
-      'When you install as root, the program goes to <code>/usr/local/bin/cms</code>. Create a folder for the site and leave the server with the <code>exit</code> command:'
+      'When you install as root, the program goes to <code>/usr/local/bin/cms</code>. Leave the server with the <code>exit</code> command:'
     ),
-    code('sh', '$ mkdir -p /var/lib/cms\n$ exit'),
+    code('sh', '$ exit'),
     h2('move', 'Move the site'),
     p(
       'The whole site is in <code>site.db</code>. First make a copy of it on your computer, in the <code>facade</code> folder:'
@@ -47,50 +47,29 @@ const deploy: Chapter = {
     p(
       'You can make the copy while the site is running: it comes out complete, with no half-written records. Now send it to the server with <code>scp</code>, a command that copies files over SSH:'
     ),
-    code('sh', '$ scp facade-copy.db root@203.0.113.10:/var/lib/cms/site.db'),
+    code('sh', '$ scp facade-copy.db root@203.0.113.10:'),
     h2('service', 'Run it as a service'),
     p(
-      'If you start <code>cms</code> in the server’s terminal, the site stops as soon as you close the window. That’s why it runs as a service: Linux starts it when the server boots and restarts it if something goes wrong. Log in to the server again and create the service file:'
+      'If you start <code>cms</code> in the server’s terminal, the site stops as soon as you close the window. That’s why it runs as a service: Linux starts it when the server boots and restarts it if something goes wrong. Eile creates the service by itself. Log in to the server again and run one command, replacing the domains and the email with your own:'
     ),
     code(
       'sh',
-      '$ ssh root@203.0.113.10\n$ nano /etc/systemd/system/cms.service'
-    ),
-    p(
-      'A simple editor opens. Paste the text below, replacing the domains and the email with your own, then press <kbd>Ctrl</kbd>+<kbd>O</kbd>, <kbd>Enter</kbd> and <kbd>Ctrl</kbd>+<kbd>X</kbd> to save and exit.'
-    ),
-    code(
-      'ini',
-      `[Unit]
-Description=Eile CMS
-After=network.target
-
-[Service]
-ExecStart=/usr/local/bin/cms --domain facade.example,www.facade.example --email you@example.com
-Environment=CMS_DB=/var/lib/cms/site.db
-DynamicUser=yes
-StateDirectory=cms
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target`,
-      { file: '/etc/systemd/system/cms.service' }
+      '$ ssh root@203.0.113.10\n$ cms service install --domain facade.example,www.facade.example --email you@example.com --from facade-copy.db'
     ),
     list(
       c('--domain facade.example,www.facade.example') +
         ': the addresses the site lives at. Eile gets an HTTPS certificate for them from Let’s Encrypt by itself, renews it and sends visitors from http to https.',
       c('--email') +
         ': Let’s Encrypt writes to this address if something is wrong with the certificate.',
-      c('CMS_DB') + ': where the site database is.',
-      c('AmbientCapabilities') +
-        ': lets the program use ports 80 and 443, where websites run, without root rights.'
+      c('--from facade-copy.db') +
+        ': the copy of the site you brought along. Eile moves it to <code>/var/lib/cms/site.db</code>, and after that you can delete <code>facade-copy.db</code>.'
     ),
-    p('Turn the service on:'),
-    code('sh', '$ systemctl enable --now cms\n$ systemctl status cms'),
     p(
-      'The second command should show <code>active (running)</code>. After a minute, open <code>https://facade.example</code>: the site is there, with a padlock in the address bar. The manager is at <code>https://facade.example/manager</code>, and you sign in with the same email and password you used at home, because they moved along with the database.'
+      'First the command checks that the domains point to this server, that ports 80 and 443 are free and that there is enough memory. If something is wrong, it tells you what to fix. Then it creates the service, starts it and waits for the site to answer. At the end you see <code>✓ The service cms is running</code> with the addresses of the site and the manager.',
+      'After a minute, open <code>https://facade.example</code>: the site is there, with a padlock in the address bar. The manager is at <code>https://facade.example/manager</code>, and you sign in with the same email and password you used at home, because they moved along with the database. Set up email and Telegram again in the manager: they belong to the server, not the site, and are not part of the copy.'
+    ),
+    p(
+      '<code>cms service status</code> shows how the site is doing. To see the service file without changing anything, add <code>--print</code>.'
     ),
     aside(
       'trouble',
@@ -98,7 +77,7 @@ WantedBy=multi-user.target`,
       list(
         'Do the DNS records point to the server yet? Check with <code>ping facade.example</code>: the reply should show the server’s IP.',
         'Are ports 80 and 443 open? Some hosts have their own firewall in the control panel.',
-        'What does the service say? <code>journalctl -u cms -n 50</code> shows the last lines of its log.'
+        'What does the service say? <code>cms service logs</code> shows the last lines of its log.'
       )
     ),
     h2('address', 'The site address in the settings'),
@@ -124,11 +103,11 @@ WantedBy=multi-user.target`,
     ),
     h2('updates', 'Updates'),
     p(
-      'When a new version of Eile comes out, the manager shows it in the account menu. Updating on the server takes two commands:'
+      'When a new version of Eile comes out, the manager shows it in the account menu. Updating on the server takes one command:'
     ),
-    code('sh', '$ cms update\n$ systemctl restart cms'),
+    code('sh', '$ cms update'),
     p(
-      'The first one downloads the new version, checks its checksum and does a test run. The second restarts the site. Before you update an alpha version, it’s a good idea to make a backup with ' +
+      'It downloads the new version, checks its checksum, does a test run and restarts the service. If the new version doesn’t come up, <code>cms update</code> puts the previous one back and tells you. Before you update an alpha version, it’s a good idea to make a backup with ' +
         c('cms backup') +
         '.'
     ),
@@ -136,7 +115,7 @@ WantedBy=multi-user.target`,
       'tip',
       'Moving to another server',
       p(
-        'It’s this chapter all over again: install <code>cms</code>, copy the database, create the service. Two files and ten minutes.'
+        'It’s this chapter all over again: install <code>cms</code>, bring the copy of the site and run <code>cms service install</code>. Two files and ten minutes.'
       )
     ),
     aside(

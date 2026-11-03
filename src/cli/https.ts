@@ -8,8 +8,10 @@ import { attempt } from '../shared/kernel/errors.ts';
 
 type Server = ReturnType<typeof Bun.serve>;
 
-/** Общие настройки обоих слушателей: потолок тела, без страницы ошибки Bun. */
+/** Общие настройки обоих слушателей: адрес, потолок тела, без страницы ошибки Bun. */
 export type ServeBase = {
+  /** Адрес, на котором слушать; нет — все адреса машины. */
+  readonly hostname?: string;
   readonly maxRequestBodySize: number;
   readonly development: false;
   readonly error: (error: Error) => Response;

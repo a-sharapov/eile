@@ -3,7 +3,7 @@ import { pipe } from '../../../shared/kernel/pipe.ts';
 import type { SendFailure } from '../domain/delivery.ts';
 import type { EmailSender, SmtpProbe } from '../domain/ports.ts';
 import type { EmailSettings } from '../domain/settings.ts';
-import { mailMime, mimeMessage } from './mime.ts';
+import { mailParts, mimeMessage } from './mime.ts';
 
 /** Ответ сервера: код и строки текста (многострочный ответ — `250-…` и последняя `250 …`). */
 type Reply = { readonly code: number; readonly lines: readonly string[] };
@@ -12,14 +12,51 @@ type Session = {
   /** Команда и ответ на неё; код вне `expect` — отказ с текстом сервера. */
   readonly command: (line: string, expect: readonly number[]) => Promise<Reply>;
   readonly greeting: (expect: readonly number[]) => Promise<Reply>;
-  /** Тело письма после DATA: точка в начале строки удваивается, конец — `.` отдельной строкой. */
-  readonly data: (body: string) => Promise<Reply>;
+  /**
+   * Тело письма после DATA — кусками, каждый следующий после того, как прежний ушёл в сокет: большое
+   * письмо не лежит в памяти целиком. Точка в начале строки удваивается, конец — `.` отдельной строкой.
+   */
+  readonly data: (body: Iterable<string | Uint8Array>) => Promise<Reply>;
   /** STARTTLS: дальше разговор идёт по TLS с проверкой сертификата сервера. */
   readonly upgrade: () => Promise<void>;
   readonly close: () => void;
 };
 
 const _TIMEOUT_S = 30;
+
+// Начало строки — как у `^` с флагом m: после \n, \r, U+2028 и U+2029. Кусок начинается с начала строки,
+// только если прежний кончился переводом строки.
+const _LINE_END = /[\n\r\u2028\u2029]$/;
+const _DOT_AFTER_LINE = /(?<=[\n\r\u2028\u2029])\./g;
+
+const _stuffed = (piece: string, lineStart: boolean): string =>
+  `${lineStart && piece.startsWith('.') ? '.' : ''}${piece.replace(_DOT_AFTER_LINE, '..')}`;
+
+/**
+ * Тело после DATA кусками — то же, что из письма одной строкой: точка в начале строки удвоена
+ * (RFC 5321), в конце — `.` отдельной строкой. Последний кусок придерживается, а `\r` в конце куска
+ * переходит в следующий: конец письма срезает последний перевод строки целиком, даже на стыке. Байты —
+ * строки base64 (`mailParts`): точек в них нет, они уходят как есть.
+ */
+export function* dotStuffed(
+  pieces: Iterable<string | Uint8Array>
+): Generator<string | Uint8Array> {
+  let held = '';
+  let lineStart = true;
+  for (const piece of pieces) {
+    if (piece.length === 0) continue;
+    const text = typeof piece === 'string';
+    const carry = text && held.endsWith('\r') ? '\r' : '';
+    const ready = held.slice(0, held.length - carry.length);
+    if (ready !== '') yield _stuffed(ready, lineStart);
+    lineStart = ready === '' ? lineStart : _LINE_END.test(ready);
+    held = text ? carry + piece : '';
+    if (!text) yield piece;
+    lineStart = text ? lineStart : [10, 13].includes(piece.at(-1)!);
+  }
+  yield `${_stuffed(held, lineStart).replace(/\r?\n?$/, '')}\r\n.\r\n`;
+}
+
 const _CONNECT_TIMEOUT_MS = 15_000;
 const _REPLY = /^(\d{3})([ -])(.*)$/;
 const _utf8 = new TextEncoder();
@@ -53,7 +90,12 @@ const _open = (settings: EmailSettings): Promise<Session> =>
     let text = '';
     let lines: string[] = [];
     let broken: Error | null = null;
-    let outgoing = new Uint8Array(0);
+    let outgoing: Uint8Array = new Uint8Array(0);
+    // Кто ждёт, пока сокет примет всё записанное.
+    const draining: {
+      resolve: () => void;
+      reject: (error: Error) => void;
+    }[] = [];
     let socket: Socket<undefined> | null = null;
     let upgraded: ((error: Error | null) => void) | null = null;
     let late = false;
@@ -66,6 +108,7 @@ const _open = (settings: EmailSettings): Promise<Session> =>
     const fail = (error: Error): void => {
       broken ??= error;
       waiting.splice(0).forEach((_) => void _.reject(broken!));
+      draining.splice(0).forEach((_) => void _.reject(broken!));
       void upgraded?.(broken);
     };
 
@@ -86,11 +129,13 @@ const _open = (settings: EmailSettings): Promise<Session> =>
     };
 
     const flush = (): void =>
-      void (
-        socket &&
+      void (socket &&
         outgoing.length > 0 &&
-        (outgoing = outgoing.subarray(Math.max(0, socket.write(outgoing))))
-      );
+        (outgoing = outgoing.subarray(Math.max(0, socket.write(outgoing)))),
+      outgoing.length === 0 &&
+        ((done) => void done.forEach((_) => void _.resolve()))(
+          draining.splice(0)
+        ));
 
     const current = (from: Socket<undefined>): boolean => from === socket;
 
@@ -144,15 +189,34 @@ const _open = (settings: EmailSettings): Promise<Session> =>
             );
 
     // Не влезло в сокет — остаток уйдёт по drain. Каждая запись взводит срок ответа заново.
-    const write = (line: string): void => {
-      const bytes = _utf8.encode(line);
-      const next = new Uint8Array(outgoing.length + bytes.length);
-      next.set(outgoing);
-      next.set(bytes, outgoing.length);
-      outgoing = next;
+    const write = (line: string | Uint8Array): void => {
+      const bytes = typeof line === 'string' ? _utf8.encode(line) : line;
+      outgoing =
+        outgoing.length === 0
+          ? bytes
+          : ((next) => (
+              next.set(outgoing), next.set(bytes, outgoing.length), next
+            ))(new Uint8Array(outgoing.length + bytes.length));
       socket?.timeout(_TIMEOUT_S);
       flush();
     };
+
+    // Запись и ожидание, пока сокет примет её целиком.
+    const push = (line: string | Uint8Array): Promise<void> =>
+      broken
+        ? Promise.reject(broken)
+        : (write(line),
+          outgoing.length === 0
+            ? Promise.resolve()
+            : new Promise((resolve, reject) => {
+                draining.push({ resolve, reject });
+              }));
+
+    const writeAll = (pieces: Iterator<string | Uint8Array>): Promise<void> =>
+      ((next) =>
+        next.done
+          ? Promise.resolve()
+          : push(next.value).then(() => writeAll(pieces)))(pieces.next());
 
     const expected =
       (line: string, expect: readonly number[]) =>
@@ -166,10 +230,10 @@ const _open = (settings: EmailSettings): Promise<Session> =>
       command: (line, expect) => (
         write(`${line}\r\n`), reply().then(expected(line, expect))
       ),
-      data: (body) => (
-        write(`${body.replace(/^\./gm, '..').replace(/\r?\n?$/, '')}\r\n.\r\n`),
-        reply().then(expected('DATA', [250]))
-      ),
+      data: (body) =>
+        writeAll(dotStuffed(body)).then(() =>
+          reply().then(expected('DATA', [250]))
+        ),
       upgrade: () =>
         new Promise<void>((done, refuse) => {
           upgraded = (error) => (
@@ -258,7 +322,7 @@ const _secure = (session: Session, settings: EmailSettings, hello: Reply) =>
 const _transmit = (
   settings: EmailSettings,
   to: readonly string[],
-  body: () => string
+  body: () => Iterable<string | Uint8Array>
 ): Promise<void> =>
   _open(settings).then((session) =>
     session
@@ -342,12 +406,12 @@ const _probe = (settings: EmailSettings): Promise<SmtpProbe> => {
 /** Отправка письма по SMTP без зависимостей: `Bun.connect` и `upgradeTLS`, вход PLAIN или LOGIN. */
 export var defineSmtpSender = (): EmailSender => ({
   send: (settings, to, item, site) =>
-    _transmit(settings, to, () =>
-      mimeMessage({ from: settings.from, to, item, site })
-    ),
+    _transmit(settings, to, () => [
+      mimeMessage({ from: settings.from, to, item, site }),
+    ]),
   mail: (settings, mail) =>
     _transmit(settings, mail.to, () =>
-      mailMime({ envelope: settings.from, mail })
+      mailParts({ envelope: settings.from, mail })
     ),
   probe: _probe,
 });

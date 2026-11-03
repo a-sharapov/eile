@@ -1,7 +1,18 @@
+import {
+  BLOB_CHUNK,
+  chunkNumbers,
+  chunkSpan,
+  chunksOf,
+  joinChunks,
+} from '../../../platform/chunks.ts';
 import type { Database, Migration } from '../../../platform/database.ts';
 import { imageSize } from '../domain/image-size.ts';
 import type { MediaFile, MediaPath } from '../domain/media.ts';
-import type { MediaContent, MediaRepository } from '../domain/ports.ts';
+import type {
+  MediaPiece,
+  MediaRepository,
+  UploadContent,
+} from '../domain/ports.ts';
 
 // Картинки, загруженные без размеров (агентом, через API): размеры — из заголовка самого файла. Список
 // путей берётся из покрывающего индекса, BLOB читается по одному.
@@ -25,7 +36,41 @@ const _measureStored = (db: Database): void => {
     );
 };
 
-// Файлы — BLOB в той же базе: бэкап сайта остаётся копией одного файла.
+// Содержимое — в куски, файл за файлом: страницы, освобождённые одним файлом, занимают куски следующего,
+// и база не вырастает на всю медиатеку. Запросы — свои и закрываются: колонка data исчезает.
+const _toChunks = (db: Database): void => {
+  db.run(`
+    CREATE TABLE media_chunks (
+      path TEXT NOT NULL,
+      n INTEGER NOT NULL,
+      data BLOB NOT NULL,
+      PRIMARY KEY (path, n)
+    )`);
+  const read = db.prepare<{ data: Uint8Array }, [string]>(
+    'SELECT data FROM media_files WHERE path = ?'
+  );
+  const insert = db.prepare<unknown, [string, number, Uint8Array]>(
+    'INSERT INTO media_chunks (path, n, data) VALUES (?, ?, ?)'
+  );
+  const clear = db.prepare<unknown, [string]>(
+    "UPDATE media_files SET data = x'' WHERE path = ?"
+  );
+  db.query<{ path: string }, []>(
+    'SELECT path FROM media_files INDEXED BY media_files_meta'
+  )
+    .all()
+    .forEach(
+      ({ path }) =>
+        void (chunksOf(read.get(path)?.data ?? new Uint8Array(0)).forEach(
+          (data, n) => void insert.run(path, n, data)
+        ),
+        clear.run(path))
+    );
+  [read, insert, clear].forEach((_) => void _.finalize());
+  db.run('ALTER TABLE media_files DROP COLUMN data');
+};
+
+// Файлы — в той же базе: бэкап сайта остаётся копией одного файла.
 export var mediaMigrations: readonly Migration[] = [
   {
     id: 'media/001_files',
@@ -61,6 +106,7 @@ export var mediaMigrations: readonly Migration[] = [
     `,
   },
   { id: 'media/004_image_size', run: _measureStored },
+  { id: 'media/005_chunks', run: _toChunks },
 ];
 
 type MetaRow = {
@@ -93,12 +139,14 @@ export var defineMediaRepository = (
   const meta = db.query<MetaRow, [string]>(
     `SELECT ${_META} FROM media_files INDEXED BY media_files_meta WHERE path = ?`
   );
-  const content = db.query<MediaContent, [string]>(
-    'SELECT hash, data FROM media_files WHERE path = ?'
+  // Кусок и хэш — одним запросом: кусок другой версии файла не выдаст себя за эту.
+  const piece = db.query<MediaPiece, [string, number]>(
+    `SELECT f.hash, c.data FROM media_chunks c
+     JOIN media_files f INDEXED BY media_files_meta ON f.path = c.path
+     WHERE c.path = ? AND c.n = ?`
   );
-  // substr у BLOB считает байты с единицы.
-  const chunk = db.query<{ data: Uint8Array }, [number, number, string]>(
-    'SELECT substr(data, ?, ?) AS data FROM media_files WHERE path = ?'
+  const span = db.query<{ data: Uint8Array }, [string, number, number]>(
+    'SELECT data FROM media_chunks WHERE path = ? AND n BETWEEN ? AND ? ORDER BY n'
   );
   const list = db.query<MetaRow, []>(
     `SELECT ${_META} FROM media_files INDEXED BY media_files_meta ORDER BY path`
@@ -107,33 +155,59 @@ export var defineMediaRepository = (
     `SELECT ${_META} FROM media_files INDEXED BY media_files_stem WHERE stem = ?`
   );
   const upsert = db.query(`
-    INSERT INTO media_files (path, stem, content_type, size, hash, width, height, alt, data, updated_at)
-    VALUES ($path, $stem, $contentType, $size, $hash, $width, $height, $alt, $data, $now)
+    INSERT INTO media_files (path, stem, content_type, size, hash, width, height, alt, updated_at)
+    VALUES ($path, $stem, $contentType, $size, $hash, $width, $height, $alt, $now)
     ON CONFLICT (path) DO UPDATE SET
       content_type = excluded.content_type, size = excluded.size, hash = excluded.hash,
       width = excluded.width, height = excluded.height, alt = excluded.alt,
-      data = excluded.data, updated_at = excluded.updated_at`);
-  const remove = db.query('DELETE FROM media_files WHERE path = ?');
+      updated_at = excluded.updated_at`);
+  const removeFile = db.query('DELETE FROM media_files WHERE path = ?');
+  const removeChunks = db.query('DELETE FROM media_chunks WHERE path = ?');
+  const insertChunk = db.query<unknown, [string, number, Uint8Array]>(
+    'INSERT INTO media_chunks (path, n, data) VALUES (?, ?, ?)'
+  );
   const describe = db.query('UPDATE media_files SET alt = ? WHERE path = ?');
+  // Описание и куски меняются вместе: читатель не увидит хэш одной версии рядом с кусками другой.
+  const save = db.transaction((file: MediaFile, content: UploadContent) => {
+    upsert.run({
+      ...file,
+      stem: stemOf(file.path),
+      now: new Date().toISOString(),
+    });
+    removeChunks.run(file.path);
+    chunkNumbers(content.size).forEach(
+      (n) =>
+        void insertChunk.run(
+          file.path,
+          n,
+          content.read(n * BLOB_CHUNK, (n + 1) * BLOB_CHUNK)
+        )
+    );
+  });
+  const remove = db.transaction((path: MediaPath) => {
+    removeFile.run(path);
+    removeChunks.run(path);
+  });
 
   return {
     meta: (path) => {
       const row = meta.get(path);
       return row && _toFile(row);
     },
-    content: (path) => content.get(path),
+    piece: (path, n) => piece.get(path, n),
     chunk: (path, start, length) =>
-      chunk.get(start + 1, length, path)?.data ?? null,
+      ((rows) =>
+        rows.length === 0
+          ? null
+          : joinChunks(
+              rows.map((_) => _.data),
+              start,
+              length
+            ))(length > 0 ? span.all(path, ...chunkSpan(start, length)) : []),
     list: () => list.all().map(_toFile),
     family: (stem) => family.all(stem).map(_toFile),
-    save: (file, bytes) =>
-      void upsert.run({
-        ...file,
-        stem: stemOf(file.path),
-        data: bytes,
-        now: new Date().toISOString(),
-      }),
-    remove: (path) => void remove.run(path),
+    save: (file, content) => void save(file, content),
+    remove: (path) => void remove(path),
     describe: (path, alt) => void describe.run(alt, path),
   };
 };

@@ -35,6 +35,18 @@ export type Options = {
   readonly json?: boolean;
   /** `cms mcp --user <почта>`: от чьего имени и с чьими правами работает агент. */
   readonly user?: string;
+  /** Адрес, на котором слушает сервер; по умолчанию — все адреса машины. */
+  readonly host?: string;
+  /** `cms service install --from <файл>`: перенести в службу сайт из этой базы. */
+  readonly from?: string;
+  /** `cms service install --print`: только показать юнит, ничего не менять. */
+  readonly print?: boolean;
+  /** `cms service install --force`: заменить другой юнит с этим именем. */
+  readonly force?: boolean;
+  /** `cms service logs -f`: следить за журналом. */
+  readonly follow?: boolean;
+  /** `cms update --no-restart`: не перезапускать службу systemd. */
+  readonly noRestart?: boolean;
 };
 
 /** Разобранная строка вызова: команда, её аргументы и параметры; или ошибка для человека. */
@@ -66,6 +78,12 @@ const _OPTIONS = {
   watch: { type: 'boolean' },
   json: { type: 'boolean' },
   user: { type: 'string' },
+  host: { type: 'string' },
+  from: { type: 'string' },
+  print: { type: 'boolean' },
+  force: { type: 'boolean' },
+  follow: { type: 'boolean', short: 'f' },
+  'no-restart': { type: 'boolean' },
 } as const;
 
 // parseArgs говорит длинно: «Unknown option '--prot'…» — самое частое говорим коротко и на языке CLI.
@@ -104,7 +122,7 @@ export var parseInvocation = (argv: readonly string[], env: Env): Invocation =>
   attempt<Invocation>(
     () =>
       ((parsed) =>
-        ((domain, email, httpsPort, mediaCache) => ({
+        ((domain, email, httpsPort, mediaCache, host) => ({
           command: parsed.positionals[0] ?? null,
           args: parsed.positionals.slice(1),
           options: {
@@ -128,6 +146,12 @@ export var parseInvocation = (argv: readonly string[], env: Env): Invocation =>
             ...(parsed.values.watch ? { watch: true } : {}),
             ...(parsed.values.json ? { json: true } : {}),
             ...(parsed.values.user ? { user: parsed.values.user } : {}),
+            ...(host ? { host } : {}),
+            ...(parsed.values.from ? { from: parsed.values.from } : {}),
+            ...(parsed.values.print ? { print: true } : {}),
+            ...(parsed.values.force ? { force: true } : {}),
+            ...(parsed.values.follow ? { follow: true } : {}),
+            ...(parsed.values['no-restart'] ? { noRestart: true } : {}),
             ...(env.CMS_ACME_DIRECTORY
               ? { acmeDirectory: env.CMS_ACME_DIRECTORY }
               : {}),
@@ -136,7 +160,8 @@ export var parseInvocation = (argv: readonly string[], env: Env): Invocation =>
           parsed.values.domain ?? env.CMS_DOMAIN,
           parsed.values.email ?? env.CMS_ACME_EMAIL,
           parsed.values['https-port'] ?? env.CMS_HTTPS_PORT,
-          parsed.values['media-cache'] ?? env.CMS_MEDIA_CACHE
+          parsed.values['media-cache'] ?? env.CMS_MEDIA_CACHE,
+          parsed.values.host ?? env.CMS_HOST
         ))(_parse(argv)),
     (error) => ({ error: _message(error, cliLanguage(env)) })
   );

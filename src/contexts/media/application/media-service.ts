@@ -12,11 +12,18 @@ import {
   stemOf,
   variantWidth,
 } from '../domain/media.ts';
-import type { MediaCache, MediaRepository } from '../domain/ports.ts';
+import type {
+  MediaCache,
+  MediaRepository,
+  UploadContent,
+} from '../domain/ports.ts';
+
+export type { UploadContent };
 
 export type Upload = {
   readonly path: string;
-  readonly data: Uint8Array;
+  /** Байты в памяти или кусками — из временного файла загрузки. */
+  readonly data: Uint8Array | UploadContent;
   readonly width?: number | null;
   readonly height?: number | null;
 };
@@ -43,15 +50,38 @@ const _dimension = (value: number | null | undefined): number | null =>
     : null;
 
 // Размеры клиента (менеджер мерит картинку в браузере) важнее; агент и API их не шлют — тогда из файла.
-const _measure = (upload: Upload, contentType: string): Dimensions =>
+// Только картинке без размеров нужен весь файл в памяти: заголовок JPEG бывает где угодно.
+const _measure = (
+  upload: Upload,
+  content: UploadContent,
+  contentType: string
+): Dimensions =>
   ((sent: Dimensions) =>
     (sent.width !== null && sent.height !== null) ||
     !contentType.startsWith('image/')
       ? sent
-      : (imageSize(upload.data) ?? sent))({
+      : (imageSize(content.read(0, content.size)) ?? sent))({
     width: _dimension(upload.width),
     height: _dimension(upload.height),
   });
+
+const _contentOf = (data: Uint8Array | UploadContent): UploadContent =>
+  data instanceof Uint8Array
+    ? { size: data.byteLength, read: (start, end) => data.subarray(start, end) }
+    : data;
+
+// Хэш — по окну в 1 МиБ: файл загрузки с диска не поднимается в память целиком.
+const _WINDOW = 1024 * 1024;
+
+const _hashOf = (content: UploadContent): string =>
+  Array.from({ length: Math.ceil(content.size / _WINDOW) })
+    .reduce<Bun.CryptoHasher>(
+      (hasher, _, n) =>
+        hasher.update(content.read(n * _WINDOW, (n + 1) * _WINDOW)),
+      new Bun.CryptoHasher('sha256')
+    )
+    .digest('hex')
+    .slice(0, 16);
 
 export var mediaUrl = (file: MediaFile): string =>
   `/media/${file.path}?v=${file.hash}`;
@@ -73,19 +103,17 @@ export var defineMediaService = ({
   const save = (upload: Upload): MediaFile => {
     const path = parseMediaPath(upload.path);
     const contentType = contentTypeOf(path);
+    const content = _contentOf(upload.data);
     const file: MediaFile = {
       path,
       contentType,
-      size: checkSize(upload.data.byteLength),
-      hash: new Bun.CryptoHasher('sha256')
-        .update(upload.data)
-        .digest('hex')
-        .slice(0, 16),
-      ..._measure(upload, contentType),
+      size: checkSize(content.size),
+      hash: _hashOf(content),
+      ..._measure(upload, content, contentType),
       // Замена файла не стирает описание: картинка та же по смыслу, сменилось только содержимое.
       alt: files.meta(path)?.alt ?? '',
     };
-    files.save(file, upload.data);
+    files.save(file, content);
     bus.publish(event('media.file_saved', path));
     return file;
   };
@@ -139,15 +167,20 @@ export var defineMediaService = ({
         return (
           meta && {
             meta,
-            data: () => files.content(path)!.data,
+            data: (): Uint8Array =>
+              files.chunk(path, 0, meta.size) ?? new Uint8Array(0),
             /** Файл из кэша медиатеки; null — кэша нет, читать кусками из базы. */
-            local: () => cache.local(meta, () => files.content(path)),
+            local: () => cache.local(meta, (n) => files.piece(path, n)),
             /** `length` байт с `start` прямо из базы, без всего файла в памяти. */
             chunk: (start: number, length: number): Uint8Array =>
               files.chunk(path, start, length) ?? new Uint8Array(0),
           }
         );
       },
+    },
+    uploads: {
+      /** Куда положить тело загрузки, пока оно разбирается; null — кэша на диске нет: тело — в память. */
+      spool: (): string | null => cache.spool(),
     },
     cache: {
       /** Уборка: с диска — файлы кэша, которых больше нет в базе. */

@@ -16,7 +16,7 @@ CMS — **модульный монолит** в духе DDD. Каждый ог
 | `identity`     | Пользователи менеджера, роли, сессии, первичная настройка                                   | `defineIdentity` → `setup`, `login`, `logout`, `authenticate`, `users.*`                                                                                                                                          |
 | `manager`      | JSON API `/manager/api`, SPA `/manager`, инструменты агента и MCP `/manager/mcp`            | `defineManager` → `handle(Request)`, `mcp(message, user)`                                                                                                                                                         |
 | `extensions`   | Плагины на TypeScript и их хуки                                                             | `defineExtensions` → `plugins.*`, `hooks.{render,notFound,dispatch}`                                                                                                                                              |
-| `media`        | Файлы сайта в SQLite, отдача `/media/*` через кэш на диске, варианты изображений            | `defineMedia` → `files.*`, `url`, `image`, `handle`, `cache.{sweep,clear}`                                                                                                                                        |
+| `media`        | Файлы сайта в SQLite, отдача `/media/*` через кэш на диске, варианты изображений            | `defineMedia` → `files.*`, `url`, `image`, `handle`, `cache.{sweep,clear}`, `uploads.spool`                                                                                                                       |
 | `assistant`    | Подключение ИИ (OpenAI-совместимый API), палочка у полей, памятка для моделей и цикл агента | `defineAssistant` → `connection.{status,save,remove,test}`, `generate`, `target`, `agent`; `GUIDE`                                                                                                                |
 | `notify`       | Каналы Telegram и почты, очередь отправки, сбои сайта, почтовый шлюз `/mailer/`             | `defineNotify` → `settings.{status,save}`, `send`, `test`, `telegram.{me,chats}`, `outbox.{run,recent,bySource,retry}`, `incidents.{report,list}`, `gateway.{claims,handle,tokens,test,recent}`, `purge`, `start` |
 | `forms`        | Формы как HTML5-разметка, приём заявок, их хранение и обработка                             | `defineForms` → `forms.{list,get,save,remove,fieldsOf,preview}`, `render`, `submit`, `inbox.{stats,list,open,change,remove}`, `purge`, `handle`, `start`                                                          |
@@ -149,9 +149,12 @@ sequenceDiagram
 - Одна база SQLite: WAL, `foreign_keys = ON`.
 - Таблицы принадлежат контекстам и названы с их префиксом: `content_pages`, `design_elements`,
   `site_settings`. Чужие таблицы напрямую не читаем.
-- Медиатека — BLOB в `media_files`. Отдаёт её кэш на диске рядом с базой (`site.media-cache`): файл выносится
-  из базы при первом запросе и уходит через sendfile. Источник — база, кэш в копию не входит
-  ([ADR 0038](adr/0038-media-cache.md)).
+- Медиатека — описание в `media_files`, содержимое кусками по 1 МиБ в `media_chunks`. Отдаёт её кэш на диске
+  рядом с базой (`site.media-cache`): файл выносится из базы при первом запросе и уходит через sendfile.
+  Источник — база, кэш в копию не входит ([ADR 0038](adr/0038-media-cache.md)).
+- Большие тела запросов — без лишних копий в памяти ([ADR 0043](adr/0043-large-bodies-memory.md)): загрузка в
+  медиатеку и письмо шлюза ждут разбора во временном файле рядом с кэшем, multipart разбирает
+  `platform/multipart.ts`, файлы заявок — тоже кусками.
 - Миграции — SQL в TS-модулях `infrastructure/migrations.ts`. Они компилируются в бинарник, применяются при
   старте и записываются в `_migrations`. Опубликованную миграцию не меняем, только добавляем новую. Перенос
   данных, которому мало SQL, — функция `run(db)` вместо `sql` в той же транзакции (`media/004_image_size`
@@ -174,7 +177,7 @@ Minimal; готовый сайт — `cms new <каркас>` (ADR 0022). При
 src/
   app.ts                корень композиции: создаёт базу, шину и контексты и связывает их
   main.ts               точка входа CLI: вызов → команда, ошибка → stderr и код 1
-  cli/                  команды (serve, new, info, users, backup, import-evo), справка, цвет, MOTD
+  cli/                  команды (serve, new, info, users, backup, import-evo, service), справка, цвет, MOTD
   ambient.d.ts          типы для модулей без деклараций
   shared/kernel/        pipe, Brand, fail/DomainError, Changed/chain, DomainEvent/EventBus
   platform/             SQLite и миграции, шина событий, копии сайта (archive.ts), пути импортов модулей

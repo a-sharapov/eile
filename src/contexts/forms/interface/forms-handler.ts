@@ -1,3 +1,5 @@
+import { bytesOf, readBody } from '../../../platform/body.ts';
+import { fieldText, parseMultipart } from '../../../platform/multipart.ts';
 import {
   errorDetail,
   errorKey,
@@ -34,17 +36,6 @@ const _NO_STORE = { 'cache-control': 'no-store' };
 
 const _tooLarge = (): Error =>
   Object.assign(new Error('Request body is too large'), { status: 413 });
-
-// Счётчик байтов в потоке: ни ложный Content-Length, ни chunked не протащат больше потолка.
-const _counting = (limit: number): TransformStream<Uint8Array, Uint8Array> => {
-  let size = 0;
-  return new TransformStream({
-    transform: (chunk, controller) =>
-      (size += chunk.byteLength) > limit
-        ? controller.error(_tooLarge())
-        : controller.enqueue(chunk),
-  });
-};
 
 const _strings = (value: unknown): string[] =>
   (Array.isArray(value) ? value : [value])
@@ -100,38 +91,61 @@ const _formData = (form: _Form): Promise<Body> =>
     )
   );
 
-// Тело — JSON от скрипта, обычная форма или multipart с файлами; multipart читается сразу в FormData,
-// без промежуточной копии всего тела.
+// multipart — без FormData: та держала бы и тело, и копию каждого файла. Файлы — окна в тело (ADR 0043).
+const _multipart = (bytes: Uint8Array, type: string): Promise<Body> =>
+  ((body) =>
+    ((parts) =>
+      parts === null
+        ? Promise.reject(new Error('Malformed multipart body'))
+        : Promise.resolve(
+            parts.reduce<{
+              posted: Record<string, readonly string[]>;
+              files: Record<string, readonly UploadedFile[]>;
+            }>(
+              (all, part) =>
+                part.filename === null
+                  ? {
+                      ...all,
+                      posted: _append(
+                        all.posted,
+                        part.name,
+                        fieldText(body, part)
+                      ),
+                    }
+                  : {
+                      ...all,
+                      files: _append<UploadedFile>(all.files, part.name, {
+                        name: part.filename,
+                        type: part.type,
+                        size: part.end - part.start,
+                        bytes: body.read(part.start, part.end),
+                      }),
+                    },
+              { posted: {}, files: {} }
+            )
+          ))(parseMultipart(body, type)))(bytesOf(bytes));
+
+// Тело — JSON от скрипта, обычная форма или multipart с файлами; в памяти — одной копией.
 const _body = (request: Request, limit: number): Promise<Body> =>
   ((type) =>
-    Number(request.headers.get('content-length') ?? 0) > limit
-      ? Promise.reject(_tooLarge())
-      : ((stream) =>
-          type.includes('multipart/form-data')
-            ? stream.formData().then(_formData)
-            : stream.arrayBuffer().then((body) =>
-                type.includes('application/json')
-                  ? Promise.resolve(
-                      JSON.parse(new TextDecoder().decode(body))
-                    ).then((data: unknown) => ({
-                      posted: Object.fromEntries(
-                        Object.entries(
-                          data && typeof data === 'object' ? data : {}
-                        ).map(({ 0: name, 1: value }) => [
-                          name,
-                          _strings(value),
-                        ])
-                      ),
-                      files: {},
-                    }))
-                  : new Response(body, { headers: { 'content-type': type } })
-                      .formData()
-                      .then(_formData)
-              ))(
-          new Response(request.body?.pipeThrough(_counting(limit)) ?? null, {
-            headers: { 'content-type': type },
-          })
-        ))(request.headers.get('content-type') ?? '');
+    readBody(request, limit, _tooLarge).then((bytes) =>
+      type.includes('multipart/form-data')
+        ? _multipart(bytes, type)
+        : type.includes('application/json')
+          ? Promise.resolve(JSON.parse(new TextDecoder().decode(bytes))).then(
+              (data: unknown) => ({
+                posted: Object.fromEntries(
+                  Object.entries(
+                    data && typeof data === 'object' ? data : {}
+                  ).map(({ 0: name, 1: value }) => [name, _strings(value)])
+                ),
+                files: {},
+              })
+            )
+          : new Response(bytes, { headers: { 'content-type': type } })
+              .formData()
+              .then(_formData)
+    ))(request.headers.get('content-type') ?? '');
 
 // Больших тел с файлами одновременно — не больше четырёх: память сервера не резиновая.
 const _MAX_UPLOADS = 4;

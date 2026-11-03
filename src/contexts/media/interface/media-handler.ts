@@ -1,3 +1,4 @@
+import { BLOB_CHUNK } from '../../../platform/chunks.ts';
 import { attempt } from '../../../shared/kernel/errors.ts';
 import type { MediaService } from '../application/media-service.ts';
 
@@ -10,9 +11,6 @@ const _SVG = {
   'content-security-policy':
     "default-src 'none'; style-src 'unsafe-inline'; sandbox",
 };
-
-// Без кэша на диске файл идёт из базы кусками по 4 МиБ: в памяти на ответ один кусок, а не весь файл.
-const _CHUNK = 4 * 1024 * 1024;
 
 const _notFound = (): Response => new Response('Not Found', { status: 404 });
 
@@ -45,6 +43,7 @@ const _span = (header: string | null, size: number): _Span | 'none' =>
           match[1] === '' || match[2] === '' ? size - 1 : Number(match[2])
         ))(header === null ? null : _RANGE.exec(header.trim()));
 
+// Без кэша на диске файл идёт из базы по куску хранения: в памяти на ответ одна строка базы, а не весь файл.
 const _fromDatabase = (
   read: _File['chunk'],
   span: _Span
@@ -61,7 +60,12 @@ const _fromDatabase = (
             (next > span.end || bytes.byteLength === 0) &&
             controller.close()
           )
-        ))(read(next, Math.min(_CHUNK, span.end + 1 - next))),
+        ))(
+          read(
+            next,
+            Math.min(BLOB_CHUNK - (next % BLOB_CHUNK), span.end + 1 - next)
+          )
+        ),
     },
     { highWaterMark: 0 }
   );

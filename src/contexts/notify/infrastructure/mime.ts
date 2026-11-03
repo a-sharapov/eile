@@ -167,23 +167,27 @@ export var plainOf = (html: string): string =>
 const _htmlOf = (text: string): string =>
   Bun.escapeHTML(text).replace(/\r?\n/g, '<br>\n');
 
-const _leaf = (headers: readonly string[], body: string): string =>
-  [...headers, '', body].join('\r\n');
+// Кусок письма: строка или байты, которые уходят в base64 строками по 76 знаков. Вложения кодируются
+// по ходу отправки: в памяти нет ни их base64 целиком, ни письма одной строкой (ADR 0043).
+type Piece = string | { readonly base64: Uint8Array };
+
+const _leaf = (headers: readonly string[], body: Uint8Array): Piece[] => [
+  `${headers.join('\r\n')}\r\n\r\n`,
+  { base64: body },
+];
 
 const _multipart = (
   kind: 'alternative' | 'related' | 'mixed',
   boundary: string,
-  parts: readonly string[]
-): string =>
-  [
-    `Content-Type: multipart/${kind}; boundary="${boundary}"`,
-    '',
-    ...parts.flatMap((_) => [`--${boundary}`, _]),
-    `--${boundary}--`,
-  ].join('\r\n');
+  parts: readonly (readonly Piece[])[]
+): Piece[] => [
+  `Content-Type: multipart/${kind}; boundary="${boundary}"\r\n\r\n`,
+  ...parts.flatMap((_) => [`--${boundary}\r\n`, ..._, '\r\n']),
+  `--${boundary}--`,
+];
 
 // Имя и тип вложения уже очищены до [A-Za-z0-9._-] и type/subtype: в кавычках им нечего ломать.
-const _attachment = (file: MailAttachment): string =>
+const _attachment = (file: MailAttachment): Piece[] =>
   _leaf(
     [
       `Content-Type: ${file.contentType}; name="${file.filename}"`,
@@ -191,24 +195,58 @@ const _attachment = (file: MailAttachment): string =>
       ...(file.contentId ? [`Content-ID: <${file.contentId}>`] : []),
       'Content-Transfer-Encoding: base64',
     ],
-    _wrapped(file.content)
+    file.content
   );
 
-const _textPart = (text: string, subtype: 'plain' | 'html'): string =>
+const _textPart = (text: string, subtype: 'plain' | 'html'): Piece[] =>
   _leaf(
     [
       `Content-Type: text/${subtype}; charset=utf-8`,
       'Content-Transfer-Encoding: base64',
     ],
-    _body(text)
+    _utf8.encode(text)
   );
 
+// 57 байт — ровно строка base64 в 76 знаков: блок из 1024 строк кодируется за раз.
+const _LINES = 1024;
+const _BLOCK = 57 * _LINES;
+const _ascii = new TextEncoder();
+
+// base64 блока — в общий буфер, строки раздвигаются под CRLF с конца, на месте: на блок одна строка
+// toBase64 и ни одной копии в байтах. Кусок годится, пока не попросили следующий.
+function* _base64(bytes: Uint8Array): Generator<Uint8Array> {
+  const out = new Uint8Array(2 + _LINES * 78);
+  for (let at = 0; at < bytes.byteLength; at += _BLOCK) {
+    const text = bytes.subarray(at, at + _BLOCK).toBase64();
+    const head = at === 0 ? 0 : 2;
+    const lines = Math.ceil(text.length / 76);
+    out.set([13, 10]);
+    _ascii.encodeInto(text, out.subarray(head));
+    for (let line = lines - 1; line > 0; line--) {
+      out.copyWithin(
+        head + line * 78,
+        head + line * 76,
+        head + Math.min(text.length, (line + 1) * 76)
+      );
+      out.set([13, 10], head + line * 78 - 2);
+    }
+    yield out.subarray(0, head + text.length + 2 * (lines - 1));
+  }
+}
+
+function* _flatten(pieces: readonly Piece[]): Generator<string | Uint8Array> {
+  for (const piece of pieces)
+    yield* typeof piece === 'string' ? [piece] : _base64(piece.base64);
+}
+
 /**
- * Письмо почтового шлюза: текст и HTML всегда оба (недостающее собирается из другого), картинки с
+ * Письмо почтового шлюза кусками — так его пишет SMTP-клиент. Кусок — строка или base64 вложения
+ * байтами: строки base64 через CRLF, без точек и без перевода строки в конце; буфер у них общий и годится
+ * до следующего куска. Текст и HTML всегда оба (недостающее собирается из другого), картинки с
  * Content-ID — рядом с HTML в multipart/related, остальные вложения — в multipart/mixed. Отправитель
  * конверта — почта сайта; если в From другой разрешённый адрес, он же в Sender.
  */
-export var mailMime = ({
+export var mailParts = ({
   envelope,
   mail,
   date = new Date(),
@@ -218,7 +256,7 @@ export var mailMime = ({
   readonly mail: Mail;
   readonly date?: Date;
   readonly id?: string;
-}): string => {
+}): Iterable<string | Uint8Array> => {
   const alternative = _multipart('alternative', `cms-${id}-a`, [
     _textPart(mail.text || plainOf(mail.html), 'plain'),
     _textPart(mail.html || _htmlOf(mail.text), 'html'),
@@ -236,17 +274,27 @@ export var mailMime = ({
     files.length > 0
       ? _multipart('mixed', `cms-${id}-m`, [related, ...files.map(_attachment)])
       : related;
-  return [
-    `From: ${_mailbox(mail.from.name, mail.from.address)}`,
-    ...(mail.from.address.toLowerCase() === envelope.toLowerCase()
-      ? []
-      : [`Sender: <${_oneLine(envelope)}>`]),
-    `To: ${mail.to.map((_) => `<${_oneLine(_)}>`).join(', ')}`,
-    `Subject: ${headerValue(mail.subject)}`,
-    `Date: ${date.toUTCString().replace('GMT', '+0000')}`,
-    `Message-ID: <${id}@${_oneLine(envelope.split('@')[1] ?? 'localhost')}>`,
-    'MIME-Version: 1.0',
-    root,
-    '',
-  ].join('\r\n');
+  return _flatten([
+    `${[
+      `From: ${_mailbox(mail.from.name, mail.from.address)}`,
+      ...(mail.from.address.toLowerCase() === envelope.toLowerCase()
+        ? []
+        : [`Sender: <${_oneLine(envelope)}>`]),
+      `To: ${mail.to.map((_) => `<${_oneLine(_)}>`).join(', ')}`,
+      `Subject: ${headerValue(mail.subject)}`,
+      `Date: ${date.toUTCString().replace('GMT', '+0000')}`,
+      `Message-ID: <${id}@${_oneLine(envelope.split('@')[1] ?? 'localhost')}>`,
+      'MIME-Version: 1.0',
+    ].join('\r\n')}\r\n`,
+    ...root,
+    '\r\n',
+  ]);
 };
+
+const _latin1 = new TextDecoder('latin1');
+
+/** Письмо почтового шлюза одной строкой — то же, что `mailParts`; кусок base64 читается сразу. */
+export var mailMime = (options: Parameters<typeof mailParts>[0]): string =>
+  Array.from(mailParts(options), (_) =>
+    typeof _ === 'string' ? _ : _latin1.decode(_)
+  ).join('');

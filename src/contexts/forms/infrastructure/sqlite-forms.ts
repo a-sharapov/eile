@@ -1,3 +1,4 @@
+import { chunksOf, joinChunks } from '../../../platform/chunks.ts';
 import type { Database } from '../../../platform/database.ts';
 import {
   type Form,
@@ -11,6 +12,7 @@ import type {
   InboxStats,
   SubmissionFile,
   SubmissionRepository,
+  UploadedFile,
   WebhookRepository,
 } from '../domain/ports.ts';
 import type { Value } from '../domain/schema.ts';
@@ -286,36 +288,63 @@ const _fileName = (name: string): string =>
     .slice(0, 200) || 'file';
 
 export var defineFileRepository = (db: Database): FileRepository => {
-  const insert = db.query<
-    { id: number },
-    Record<string, string | number | Uint8Array>
-  >(
-    `INSERT INTO forms_files (submission_id, field, name, type, size, data)
-     VALUES ($submission, $field, $name, $type, $size, $data) RETURNING id`
+  const insert = db.query<{ id: number }, Record<string, string | number>>(
+    `INSERT INTO forms_files (submission_id, field, name, type, size)
+     VALUES ($submission, $field, $name, $type, $size) RETURNING id`
+  );
+  const insertChunk = db.query<unknown, [number, number, Uint8Array]>(
+    'INSERT INTO forms_file_chunks (file_id, n, data) VALUES (?, ?, ?)'
   );
   const list = db.query<FileRow, [number]>(
     'SELECT id, submission_id, field, name, type, size FROM forms_files WHERE submission_id = ? ORDER BY id'
   );
-  const get = db.query<FileRow & { data: Uint8Array }, [number]>(
-    'SELECT * FROM forms_files WHERE id = ?'
+  const get = db.query<FileRow, [number]>(
+    'SELECT id, submission_id, field, name, type, size FROM forms_files WHERE id = ?'
+  );
+  const chunks = db.query<{ data: Uint8Array }, [number]>(
+    'SELECT data FROM forms_file_chunks WHERE file_id = ? ORDER BY n'
   );
   const orphans = db.query(
     'DELETE FROM forms_files WHERE submission_id NOT IN (SELECT id FROM forms_submissions)'
   );
+  const orphanChunks = db.query(
+    'DELETE FROM forms_file_chunks WHERE file_id NOT IN (SELECT id FROM forms_files)'
+  );
+  // Файл и его куски — вместе: недописанного файла в заявке не бывает.
+  const add = db.transaction(
+    (submission: number, field: string, file: UploadedFile): number =>
+      ((id) => (
+        chunksOf(file.bytes).forEach(
+          (data, n) => void insertChunk.run(id, n, data)
+        ),
+        id
+      ))(
+        insert.get({
+          submission,
+          field,
+          name: _fileName(file.name),
+          type: file.type.slice(0, 100),
+          size: file.bytes.byteLength,
+        })!.id
+      )
+  );
   return {
-    add: (submission, field, file) =>
-      insert.get({
-        submission,
-        field,
-        name: _fileName(file.name),
-        type: file.type.slice(0, 100),
-        size: file.bytes.byteLength,
-        data: file.bytes,
-      })!.id,
+    add: (submission, field, file) => add(submission, field, file),
     list: (submission) => list.all(submission).map(_file),
     get: (id) =>
-      ((row) => (row ? { ..._file(row), bytes: row.data } : null))(get.get(id)),
-    removeOrphans: () => orphans.run().changes,
+      ((row) =>
+        row
+          ? {
+              ..._file(row),
+              bytes: joinChunks(
+                chunks.all(id).map((_) => _.data),
+                0,
+                row.size
+              ),
+            }
+          : null)(get.get(id)),
+    removeOrphans: () =>
+      ((removed) => (orphanChunks.run(), removed))(orphans.run().changes),
   };
 };
 

@@ -36,6 +36,12 @@ import {
   readFolder,
 } from '../workspace/index.ts';
 import type { Options } from './args.ts';
+import {
+  type CliError,
+  type Context,
+  cliError,
+  isCliError,
+} from './context.ts';
 import { COMMANDS, commandHelp, overview, unknownText } from './help.ts';
 import { httpsUrl, type ServeBase, serveSecure } from './https.ts';
 import type { Language } from './language.ts';
@@ -43,26 +49,21 @@ import { motd, pages } from './motd.ts';
 import { type Paint, padEnd } from './paint.ts';
 import { named, PROGRAM } from './program.ts';
 import { promptHidden } from './prompt.ts';
+import {
+  defineHost,
+  restartReport,
+  restartServices,
+  runService,
+  type ServiceRestart,
+} from './service.ts';
 import { VERSION } from './version.ts';
 
-export type Context = {
-  readonly args: readonly string[];
-  readonly options: Options;
-  readonly paint: Paint;
-  readonly language: Language;
-  /** stdin и stdout — терминал: можно спросить пароль скрыто. */
-  readonly tty: boolean;
-  readonly out: (text: string) => void;
-};
-
-/** Ошибка для человека: печатается как есть, процесс выходит с кодом 1. */
-export type CliError = Error & { readonly cli: true };
-
-export var cliError = (message: string): CliError =>
-  Object.assign(new Error(message), { cli: true as const });
-
-export var isCliError = (error: unknown): error is CliError =>
-  error instanceof Error && 'cli' in error;
+export {
+  type CliError,
+  type Context,
+  cliError,
+  isCliError,
+} from './context.ts';
 
 const _reject = (message: string): Promise<never> =>
   Promise.reject(cliError(message));
@@ -98,6 +99,30 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
     'certificates.invalid_domain':
       'Это не домен для сертификата: нужно имя вроде example.com — без *, IP и localhost.',
     'certificates.no_domain': 'Нужен домен: --domain example.com',
+    'backup.corrupt': 'Файл базы повреждён.',
+    'database.newer': `Эту базу уже вела более новая версия ${PRODUCT}: в ней миграции, которых эта программа не знает, и на ней сайт работал бы с ошибками. Обновите cms (cms update) или верните копию базы, снятую до обновления (site.db.before-<версия> рядом с базой).`,
+    'service.no_mode':
+      'Выберите, как служба встречает посетителей: --domain example.com — сама держит HTTPS, или --trust-proxy — за nginx или Caddy.',
+    'service.both_modes':
+      '--domain и --trust-proxy вместе не ставятся: с доменом HTTPS держит сама служба, за прокси — прокси.',
+    'service.invalid_port': 'Порт — целое число от 1 до 65535.',
+    'service.invalid_name':
+      'Имя службы — строчные латинские буквы, цифры, - и _, до 64 знаков: cms, shop, blog-2.',
+    'service.invalid_email':
+      "Это не похоже на адрес почты для писем Let's Encrypt.",
+    'service.invalid_host':
+      'Адрес для --host — IP этой машины: 127.0.0.1, ::1 или 0.0.0.0.',
+    'service.domain_only':
+      '--email, --https-port и --acme-staging — только вместе с --domain.',
+    'service.proxy_only':
+      '--host — только с --trust-proxy: с доменом служба слушает все адреса.',
+    'service.invalid_binary':
+      'Путь к cms идёт в юнит как есть: без пробелов и особых знаков, например /usr/local/bin/cms.',
+    'service.no_source': 'Нет файла базы для --from.',
+    'service.not_database':
+      'Для --from нужен файл базы сайта (.db). Копию JSON сначала соберите в базу: cms restore site.json --db site.db',
+    'service.has_database':
+      'У службы уже есть своя база site.db, --from её не заменит. Сайт в работающую службу переносит менеджер: «Резервные копии» → «Восстановить из копии».',
   },
   en: {
     'identity.weak_password': 'A password needs at least 10 characters.',
@@ -129,6 +154,30 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
     'certificates.invalid_domain':
       'This is not a domain for a certificate: use a name like example.com, without *, IP addresses or localhost.',
     'certificates.no_domain': 'A domain is needed: --domain example.com',
+    'backup.corrupt': 'The database file is damaged.',
+    'database.newer': `A newer version of ${PRODUCT} has already run this database: it has migrations this program does not know, and the site would break on it. Update cms (cms update) or put back the copy taken before the update (site.db.before-<version> next to the database).`,
+    'service.no_mode':
+      'Choose how the service meets visitors: --domain example.com to hold HTTPS itself, or --trust-proxy behind nginx or Caddy.',
+    'service.both_modes':
+      '--domain and --trust-proxy do not go together: with a domain the service holds HTTPS itself, behind a proxy the proxy does.',
+    'service.invalid_port': 'A port is a whole number from 1 to 65535.',
+    'service.invalid_name':
+      'A service name has lowercase Latin letters, digits, - and _, up to 64 characters: cms, shop, blog-2.',
+    'service.invalid_email':
+      "This does not look like an email address for Let's Encrypt notices.",
+    'service.invalid_host':
+      'The --host address is an IP of this machine: 127.0.0.1, ::1 or 0.0.0.0.',
+    'service.domain_only':
+      '--email, --https-port and --acme-staging go only with --domain.',
+    'service.proxy_only':
+      '--host goes only with --trust-proxy: with a domain the service listens on all addresses.',
+    'service.invalid_binary':
+      'The path to cms goes into the unit as is: no spaces or special characters, for example /usr/local/bin/cms.',
+    'service.no_source': 'There is no database file for --from.',
+    'service.not_database':
+      'For --from, use a site database file (.db). Turn a JSON copy into a database first: cms restore site.json --db site.db',
+    'service.has_database':
+      'The service already has its own site.db, and --from will not replace it. To move a site into a running service, use the manager: Backups → Restore from a backup.',
   },
 };
 
@@ -227,8 +276,6 @@ const _SAY = {
     updated: `${PRODUCT} обновлена:`,
     previous: 'Прежняя',
     alias: 'Второе имя',
-    restartServer:
-      'Перезапустите сервер: новая версия заработает после перезапуска.',
     pulled: 'Элементы сайта — в папке',
     written: (n: number) => `записано файлов ${n}`,
     unchanged: (n: number) => `без изменений ${n}`,
@@ -340,7 +387,6 @@ const _SAY = {
     updated: `${PRODUCT} updated:`,
     previous: 'Previous',
     alias: 'Second name',
-    restartServer: 'Restart the server: the new version runs after a restart.',
     pulled: 'Site elements are in',
     written: (n: number) => `${n} files written`,
     unchanged: (n: number) => `${n} unchanged`,
@@ -428,6 +474,10 @@ const _directory = (options: Options): string =>
   options.acmeDirectory ??
   (options.acmeStaging ? LETS_ENCRYPT.staging : LETS_ENCRYPT.production);
 
+// За прокси на той же машине сервер слушает только её (--host 127.0.0.1): мимо прокси X-Forwarded-* не подделать.
+const _base = (options: Options): ServeBase =>
+  options.host ? { ..._BASE, hostname: options.host } : _BASE;
+
 // С --domain сервер сам держит HTTPS: HTTP-порт — для проверки и переадресации, сертификат — от Let's Encrypt.
 const _listen = (
   ctx: Context,
@@ -448,7 +498,7 @@ const _listen = (
             domains,
             port: Number(ctx.options.port),
             httpsPort,
-            base: _BASE,
+            base: _base(ctx.options),
             issued: (certificate) =>
               ctx.out(
                 `${ctx.paint.ok('✓')} ${_say(ctx).issued(certificate.notAfter.slice(0, 10))} ${ctx.paint.path(httpsUrl(domains, httpsPort))}`
@@ -464,7 +514,7 @@ const _listen = (
         stop: () => void server.stop(),
       }))(
         Bun.serve({
-          ..._BASE,
+          ..._base(ctx.options),
           port: Number(ctx.options.port),
           fetch: app.fetch,
         })
@@ -1274,19 +1324,52 @@ const _UPDATE: Readonly<
           ...(_.alias
             ? [`  ${padEnd(paint.dim(say.alias), 12)}${paint.path(_.alias)}`]
             : []),
-          `  ${paint.warn('▸')} ${say.restartServer}`,
         ].join('\n')
       : '',
 };
+
+// Новый бинарник на месте — его службы systemd перезапускаются на нём; не поднялись — откат на cms.old.
+const _restarted = (
+  ctx: Context,
+  result: UpdateResult
+): Promise<ServiceRestart> =>
+  result.status === 'updated' && ctx.options.noRestart !== true
+    ? restartServices({
+        host: defineHost(),
+        binary: result.binary,
+        previous: result.previous,
+        version: result.release.version,
+        current: result.current,
+      })
+    : Promise.resolve({ status: 'none' });
+
+// Итог обновления и служб; служба не поднялась на новой версии — откат уже сделан, код выхода 1.
+const _updated =
+  (ctx: Context, result: UpdateResult) =>
+  (restart: ServiceRestart): Promise<void> =>
+    ((report) => (
+      ctx.out(
+        [
+          _UPDATE[result.status](ctx.paint, result, _say(ctx)),
+          ...(report?.lines ?? []),
+        ].join('\n')
+      ),
+      report?.error ? _reject(report.error) : Promise.resolve()
+    ))(
+      result.status === 'updated'
+        ? restartReport(ctx.paint, ctx.language, restart, {
+            version: result.release.version,
+            current: result.current,
+          })
+        : null
+    );
 
 const _update = (ctx: Context): Promise<void> =>
   updateProgram({
     releases: defineReleases({ repository: REPOSITORY, version: VERSION }),
     current: VERSION,
     check: ctx.options.check === true,
-  }).then((result) =>
-    ctx.out(_UPDATE[result.status](ctx.paint, result, _say(ctx)))
-  );
+  }).then((result) => _restarted(ctx, result).then(_updated(ctx, result)));
 
 export var RUN: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
   serve: _serve,
@@ -1300,6 +1383,7 @@ export var RUN: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
   mcp: _mcp,
   diagnose: _diagnose,
   update: _update,
+  service: (ctx) => runService(ctx),
   help: (ctx) => helpFor(ctx.paint, ctx.args[0], ctx.language).then(ctx.out),
   version: (ctx) => Promise.resolve(ctx.out(`${PRODUCT} ${VERSION}`)),
 };

@@ -29,6 +29,11 @@ export var fail = (code: string, message: string, at?: SourcePoint): never => {
 export var isDomainError = (error: unknown): error is DomainError =>
   error instanceof Error && error.name === 'DomainError';
 
+/** Та же ошибка дальше — из выражения: `attempt(run, (error) => (cleanup(), rethrow(error)))`. */
+export var rethrow = (error: unknown): never => {
+  throw error;
+};
+
 /** Синхронный вызов API, которое сообщает об ошибке исключением. */
 export var attempt = <T>(run: () => T, recover: (error: unknown) => T): T => {
   try {

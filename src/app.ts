@@ -125,7 +125,7 @@ import { defineEventBus } from './platform/event-bus.ts';
 import { REPOSITORY } from './product.ts';
 import { applyScaffold, type Scaffold } from './scaffolds/scaffold.ts';
 import { serverChecks } from './server-checks.ts';
-import { attempt, fail } from './shared/kernel/errors.ts';
+import { attempt, fail, rethrow } from './shared/kernel/errors.ts';
 import { type Localized, localized } from './shared/kernel/manager-language.ts';
 import { errorDetail, errorKey } from './shared/kernel/report.ts';
 import { redirectPages, siteFacts } from './site-facts.ts';
@@ -315,6 +315,8 @@ const _compose = (
       ),
     transports: options.transports,
     ...(options.mailLog ? { log: options.mailLog } : {}),
+    // Тело письма шлюза ждёт разбора там же, где тела загрузок медиатеки: на диске рядом с базой.
+    spool: cache.spool,
   });
   const report = notify.incidents.report;
   const certificates = defineCertificates({
@@ -629,10 +631,21 @@ const _forwarded = (request: Request): Request =>
 const _forwardedClient = (request: Request, fallback: string): string =>
   request.headers.get('x-forwarded-for')?.split(',').at(-1)?.trim() || fallback;
 
+/**
+ * Файл базы — сайт этой или более старой версии: целостность, журнал миграций, схема доводится до текущей
+ * прямо в нём. Чужая база SQLite и база более новой версии — отказ (`backup.foreign`, `backup.newer`).
+ */
+export var prepareSite = (path: string): void =>
+  prepareDatabase(path, _MIGRATIONS);
+
 /** Корень композиции: единственное место, которое знает все контексты. */
 export var createApp = (options: AppOptions = {}): App => {
   const db = openDatabase(options.databasePath ?? ':memory:');
-  migrate(db, _MIGRATIONS);
+  // База из более новой версии — отказ, и файл не остаётся открытым.
+  attempt(
+    () => migrate(db, _MIGRATIONS),
+    (error) => (db.close(), rethrow(error))
+  );
 
   // Копия текущего сайта сохраняется рядом с базой, затем записи заменяются, контексты собираются
   // заново; сеанс того, кто восстанавливал, остаётся, если в копии он тот же человек.

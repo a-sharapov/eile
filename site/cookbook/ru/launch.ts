@@ -6,7 +6,7 @@ const deploy: Chapter = {
   menuTitle: 'В интернет',
   lead: 'Пока сайт живёт на вашем компьютере. Перенесём его на сервер, привяжем домен и включим HTTPS. Понадобятся сервер на Linux и домен, остальное Eile сделает сам.',
   description:
-    'Как выложить сайт Eile в интернет: VPS, домен, перенос site.db, systemd, HTTPS от Let’s Encrypt без прокси, копии и обновления.',
+    'Как выложить сайт Eile в интернет: VPS, домен, перенос site.db, служба одной командой, HTTPS от Let’s Encrypt без прокси, копии и обновления.',
   content: [
     aside(
       'goal',
@@ -36,9 +36,9 @@ const deploy: Chapter = {
       '$ curl -fsSL https://github.com/a-sharapov/eile/releases/latest/download/install.sh | bash'
     ),
     p(
-      'Под root программа ляжет в <code>/usr/local/bin/cms</code>. Создайте папку для сайта и выйдите с сервера командой <code>exit</code>:'
+      'Под root программа ляжет в <code>/usr/local/bin/cms</code>. Выйдите с сервера командой <code>exit</code>:'
     ),
-    code('sh', '$ mkdir -p /var/lib/cms\n$ exit'),
+    code('sh', '$ exit'),
     h2('perenos', 'Перенести сайт'),
     p(
       'Весь сайт лежит в <code>site.db</code>. Сначала сделайте его копию на своём компьютере, в папке <code>fasad</code>:'
@@ -47,50 +47,29 @@ const deploy: Chapter = {
     p(
       'Копию можно делать и на работающем сайте: она соберётся целиком и без половинчатых записей. Теперь отправьте её на сервер командой <code>scp</code>, она копирует файлы через SSH:'
     ),
-    code('sh', '$ scp fasad-copy.db root@203.0.113.10:/var/lib/cms/site.db'),
+    code('sh', '$ scp fasad-copy.db root@203.0.113.10:'),
     h2('sluzhba', 'Запустить как службу'),
     p(
-      'Если запустить <code>cms</code> в терминале сервера, сайт остановится, как только вы закроете окно. Поэтому его запускают службой: Linux сам стартует её при включении сервера и перезапустит, если что-то пойдёт не так. Снова зайдите на сервер и создайте файл службы:'
+      'Если запустить <code>cms</code> в терминале сервера, сайт остановится, как только вы закроете окно. Поэтому его запускают службой: Linux сам стартует её при включении сервера и перезапустит, если что-то пойдёт не так. Службу Eile создаёт сам. Снова зайдите на сервер и выполните одну команду, поменяв домены и почту на свои:'
     ),
     code(
       'sh',
-      '$ ssh root@203.0.113.10\n$ nano /etc/systemd/system/cms.service'
-    ),
-    p(
-      'Откроется простой редактор. Вставьте текст ниже, поменяв домены и почту на свои, затем нажмите <kbd>Ctrl</kbd>+<kbd>O</kbd>, <kbd>Enter</kbd> и <kbd>Ctrl</kbd>+<kbd>X</kbd>, чтобы сохранить и выйти.'
-    ),
-    code(
-      'ini',
-      `[Unit]
-Description=Eile CMS
-After=network.target
-
-[Service]
-ExecStart=/usr/local/bin/cms --domain fasad.ru,www.fasad.ru --email you@example.com
-Environment=CMS_DB=/var/lib/cms/site.db
-DynamicUser=yes
-StateDirectory=cms
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target`,
-      { file: '/etc/systemd/system/cms.service' }
+      '$ ssh root@203.0.113.10\n$ cms service install --domain fasad.ru,www.fasad.ru --email you@example.com --from fasad-copy.db'
     ),
     list(
       c('--domain fasad.ru,www.fasad.ru') +
         ': на каких адресах живёт сайт. Eile сам получит для них сертификат HTTPS у Let’s Encrypt, будет продлевать его и переводить гостей с http на https.',
       c('--email') +
         ': сюда Let’s Encrypt напишет, если с сертификатом что-то не так.',
-      c('CMS_DB') + ': где лежит база сайта.',
-      c('AmbientCapabilities') +
-        ': разрешает программе занять порты 80 и 443, на которых работают сайты, без прав root.'
+      c('--from fasad-copy.db') +
+        ': копия сайта, которую вы привезли. Eile перенесёт её в <code>/var/lib/cms/site.db</code>, после этого <code>fasad-copy.db</code> можно удалить.'
     ),
-    p('Включите службу:'),
-    code('sh', '$ systemctl enable --now cms\n$ systemctl status cms'),
     p(
-      'Во второй строке должно быть <code>active (running)</code>. Через минуту откройте <code>https://fasad.ru</code>: сайт на месте, с замком в адресной строке. Менеджер работает по <code>https://fasad.ru/manager</code>, с той же почтой и паролем, что были у вас дома: они переехали вместе с базой.'
+      'Сначала команда проверит, что домены указывают на этот сервер, порты 80 и 443 свободны и памяти хватает. Если что-то не так, она скажет, что поправить. Потом создаст службу, запустит её и дождётся ответа сайта. В конце появится строка <code>✓ Служба cms работает</code> с адресами сайта и менеджера.',
+      'Через минуту откройте <code>https://fasad.ru</code>: сайт на месте, с замком в адресной строке. Менеджер работает по <code>https://fasad.ru/manager</code>, с той же почтой и паролем, что были у вас дома: они переехали вместе с базой. Почту для писем и Telegram настройте в менеджере заново: это настройки сервера, а не сайта, и в копию они не входят.'
+    ),
+    p(
+      'Как дела у сайта, покажет <code>cms service status</code>. Посмотреть файл службы, ничего не меняя, можно с параметром <code>--print</code>.'
     ),
     aside(
       'trouble',
@@ -98,7 +77,7 @@ WantedBy=multi-user.target`,
       list(
         'Записи DNS уже указывают на сервер? Проверьте командой <code>ping fasad.ru</code>: в ответе должен быть IP сервера.',
         'Порты 80 и 443 открыты? У некоторых хостингов есть свой брандмауэр в панели управления.',
-        'Что пишет служба: <code>journalctl -u cms -n 50</code> покажет последние строки её журнала.'
+        'Что пишет служба: <code>cms service logs</code> покажет последние строки её журнала.'
       )
     ),
     h2('adres', 'Адрес сайта в настройках'),
@@ -124,11 +103,11 @@ WantedBy=multi-user.target`,
     ),
     h2('obnovleniya', 'Обновления'),
     p(
-      'Когда выйдет новая версия Eile, менеджер покажет это в меню учётной записи. Обновление на сервере занимает две команды:'
+      'Когда выйдет новая версия Eile, менеджер покажет это в меню учётной записи. Обновление на сервере занимает одну команду:'
     ),
-    code('sh', '$ cms update\n$ systemctl restart cms'),
+    code('sh', '$ cms update'),
     p(
-      'Первая скачает новую версию, сверит контрольную сумму и пробно её запустит, вторая перезапустит сайт. Перед обновлением альфа-версии полезно сделать копию: ' +
+      'Она скачает новую версию, сверит контрольную сумму, пробно её запустит и перезапустит службу. Если новая версия не поднимется, <code>cms update</code> сам вернёт прежнюю и скажет об этом. Перед обновлением альфа-версии полезно сделать копию: ' +
         c('cms backup') +
         '.'
     ),
@@ -136,7 +115,7 @@ WantedBy=multi-user.target`,
       'tip',
       'Переезд на другой сервер',
       p(
-        'Это та же глава ещё раз: поставить <code>cms</code>, скопировать базу, создать службу. Два файла и десять минут.'
+        'Это та же глава ещё раз: поставить <code>cms</code>, привезти копию сайта и запустить <code>cms service install</code>. Два файла и десять минут.'
       )
     ),
     aside(

@@ -48,6 +48,7 @@ export var defineNotify = ({
   site,
   transports,
   log = (line) => console.info(line),
+  spool = () => null,
 }: {
   db: Database;
   clock: () => Date;
@@ -56,6 +57,8 @@ export var defineNotify = ({
   transports?: Transports;
   /** Журнал почтового шлюза: строка на запрос с письмом; по умолчанию — вывод сервера. */
   log?: (line: string) => void;
+  /** Временный файл на диске для большого тела запроса шлюза; null — тело читается в память. */
+  spool?: () => string | null;
 }) => {
   let kick = (): void => undefined;
   const runtime = defineRuntimeMark(db);
@@ -73,7 +76,11 @@ export var defineNotify = ({
     secrets: cryptoGatewaySecrets,
     log,
   });
-  const gateway = defineGatewayHandler({ gateway: service.gateway, clock });
+  const gateway = defineGatewayHandler({
+    gateway: service.gateway,
+    clock,
+    spool,
+  });
   return {
     ...service,
     gateway: { ...service.gateway, handle: gateway.handle },
