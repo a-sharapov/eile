@@ -134,6 +134,7 @@ import {
   openDatabase,
 } from './platform/database.ts';
 import { defineEventBus } from './platform/event-bus.ts';
+import { withAbsoluteUrl } from './platform/request-url.ts';
 import { REPOSITORY } from './product.ts';
 import { applyScaffold, type Scaffold } from './scaffolds/scaffold.ts';
 import { serverChecks } from './server-checks.ts';
@@ -843,7 +844,8 @@ export var createApp = (options: AppOptions = {}): App => {
   });
 
   return {
-    fetch: (request, server) =>
+    // Запрос без Host (сканеры по HTTP/1.0) — 400 до разбора адреса: см. platform/request-url.ts.
+    fetch: withAbsoluteUrl((request, server) =>
       isHealthRequest(request.url)
         ? Promise.resolve(
             health(request, server?.requestIP(request)?.address ?? '')
@@ -861,7 +863,8 @@ export var createApp = (options: AppOptions = {}): App => {
                 timeout: (_request, seconds) =>
                   server?.timeout?.(request, seconds),
               })
-            : parts.fetch(request, server)),
+            : parts.fetch(request, server))
+    ),
     follow,
     mcp: (message, user, session) => (
       follow(), parts.mcp(message, user, session)

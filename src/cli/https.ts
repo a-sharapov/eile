@@ -5,6 +5,7 @@ import {
   valid,
 } from '../contexts/certificates/index.ts';
 import { HEALTH_PATH } from '../health.ts';
+import { withAbsoluteUrl } from '../platform/request-url.ts';
 import { attempt } from '../shared/kernel/errors.ts';
 
 type Server = ReturnType<typeof Bun.serve>;
@@ -94,14 +95,16 @@ export var serveSecure = ({
   const http = Bun.serve({
     ...base,
     port,
-    fetch: defineHttpListener({
-      domains,
-      httpsPort,
-      challenge: app.certificates.challenge,
-      secured: () => secure !== null,
-      site: app.fetch,
-      direct: [HEALTH_PATH],
-    }),
+    fetch: withAbsoluteUrl(
+      defineHttpListener({
+        domains,
+        httpsPort,
+        challenge: app.certificates.challenge,
+        secured: () => secure !== null,
+        site: app.fetch,
+        direct: [HEALTH_PATH],
+      })
+    ),
   });
 
   const stopRenewal = app.certificates.start(

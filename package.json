@@ -1,6 +1,6 @@
 {
   "name": "cms",
-  "version": "0.1.0-alpha.9",
+  "version": "0.1.0-alpha.9.1",
   "description": "Fast, elegant CMS in the spirit of MODX Evo: Bun + SQLite + Svelte, shipped as one binary",
   "license": "GPL-3.0-or-later",
   "type": "module",

@@ -15,6 +15,7 @@ import {
 } from '../contexts/upkeep/index.ts';
 import { importEvo } from '../evo-import/import.ts';
 import { parseDump } from '../evo-import/sql-dump.ts';
+import { errorLine } from '../platform/request-url.ts';
 import { PRODUCT, REPOSITORY } from '../product.ts';
 import {
   applyScaffold,
@@ -562,8 +563,10 @@ const _BASE: ServeBase = {
   maxRequestBodySize: 2 * 1024 ** 3,
   // Страница ошибки Bun в режиме разработки показывает исходник и пути — посетителю она не нужна.
   development: false,
+  // Ошибку — строкой со стеком: объект Bun печатает с куском минифицированного исходника на килобайты.
   error: (error) => (
-    console.error(error), new Response('Internal Server Error', { status: 500 })
+    console.error(errorLine(error)),
+    new Response('Internal Server Error', { status: 500 })
   ),
 };
 
