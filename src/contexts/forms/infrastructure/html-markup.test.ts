@@ -105,6 +105,37 @@ describe('поля по HTML формы', () => {
       },
     ]);
   });
+
+  it('скрытое поле: подписи из data-labels — его варианты, сущности раскрыты; у других полей — только как записано', () => {
+    expect(
+      fieldsOf(
+        '<input type="hidden" name="paket" data-source="query:paket" data-label="Paket" data-labels="berater=KI-Küchenberater | planung=KI-Küchenberater &amp; KI-Planung">'
+      )
+    ).toMatchObject([
+      {
+        name: 'paket',
+        kind: 'hidden',
+        label: 'Paket',
+        source: 'query:paket',
+        labels:
+          'berater=KI-Küchenberater | planung=KI-Küchenberater & KI-Planung',
+        options: [
+          { value: 'berater', label: 'KI-Küchenberater' },
+          { value: 'planung', label: 'KI-Küchenberater & KI-Planung' },
+        ],
+      },
+    ]);
+    // Подписи — не варианты у поля ввода: их ловит проверка при сохранении.
+    expect(
+      fieldsOf('<input name="q" data-labels="a=A"><input name="r">')
+    ).toMatchObject([
+      { name: 'q', kind: 'text', labels: 'a=A', options: [] },
+      { name: 'r', labels: null },
+    ]);
+    expect(
+      fieldsOf('<input type="hidden" name="h" data-labels="  ">')[0]!.labels
+    ).toBeNull();
+  });
 });
 
 describe('форма для посетителя', () => {

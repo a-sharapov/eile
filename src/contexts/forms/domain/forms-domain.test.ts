@@ -2,11 +2,15 @@ import { describe, expect, it } from 'bun:test';
 import { isDomainError } from '../../../shared/kernel/errors.ts';
 import { createForm, editForm, parseFormName } from './form.ts';
 import {
+  assertLabels,
   checkValues,
   type FieldSpec,
   formTextsFor,
   isShown,
   messagesFor,
+  parseLabels,
+  sentValues,
+  valueLabels,
 } from './schema.ts';
 import {
   assertSources,
@@ -18,6 +22,7 @@ import {
   changeSubmission,
   looksLikeSpam,
   markRead,
+  noticeOf,
   type Submission,
   subjectOf,
 } from './submission.ts';
@@ -45,6 +50,7 @@ const field = (patch: Partial<FieldSpec>): FieldSpec => ({
   multiple: false,
   options: [],
   source: null,
+  labels: null,
   message: null,
   showIf: null,
   accept: [],
@@ -513,5 +519,172 @@ describe('источники скрытых полей', () => {
       utm_source: 'ya',
       utm_medium: 'cpc',
     });
+  });
+});
+
+describe('подписи значений скрытого поля', () => {
+  const _PAKET =
+    'berater=KI-Küchenberater|planung=KI-Küchenberater + KI-Planung';
+  const paket = field({
+    name: 'paket',
+    kind: 'hidden',
+    label: 'Paket',
+    source: 'query:paket',
+    labels: _PAKET,
+    options: parseLabels(_PAKET),
+  });
+
+  it('data-labels: значение=подпись через |; пробелы и пустые записи не в счёт, «=» в подписи остаётся', () => {
+    expect(parseLabels(_PAKET)).toEqual([
+      { value: 'berater', label: 'KI-Küchenberater' },
+      { value: 'planung', label: 'KI-Küchenberater + KI-Planung' },
+    ]);
+    expect(parseLabels(' a = A |  | b=x=y |')).toEqual([
+      { value: 'a', label: 'A' },
+      { value: 'b', label: 'x=y' },
+    ]);
+    expect(parseLabels('')).toEqual([]);
+  });
+
+  it('неверные записи разбор пропускает, у повтора — первая подпись: форма из копии сайта не падает', () => {
+    expect(parseLabels('nolabel|=Leer|leer=|a=A|a=B')).toEqual([
+      { value: 'a', label: 'A' },
+    ]);
+  });
+
+  it('как у списка: в заявке подпись, ключ — в raw; значение без подписи — как есть', () => {
+    expect(checkValues([paket], { paket: ['planung'] }, 'de').values).toEqual([
+      {
+        name: 'paket',
+        label: 'Paket',
+        kind: 'hidden',
+        value: 'KI-Küchenberater + KI-Planung',
+        raw: 'planung',
+      },
+    ]);
+    const other = checkValues([paket], { paket: ['test'] }, 'de');
+    expect(other.values).toEqual([
+      {
+        name: 'paket',
+        label: 'Paket',
+        kind: 'hidden',
+        value: 'test',
+        raw: 'test',
+      },
+    ]);
+    // Подпись — не правило: чужое значение не ошибка, как у скрытого поля без подписей.
+    expect(other.errors).toEqual({});
+    // Скрытое поле без подписей и список — как раньше, без raw.
+    expect(
+      checkValues(
+        [
+          field({ name: 'ref', kind: 'hidden', source: 'query:ref' }),
+          field({
+            name: 'topic',
+            kind: 'select',
+            options: [{ value: 'a', label: 'A' }],
+          }),
+        ],
+        { ref: ['friend'], topic: ['a'] },
+        'de'
+      ).values
+    ).toEqual([
+      { name: 'ref', label: 'X', kind: 'hidden', value: 'friend' },
+      { name: 'topic', label: 'X', kind: 'select', value: 'A' },
+    ]);
+  });
+
+  it('условие data-show-if сравнивает ключ, а не подпись', () => {
+    const extra = field({
+      name: 'extra',
+      showIf: { field: 'paket', values: ['planung'] },
+    });
+    expect(isShown([paket, extra], { paket: ['planung'] }, extra)).toBe(true);
+    expect(isShown([paket, extra], { paket: ['berater'] }, extra)).toBe(false);
+  });
+
+  it('для вебхука и плагинов: значения — ключи, подписи — отдельно', () => {
+    const { values } = checkValues(
+      [paket, field({ name: 'firma', label: 'Firma' })],
+      { paket: ['planung'], firma: ['Küchen Müller'] },
+      'de'
+    );
+    expect(sentValues(values)).toEqual({
+      paket: 'planung',
+      firma: 'Küchen Müller',
+    });
+    expect(valueLabels(values)).toEqual({
+      paket: 'KI-Küchenberater + KI-Planung',
+    });
+  });
+
+  it('тема и текст уведомления — с подписью; скрытое поле без подписей в тексте не показано', () => {
+    const { values } = checkValues(
+      [
+        paket,
+        field({ name: 'firma', label: 'Firma' }),
+        field({ name: 'seite', kind: 'hidden', source: 'page.url' }),
+      ],
+      {
+        paket: ['planung'],
+        firma: ['Küchen Müller'],
+        seite: ['https://kuechenly.de/'],
+      },
+      'de'
+    );
+    expect(
+      subjectOf('Bestellung: {paket}, {firma}', 'Bestellung', values)
+    ).toBe('Bestellung: KI-Küchenberater + KI-Planung, Küchen Müller');
+    const notice = noticeOf(
+      { subject: 'Bestellung: {paket}' },
+      {
+        id: 1,
+        form: 'bestellung',
+        formTitle: 'Bestellung',
+        values,
+        context: {
+          pageId: null,
+          pageTitle: '',
+          url: '',
+          referrer: '',
+          utm: {},
+        },
+        ip: '',
+        userAgent: '',
+        status: 'new',
+        createdAt: '2026-11-03T10:00:00Z',
+      },
+      '',
+      'de'
+    );
+    expect(notice.title).toBe('Bestellung: KI-Küchenberater + KI-Planung');
+    expect(notice.fields).toEqual([
+      { label: 'Paket', value: 'KI-Küchenberater + KI-Planung' },
+      { label: 'Firma', value: 'Küchen Müller' },
+    ]);
+  });
+
+  it('при сохранении: data-labels не у скрытого поля, запись не значение=подпись, повтор — понятная ошибка', () => {
+    const labelsOf = (
+      labels: string | null,
+      kind: FieldSpec['kind'] = 'hidden'
+    ) => codeOf(() => assertLabels([field({ name: 'paket', kind, labels })]));
+    expect(labelsOf(_PAKET)).toBeNull();
+    expect(labelsOf(null)).toBeNull();
+    expect(labelsOf(null, 'select')).toBeNull();
+    expect(labelsOf('a=A|')).toBeNull();
+    expect(labelsOf('a=A', 'select')).toBe('forms.labels_not_hidden');
+    expect(labelsOf('a=A', 'text')).toBe('forms.labels_not_hidden');
+    expect(labelsOf('berater|planung=Planung')).toBe('forms.invalid_labels');
+    expect(labelsOf('=Leer')).toBe('forms.invalid_labels');
+    expect(labelsOf('leer=')).toBe('forms.invalid_labels');
+    expect(labelsOf('a=A|a=B')).toBe('forms.invalid_labels');
+    // Текст — для агента и журнала: какое поле и какая запись.
+    const broken = (labels: string) => () =>
+      assertLabels([field({ name: 'paket', kind: 'hidden', labels })]);
+    expect(broken('a=A|berater')).toThrow(
+      'data-labels of field "paket": "berater" is not value=label'
+    );
+    expect(broken('a=A|a=B')).toThrow('value "a" has two labels');
   });
 });

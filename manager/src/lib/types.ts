@@ -330,6 +330,65 @@ export type NotifyStatus = {
   level: Severity;
   /** null — язык сайта. */
   language: 'en' | 'de' | 'ru' | null;
+  gateway: GatewayStatus;
+};
+
+/** Токен почтового шлюза без самого токена: его видно только при выпуске. */
+export type GatewayToken = {
+  id: string;
+  label: string;
+  hint: string;
+  createdAt: string;
+  usedAt: string | null;
+};
+
+export type GatewayOutcome =
+  | 'sent'
+  | 'disabled'
+  | 'smtp_not_ready'
+  | 'rate_limited'
+  | 'unauthorized'
+  | 'invalid_json'
+  | 'too_large'
+  | 'from_misconfigured'
+  | 'to_required'
+  | 'too_many_recipients'
+  | 'subject_required'
+  | 'body_required'
+  | 'recipient_not_allowed'
+  | 'send_failed';
+
+/** Запрос к шлюзу в журнале: без адресов и темы. */
+export type GatewayEntry = {
+  at: string;
+  token: string | null;
+  recipients: number;
+  attachments: number;
+  outcome: GatewayOutcome;
+};
+
+/** Поля шлюза в общей форме уведомлений: сохраняются вместе с ней. */
+export type GatewayForm = {
+  on: boolean;
+  path: string;
+  rateLimit: string;
+  senders: string;
+  domains: string;
+};
+
+/** Почтовый шлюз: настройки, что готово и последние запросы. */
+export type GatewayStatus = {
+  enabled: boolean;
+  path: string;
+  rateLimit: number;
+  senders: string[];
+  domains: string[];
+  tokens: GatewayToken[];
+  checks: { enabled: boolean; token: boolean; sender: boolean; smtp: boolean };
+  ready: boolean;
+  recent: GatewayEntry[];
+  /** Опубликованная страница с тем же адресом: шлюз её перекрывает. */
+  shadows: { id: number; title: string } | null;
 };
 
 /** Строка журнала сбоев: повторы — счётчиком. */
@@ -547,7 +606,14 @@ export type SubmissionDetail = {
   id: number;
   form: string;
   formTitle: string;
-  values: { name: string; label: string; kind: FieldKind; value: string }[];
+  /** `raw` — только у скрытого поля с подписями: значение, как пришло; в `value` — его подпись. */
+  values: {
+    name: string;
+    label: string;
+    kind: FieldKind;
+    value: string;
+    raw?: string;
+  }[];
   context: {
     pageId: number | null;
     pageTitle: string;

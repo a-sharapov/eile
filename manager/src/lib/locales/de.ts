@@ -599,6 +599,9 @@ export var messages: Dictionary['messages'] = {
   'formEditor.value': 'Wert',
   'formEditor.hiddenHint':
     'Besucher sehen das Feld nicht. Werte der Seite und der Website setzt der Server selbst ein – sie lassen sich nicht fälschen.',
+  'formEditor.valueLabels': 'Beschriftungen der Werte',
+  'formEditor.valueLabelsHint':
+    'Eine pro Zeile: „wert | Beschriftung“. E-Mails, Benachrichtigungen, die Anfrage und die CSV zeigen statt des Werts die Beschriftung; ein Wert ohne Beschriftung erscheint unverändert.',
   'formEditor.hint': 'Hinweis unter dem Feld',
   'formEditor.message': 'Fehlertext',
   'formEditor.messagePlaceholder': 'Leer – Standardtext von Browser und Server',
@@ -962,6 +965,57 @@ export var messages: Dictionary['messages'] = {
   'notify.severityError': 'Fehler',
   'notify.severityWarning': 'Warnung',
   'notify.severityInfo': 'Info',
+  'gateway.on': 'Mail-Gateway',
+  'gateway.onHint':
+    'Andere Dienste – eine Plattform, ein CRM, Ihr eigenes Backend – senden E-Mails über das Postfach der Website: ein POST mit JSON und Token.',
+  'gateway.path': 'Adresse des Gateways',
+  'gateway.pathHint':
+    'Lateinische Buchstaben, Ziffern und Bindestriche. Die Adresse antwortet auch ohne Schrägstrich am Ende; vor einer Seite mit derselben Adresse hat das Gateway Vorrang.',
+  'gateway.rateLimit': 'Anfragen pro Minute von einer Adresse',
+  'gateway.rateLimitHint':
+    '0 heißt ohne Grenze. Es zählen E-Mails und Verbindungstests (?probe=1).',
+  'gateway.senders': 'Weitere erlaubte Absender',
+  'gateway.sendersHint':
+    'Ein Client unterschreibt die E-Mail mit dem Absender oben oder einer dieser Adressen; jede andere Adresse wird durch den Absender ersetzt, der Name bleibt. Durch Komma getrennt.',
+  'gateway.domains': 'Domains der Empfänger',
+  'gateway.domainsHint':
+    'Leer heißt beliebig. Sonst lehnt das Gateway eine E-Mail an eine Adresse außerhalb dieser Domains und ihrer Subdomains ab.',
+  'gateway.tokens': 'Tokens',
+  'gateway.noTokens':
+    'Noch keine Tokens: Ohne Token nimmt das Gateway keine einzige E-Mail an.',
+  'gateway.tokenLabel': 'Wer sendet',
+  'gateway.tokenLabelPlaceholder': 'Zum Beispiel Plattform',
+  'gateway.issue': 'Neuer Token',
+  'gateway.issued':
+    'Kopieren Sie den Token jetzt: Der Server behält nur seinen Hash und kann ihn nicht noch einmal zeigen.',
+  'gateway.copyToken': 'Token kopieren',
+  'gateway.copyAddress': 'Adresse kopieren',
+  'gateway.copied': 'Kopiert',
+  'gateway.created': 'erstellt {when}',
+  'gateway.used': 'letzte Anfrage {when}',
+  'gateway.unused': 'noch keine Anfragen',
+  'gateway.revoke': 'Widerrufen',
+  'gateway.revokeTitle': 'Token {name} widerrufen?',
+  'gateway.revokeBody':
+    'Der Dienst mit diesem Token kann sofort keine E-Mails mehr über die Website senden.',
+  'gateway.revoked': 'Token widerrufen',
+  'gateway.ready': 'Aktiv: nimmt E-Mails unter {url} an',
+  'gateway.off': 'Aus.',
+  'gateway.offClaimed':
+    'Aus: Clients mit Token erhalten 503. Widerrufen Sie die Tokens, um die Adresse der Website zurückzugeben.',
+  'gateway.notReady': 'Nicht bereit – es fehlt: {what}.',
+  'gateway.missingSmtp': 'gespeicherte E-Mail-Einstellungen',
+  'gateway.missingSender': 'eine Absenderadresse',
+  'gateway.missingToken': 'ein Token',
+  'gateway.shadows':
+    'Unter dieser Adresse ist die Seite {title} veröffentlicht: Solange das Gateway die Adresse hält, sehen Besucher die Seite nicht.',
+  'gateway.test': 'E-Mail an mich senden',
+  'gateway.testSent': 'Die E-Mail ging über das Gateway an {email}.',
+  'gateway.recent': 'Letzte Anfragen',
+  'gateway.recentHint': 'Seit dem Serverstart, ohne Adressen und Betreff.',
+  'gateway.noToken': 'ohne Token',
+  'gateway.recipients': '{n} Empfänger|{n} Empfänger',
+  'gateway.outcomeSent': 'gesendet',
   'aiSettings.title': 'KI-Anbindung',
   'aiSettings.intro':
     'Jeder Dienst mit einer API wie bei OpenAI: DeepSeek, OpenAI, OpenRouter oder ein eigenes Modell. Ist die KI angebunden, erscheint an den Feldern ein Zauberstab.',
@@ -1754,6 +1808,10 @@ export var errors: Dictionary['errors'] = {
     'Das ist ein Cookie des CMS selbst (cms_…, __Host-…, __Secure-…): Ein Formularfeld kann seinen Wert nicht übernehmen.',
   'forms.invalid_cookie':
     'Das ist kein Cookie-Name: lateinische Buchstaben, Ziffern und Zeichen wie _ - . ohne Leerzeichen.',
+  'forms.invalid_labels':
+    'Beschriftungen eines versteckten Felds (data-labels) werden so geschrieben: wert=Beschriftung|wert=Beschriftung – jeder Wert hat eine Beschriftung, kein Wert kommt doppelt vor.',
+  'forms.labels_not_hidden':
+    'data-labels gibt es nur bei versteckten Feldern: Auswahlliste und Auswahlfelder nehmen die Beschriftungen aus ihren Optionen.',
   'manager.kit_changed':
     'Die Komponente wurde auf der Website geändert – auf die Fassung aus dem Baukasten lässt sie sich nur ausdrücklich zurücksetzen.',
   'manager.kit_not_found': 'Diese Komponente gibt es im Baukasten nicht.',
@@ -1780,6 +1838,19 @@ export var errors: Dictionary['errors'] = {
     'Der Kanal hat die Nachricht nicht angenommen – {detail}',
   'notify.delivery_not_found':
     'Diese Benachrichtigung ist nicht in der Warteschlange.',
+  'notify.invalid_gateway_path':
+    'Die Adresse des Gateways sieht aus wie /mailer/: lateinische Buchstaben, Ziffern und Bindestriche; nicht /manager, /media oder /_cms.',
+  'notify.invalid_rate_limit':
+    'Die Grenze ist eine ganze Zahl von 0 bis 10000.',
+  'notify.invalid_sender':
+    'Erlaubte Absender sind E-Mail-Adressen, durch Komma getrennt, höchstens 20.',
+  'notify.invalid_domain':
+    'Domains der Empfänger sehen aus wie example.com, durch Komma getrennt, höchstens 50.',
+  'notify.token_label': 'Benennen Sie den Token: Wer sendet damit?',
+  'notify.too_many_tokens':
+    'Höchstens 10 Tokens – widerrufen Sie einen, den Sie nicht brauchen.',
+  'notify.gateway_token_not_found':
+    'Diesen Token gibt es nicht – vielleicht wurde er schon widerrufen.',
   'design.element_in_use':
     'Das Element wird verwendet – entfernen Sie es zuerst dort.',
   'redirects.invalid_from':

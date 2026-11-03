@@ -38,6 +38,8 @@ const transports: Transports = {
             Object.assign(new Error('550 No such user'), { permanent: true })
           )
         : (sent.push({ to, item }), Promise.resolve()),
+    mail: () => Promise.resolve(),
+    probe: () => Promise.resolve({ ok: true, latencyMs: 1 }),
   },
 };
 
@@ -552,4 +554,158 @@ describe('плагины, менеджер и агенты', () => {
   });
 
   const secret = () => app.forms.forms.get('order')!.webhook.secret;
+});
+
+describe('скрытое поле с подписями: пакет из адреса', () => {
+  const _PAKET =
+    '<input type="hidden" name="paket" data-source="query:paket" data-label="Paket" data-labels="berater=KI-Küchenberater|planung=KI-Küchenberater + KI-Planung">';
+  const _LABEL = 'KI-Küchenberater + KI-Planung';
+  let server: ReturnType<typeof Bun.serve>;
+  let received: { body: string; signature: string | null }[];
+  let cookie = '';
+
+  const call = (method: string, path: string, body?: unknown) =>
+    app.fetch(
+      new Request(`https://site.test/manager/api${path}`, {
+        method,
+        headers: {
+          ...(cookie ? { cookie } : {}),
+          ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+    );
+
+  beforeEach(async () => {
+    received = [];
+    server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch: (request) =>
+        request.text().then((body) => {
+          received.push({
+            body,
+            signature: request.headers.get('x-eile-signature'),
+          });
+          return new Response('ok');
+        }),
+    });
+    app.forms.forms.save('order', {
+      source: `${_PAKET}\n${_SOURCE}`,
+      subject: 'Bestellung: {paket}, {name}',
+      confirmation: {
+        enabled: true,
+        subject: 'Ihre Bestellung: {paket}',
+        text: 'Guten Tag {name},\nPaket: {paket}',
+      },
+      webhook: { url: `http://127.0.0.1:${server.port}/hook` },
+    });
+    cookie = '';
+    const setup = await call('POST', '/setup', {
+      token: app.identity.setup.token(),
+      email: 'admin@example.com',
+      password: 'correct horse battery',
+    });
+    cookie = (setup.headers.get('set-cookie') ?? '').split(';')[0]!;
+  });
+
+  afterEach(() => void server.stop(true));
+
+  const order = (paket = 'planung') => submit({ ..._GOOD, paket: [paket] });
+
+  it('в форме — ключ из адреса; письмо заказчику, тема и текст уведомления — подпись', async () => {
+    expect(await (await get('/bestellen?paket=planung')).text()).toMatch(
+      /name="paket" data-source="query:paket"[^>]* value="planung"/
+    );
+    expect((await order()).status).toBe(200);
+    await app.notify.outbox.run();
+    expect(
+      sent.find((_) => _.item.topic === 'confirmation')!.item
+    ).toMatchObject({
+      title: `Ihre Bestellung: ${_LABEL}`,
+      text: `Guten Tag Anna Schmidt,\nPaket: ${_LABEL}`,
+    });
+    const notice = sent.find((_) => _.item.topic === 'forms')!.item;
+    expect(notice.title).toBe(`Bestellung: ${_LABEL}, Anna Schmidt`);
+    expect(notice.fields[0]).toEqual({ label: 'Paket', value: _LABEL });
+  });
+
+  it('значение без подписи — как есть', async () => {
+    await order('sonderpaket');
+    await app.notify.outbox.run();
+    expect(sent.find((_) => _.item.topic === 'forms')!.item.title).toBe(
+      'Bestellung: sonderpaket, Anna Schmidt'
+    );
+  });
+
+  it('карточка, список и CSV в менеджере — подпись; ключ остаётся в заявке', async () => {
+    await order();
+    const [submission] = app.forms.inbox.list({ limit: 1 });
+    const paket = {
+      name: 'paket',
+      label: 'Paket',
+      kind: 'hidden' as const,
+      value: _LABEL,
+      raw: 'planung',
+    };
+    expect(submission!.values[0]).toEqual(paket);
+    const detail = (await (
+      await call('GET', `/inbox/${submission!.id}`)
+    ).json()) as { values: unknown[] };
+    expect(detail.values[0]).toEqual(paket);
+    const [row] = (await (await call('GET', '/inbox')).json()) as {
+      preview: string;
+    }[];
+    expect(row!.preview).toStartWith(`${_LABEL} · Anna Schmidt`);
+    const csv = await (await call('GET', '/inbox.csv?lang=de')).text();
+    const [head, line] = csv.replace('﻿', '').split('\r\n');
+    const column = head!.split(';').indexOf('Paket');
+    expect(column).toBeGreaterThan(0);
+    expect(line!.split(';')[column]).toBe(_LABEL);
+  });
+
+  it('вебхук: в values — ключ, как раньше; подпись — в labels, тело подписано', async () => {
+    await submit(
+      { ..._GOOD, paket: ['planung'] },
+      { cookie: 'partner=KLY-42' }
+    );
+    expect(await app.forms.webhooks.run()).toBe(1);
+    const { body, signature } = received[0]!;
+    expect(signature).toBe(
+      `sha256=${createHmac('sha256', app.forms.forms.get('order')!.webhook.secret).update(body).digest('hex')}`
+    );
+    expect(JSON.parse(body)).toMatchObject({
+      values: {
+        paket: 'planung',
+        name: 'Anna Schmidt',
+        partner: 'KLY-42',
+      },
+      labels: { paket: _LABEL },
+    });
+  });
+
+  it('неверные data-labels форма не сохранит: понятная ошибка в коде и в API менеджера', async () => {
+    expect(() =>
+      app.forms.forms.save('order', {
+        source:
+          '<input type="hidden" name="paket" data-labels="berater|planung=Planung">',
+      })
+    ).toThrow('data-labels of field "paket": "berater" is not value=label');
+    const twice = await call('PUT', '/forms/order', {
+      source: '<input type="hidden" name="paket" data-labels="a=A|a=B">',
+    });
+    expect(twice.status).toBe(422);
+    expect(await twice.json()).toMatchObject({
+      error: { code: 'forms.invalid_labels' },
+    });
+    const misplaced = await call('PUT', '/forms/order', {
+      source:
+        '<select name="paket" data-labels="a=A"><option value="a">A</option></select>',
+    });
+    expect(misplaced.status).toBe(422);
+    expect(await misplaced.json()).toMatchObject({
+      error: { code: 'forms.labels_not_hidden' },
+    });
+    expect(app.forms.forms.get('order')!.source).toStartWith(_PAKET);
+  });
 });

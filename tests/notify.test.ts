@@ -31,6 +31,8 @@ const transports: Transports = {
       sent.push({ channel: 'email', to: to.join(','), message: item }),
       Promise.resolve()
     ),
+    mail: () => Promise.resolve(),
+    probe: () => Promise.resolve({ ok: true, latencyMs: 1 }),
   },
 };
 

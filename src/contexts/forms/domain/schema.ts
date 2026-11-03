@@ -1,4 +1,4 @@
-import { attempt } from '../../../shared/kernel/errors.ts';
+import { attempt, fail } from '../../../shared/kernel/errors.ts';
 
 /** Вид поля: тип `<input>`, `textarea`, `select`, группа вариантов, согласие или скрытое поле. */
 export type FieldKind =
@@ -58,6 +58,75 @@ export var parseShowIf = (raw: string): ShowIf | null =>
                   .filter(Boolean),
               })(text.indexOf('=')))(raw.trim());
 
+// Записи `data-labels` между «|»; пустые (лишняя черта в конце) не в счёт.
+const _entries = (raw: string): string[] =>
+  raw
+    .split('|')
+    .map((_) => _.trim())
+    .filter(Boolean);
+
+// Значение — до первого «=», подпись — после: в подписи «=» может быть, в значении — нет.
+const _entry = (text: string): Option | null => {
+  const at = text.indexOf('=');
+  const value = at < 0 ? '' : text.slice(0, at).trim();
+  const label = at < 0 ? '' : text.slice(at + 1).trim();
+  return value && label ? { value, label } : null;
+};
+
+/**
+ * Подписи значений скрытого поля из `data-labels="значение=подпись|значение=подпись"`. Неверная запись
+ * пропускается, у повторного значения остаётся первая подпись: так форма, сохранённая мимо проверки
+ * (восстановленная копия), всё равно рисуется и принимает заявки.
+ */
+export var parseLabels = (raw: string): Option[] =>
+  _entries(raw)
+    .map(_entry)
+    .filter((_): _ is Option => _ !== null)
+    .filter(
+      (option, index, all) =>
+        all.findIndex((_) => _.value === option.value) === index
+    );
+
+// Что не так с `data-labels` поля — для текста ошибки; null — всё верно.
+const _labelsProblem = (
+  field: Pick<FieldSpec, 'name' | 'labels'>
+): string | null => {
+  const entries = _entries(field.labels ?? '');
+  const bad = entries.find((_) => _entry(_) === null);
+  const values = entries.map((_) => _entry(_)?.value ?? '');
+  const twice = values.find((_, index) => values.indexOf(_) !== index);
+  return bad !== undefined
+    ? `data-labels of field "${field.name}": "${bad}" is not value=label`
+    : twice !== undefined
+      ? `data-labels of field "${field.name}": value "${twice}" has two labels`
+      : null;
+};
+
+/**
+ * `data-labels`, с которыми форму не сохранить: атрибут не у скрытого поля (у списка и переключателей
+ * подписи — в вариантах), запись не `значение=подпись`, одно значение дважды.
+ */
+export var assertLabels = <
+  T extends Pick<FieldSpec, 'name' | 'kind' | 'labels'>,
+>(
+  fields: readonly T[]
+): readonly T[] =>
+  ((misplaced, problem) =>
+    misplaced
+      ? fail(
+          'forms.labels_not_hidden',
+          `Field "${misplaced.name}" is not hidden: data-labels works only on <input type="hidden">, a list or a radio group takes labels from its options`
+        )
+      : problem
+        ? fail(
+            'forms.invalid_labels',
+            `${problem}; write data-labels="value=Label|value=Label"`
+          )
+        : fields)(
+    fields.find((_) => _.labels !== null && _.kind !== 'hidden'),
+    fields.map(_labelsProblem).find((_) => _ !== null)
+  );
+
 /** Поле, каким его описывает HTML формы: правила — атрибуты HTML5, подпись — `data-label` или `<label>`. */
 export type FieldSpec = {
   readonly name: string;
@@ -75,6 +144,8 @@ export type FieldSpec = {
   readonly options: readonly Option[];
   /** Откуда скрытое поле берёт значение: `page.title`, `utm`, `query:ref`… */
   readonly source: string | null;
+  /** `data-labels` как записан: подписи значений скрытого поля; разобранные — в `options`. */
+  readonly labels: string | null;
   /** Свой текст ошибки из `data-message`. */
   readonly message: string | null;
   /** Условие показа из `data-show-if`: скрытое поле не проверяется и в заявку не идёт. */
@@ -90,7 +161,10 @@ export type Value = {
   readonly name: string;
   readonly label: string;
   readonly kind: FieldKind;
+  /** Что видят люди: у вариантов и скрытого поля с `data-labels` — подпись значения. */
   readonly value: string;
+  /** Только у скрытого поля с `data-labels`: значение, как пришло (`planung`), для вебхука и плагинов. */
+  readonly raw?: string;
 };
 
 export type Posted = Readonly<Record<string, readonly string[]>>;
@@ -414,6 +488,33 @@ const _shown = (field: FieldSpec, values: readonly string[]): string =>
       : values.map((_) => _.trim()).join(', ');
 
 /**
+ * Значение поля в заявке. Варианты (`<option>`, переключатели, галочки) и скрытое поле с `data-labels`
+ * показывают подписи, значение без подписи — как есть. У скрытого поля присланное остаётся в `raw`.
+ */
+export var fieldValue = (
+  field: FieldSpec,
+  values: readonly string[]
+): Value => ({
+  name: field.name,
+  label: field.label,
+  kind: field.kind,
+  value: _shown(field, values).slice(0, 5000),
+  ...(field.kind === 'hidden' && field.options.length > 0
+    ? { raw: values.join(', ').slice(0, 5000) }
+    : {}),
+});
+
+/** Значения по именам полей, как их прислали: у скрытого поля с подписями — ключ, а не подпись. */
+export var sentValues = (values: readonly Value[]): Record<string, string> =>
+  Object.fromEntries(values.map((_) => [_.name, _.raw ?? _.value]));
+
+/** Подписи значений скрытых полей с `data-labels` по именам полей; значение без подписи — само значение. */
+export var valueLabels = (values: readonly Value[]): Record<string, string> =>
+  Object.fromEntries(
+    values.filter((_) => _.raw !== undefined).map((_) => [_.name, _.value])
+  );
+
+/**
  * Значения по описанию полей: лишние поля отбрасываются, у каждого поля — первое значение, у групп —
  * все. Скрытое условием поле не проверяется и в заявку не идёт. У файла значение — имена файлов. Ошибка —
  * текст из `data-message` поля или на языке сайта.
@@ -450,18 +551,7 @@ export var checkValues = (
                 [field.name]: field.message || messages[problem],
               },
             }
-          : {
-              ...acc,
-              values: [
-                ...acc.values,
-                {
-                  name: field.name,
-                  label: field.label,
-                  kind: field.kind,
-                  value: _shown(field, values).slice(0, 5000),
-                },
-              ],
-            };
+          : { ...acc, values: [...acc.values, fieldValue(field, values)] };
     },
     { values: [], errors: {} }
   );

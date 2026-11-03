@@ -578,6 +578,9 @@ export var messages = {
   'formEditor.value': 'Значение',
   'formEditor.hiddenHint':
     'Посетитель поле не видит. Значения страницы и сайта сервер подставляет сам — подменить их нельзя.',
+  'formEditor.valueLabels': 'Подписи значений',
+  'formEditor.valueLabelsHint':
+    'По одной в строке: «значение | Подпись». Письма, уведомления, заявка и CSV покажут подпись вместо значения; значение без подписи — как есть.',
   'formEditor.hint': 'Пояснение под полем',
   'formEditor.message': 'Текст ошибки',
   'formEditor.messagePlaceholder':
@@ -937,6 +940,57 @@ export var messages = {
   'notify.severityError': 'Ошибка',
   'notify.severityWarning': 'Внимание',
   'notify.severityInfo': 'Сведения',
+  'gateway.on': 'Почтовый шлюз',
+  'gateway.onHint':
+    'Другие сервисы — платформа, CRM, свой бэкенд — отправляют письма через почту сайта: POST с JSON и токеном.',
+  'gateway.path': 'Адрес шлюза',
+  'gateway.pathHint':
+    'Латиница, цифры и дефисы. Адрес отвечает и без косой черты в конце; страницу с тем же адресом шлюз перекрывает.',
+  'gateway.rateLimit': 'Запросов в минуту с одного адреса',
+  'gateway.rateLimitHint':
+    '0 — без предела. Считаются письма и проверки связи (?probe=1).',
+  'gateway.senders': 'Ещё разрешённые отправители',
+  'gateway.sendersHint':
+    'Клиент подписывает письмо отправителем выше или одним из этих адресов; чужой адрес заменяется отправителем, имя остаётся. Через запятую.',
+  'gateway.domains': 'Домены получателей',
+  'gateway.domainsHint':
+    'Пусто — любые. Иначе письмо на адрес вне этих доменов и их поддоменов шлюз отклонит.',
+  'gateway.tokens': 'Токены',
+  'gateway.noTokens':
+    'Токенов пока нет: без токена шлюз не примет ни одного письма.',
+  'gateway.tokenLabel': 'Кто будет слать',
+  'gateway.tokenLabelPlaceholder': 'Например, Plattform',
+  'gateway.issue': 'Новый токен',
+  'gateway.issued':
+    'Скопируйте токен сейчас: на сервере остаётся только его хэш, второй раз его не показать.',
+  'gateway.copyToken': 'Копировать токен',
+  'gateway.copyAddress': 'Копировать адрес',
+  'gateway.copied': 'Скопировано',
+  'gateway.created': 'выпущен {when}',
+  'gateway.used': 'последний запрос {when}',
+  'gateway.unused': 'запросов ещё не было',
+  'gateway.revoke': 'Отозвать',
+  'gateway.revokeTitle': 'Отозвать токен {name}?',
+  'gateway.revokeBody':
+    'Сервис с этим токеном сразу перестанет отправлять письма через сайт.',
+  'gateway.revoked': 'Токен отозван',
+  'gateway.ready': 'Работает: принимает письма по адресу {url}',
+  'gateway.off': 'Выключен.',
+  'gateway.offClaimed':
+    'Выключен: клиенты с токеном получают ответ 503. Отзовите токены, чтобы отдать адрес сайту.',
+  'gateway.notReady': 'Не готов — не хватает: {what}.',
+  'gateway.missingSmtp': 'сохранённой почты',
+  'gateway.missingSender': 'адреса отправителя',
+  'gateway.missingToken': 'токена',
+  'gateway.shadows':
+    'По этому адресу опубликована страница {title}: пока адрес у шлюза, посетители её не видят.',
+  'gateway.test': 'Отправить письмо себе',
+  'gateway.testSent': 'Письмо через шлюз ушло на {email}.',
+  'gateway.recent': 'Последние запросы',
+  'gateway.recentHint': 'С запуска сервера, без адресов и темы писем.',
+  'gateway.noToken': 'без токена',
+  'gateway.recipients': '{n} адресат|{n} адресата|{n} адресатов',
+  'gateway.outcomeSent': 'отправлено',
   'aiSettings.title': 'Подключение ИИ',
   'aiSettings.intro':
     'Любой сервис с API как у OpenAI: DeepSeek, OpenAI, OpenRouter или своя модель. Когда ИИ подключён, у полей появляется волшебная палочка.',
@@ -1685,6 +1739,10 @@ export var errors = {
     'Это cookie самой CMS (cms_…, __Host-…, __Secure-…): поле формы её значение не берёт.',
   'forms.invalid_cookie':
     'Это не имя cookie: латиница, цифры и знаки вроде _ - . без пробелов.',
+  'forms.invalid_labels':
+    'Подписи скрытого поля (data-labels) пишутся так: значение=Подпись|значение=Подпись — у каждого значения непустая подпись, значения не повторяются.',
+  'forms.labels_not_hidden':
+    'data-labels бывает только у скрытого поля: у списка и выбора из вариантов подписи — в самих вариантах.',
   'manager.kit_changed':
     'Компонент на сайте изменён — вернуть его из набора можно только явно.',
   'manager.kit_not_found': 'Такого компонента в наборе нет.',
@@ -1707,6 +1765,17 @@ export var errors = {
   'notify.no_chats': 'Добавьте хотя бы один чат.',
   'notify.test_failed': 'Канал не принял сообщение — {detail}',
   'notify.delivery_not_found': 'Такого уведомления в очереди нет.',
+  'notify.invalid_gateway_path':
+    'Адрес шлюза — вроде /mailer/: латиница, цифры и дефисы; не /manager, /media и /_cms.',
+  'notify.invalid_rate_limit': 'Предел — целое число от 0 до 10000.',
+  'notify.invalid_sender':
+    'Разрешённые отправители — адреса почты через запятую, не больше 20.',
+  'notify.invalid_domain':
+    'Домены получателей — вроде example.com через запятую, не больше 50.',
+  'notify.token_label': 'Назовите токен: кто будет с ним слать.',
+  'notify.too_many_tokens': 'Не больше 10 токенов — отзовите ненужный.',
+  'notify.gateway_token_not_found':
+    'Такого токена нет — возможно, его уже отозвали.',
   'design.element_in_use': 'Элемент используется — сначала уберите его оттуда.',
   'redirects.invalid_from':
     'Откуда — адрес сайта вроде /old или раздел /old/*, без ?query.',

@@ -343,7 +343,7 @@ export var AGENT_TOOLS: readonly AgentTool[] = [
     name: 'upload_media',
     title: 'Upload file',
     description:
-      'Saves a file to the media library under the path; replaces a file with the same path.',
+      'Saves a file to the media library under the path; replaces a file with the same path. Width and height of an image (PNG, JPEG, WebP, GIF, AVIF, SVG) are read from the file itself and come back in image(path) for the width and height attributes: there is nothing to send. Size variants for srcset (photo@480.webp, photo@960.webp, photo@1920.webp) are not made: upload them as separate files when the page needs them.',
     access: 'content.edit',
     input: _object(
       {

@@ -174,6 +174,33 @@ describe('инструменты', () => {
     expect(element.isError).toBe(true);
   });
 
+  it('картинка от агента — с размерами из самого файла: агент их не присылает', async () => {
+    // Заголовок GIF: подпись и логический экран 640×360, младший байт первым.
+    const gif = new Uint8Array([
+      ...new TextEncoder().encode('GIF89a'),
+      0x80,
+      0x02,
+      0x68,
+      0x01,
+      0xf7,
+      0,
+      0,
+    ]);
+    const tools = (await rpc(editor, 'tools/list')).result.tools;
+    expect(
+      tools.find((_: { name: string }) => _.name === 'upload_media').description
+    ).toContain('read from the file itself');
+    const result = await call(editor, 'upload_media', {
+      path: 'img/agent.gif',
+      data: gif.toBase64(),
+    });
+    expect(json(result)).toMatchObject({ width: 640, height: 360 });
+    expect(app.media.image('img/agent.gif')).toMatchObject({
+      width: 640,
+      height: 360,
+    });
+  });
+
   it('заявки помечены как текст посетителей', async () => {
     const result = await call(editor, 'list_submissions', {});
     expect(result.content[0]!.text).toStartWith(

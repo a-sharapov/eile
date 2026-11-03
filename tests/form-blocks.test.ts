@@ -6,6 +6,8 @@ import {
   type FieldDraft,
   type FormBlock,
   fieldHtml,
+  labelLines,
+  labelsAttr,
   moveBlock,
   optionsOf,
   patterns,
@@ -14,7 +16,10 @@ import {
   stepOf,
 } from '../manager/src/lib/form-blocks.ts';
 import { LANGUAGES, loadLanguage } from '../manager/src/lib/i18n.ts';
-import { checkValues } from '../src/contexts/forms/domain/schema.ts';
+import {
+  assertLabels,
+  checkValues,
+} from '../src/contexts/forms/domain/schema.ts';
 import { fieldsOf } from '../src/contexts/forms/infrastructure/html-markup.ts';
 
 // Стартовая форма подписана на языке менеджера.
@@ -102,6 +107,36 @@ it('скрытое поле — источник и подпись; постоя
   expect(
     fieldHtml({ ...emptyField('hidden'), name: 'k', source: '', value: 'a"b' })
   ).toBe('<input type="hidden" name="k" value="a&quot;b">');
+});
+
+it('подписи скрытого поля: строки редактора — в data-labels, сервер читает их вариантами и сохранит', () => {
+  const field = {
+    ...emptyField('hidden'),
+    name: 'paket',
+    label: 'Paket',
+    source: 'query:paket',
+    options:
+      'berater | KI-Küchenberater\nplanung | KI-Küchenberater & KI-Planung',
+  };
+  expect(fieldHtml(field)).toBe(
+    '<input type="hidden" name="paket" data-source="query:paket" data-label="Paket" data-labels="berater=KI-Küchenberater|planung=KI-Küchenberater &amp; KI-Planung">'
+  );
+  const specs = parsed(field);
+  expect(specs).toMatchObject([
+    {
+      kind: 'hidden',
+      options: [
+        { value: 'berater', label: 'KI-Küchenberater' },
+        { value: 'planung', label: 'KI-Küchenberater & KI-Planung' },
+      ],
+    },
+  ]);
+  expect(() => assertLabels(specs)).not.toThrow();
+  // Разбор редактора вернёт те же строки: правка поля подписи не теряет.
+  expect(labelLines(labelsAttr(field.options))).toBe(field.options);
+  expect(labelLines(' a = A | b=x=y ')).toBe('a | A\nb | x=y');
+  // Без подписей атрибута нет.
+  expect(fieldHtml({ ...field, options: '' })).not.toContain('data-labels');
 });
 
 it('кавычки и угловые скобки в подписях не ломают разметку', () => {

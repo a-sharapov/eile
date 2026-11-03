@@ -1,6 +1,29 @@
 import type { Database, Migration } from '../../../platform/database.ts';
+import { imageSize } from '../domain/image-size.ts';
 import type { MediaFile, MediaPath } from '../domain/media.ts';
 import type { MediaContent, MediaRepository } from '../domain/ports.ts';
+
+// Картинки, загруженные без размеров (агентом, через API): размеры — из заголовка самого файла. Список
+// путей берётся из покрывающего индекса, BLOB читается по одному.
+const _measureStored = (db: Database): void => {
+  const read = db.query<{ data: Uint8Array }, [string]>(
+    'SELECT data FROM media_files WHERE path = ?'
+  );
+  const update = db.query<unknown, [number, number, string]>(
+    'UPDATE media_files SET width = ?, height = ? WHERE path = ?'
+  );
+  db.query<{ path: string }, []>(
+    `SELECT path FROM media_files INDEXED BY media_files_meta
+     WHERE (width IS NULL OR height IS NULL) AND content_type LIKE 'image/%'`
+  )
+    .all()
+    .forEach(
+      ({ path }) =>
+        void ((size) => size && update.run(size.width, size.height, path))(
+          imageSize(read.get(path)?.data ?? new Uint8Array(0))
+        )
+    );
+};
 
 // Файлы — BLOB в той же базе: бэкап сайта остаётся копией одного файла.
 export var mediaMigrations: readonly Migration[] = [
@@ -37,6 +60,7 @@ export var mediaMigrations: readonly Migration[] = [
         ON media_files (stem, path, content_type, size, hash, width, height, alt);
     `,
   },
+  { id: 'media/004_image_size', run: _measureStored },
 ];
 
 type MetaRow = {

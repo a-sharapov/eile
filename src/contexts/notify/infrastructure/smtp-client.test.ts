@@ -225,6 +225,68 @@ describe('SMTP', () => {
   });
 });
 
+describe('письмо почтового шлюза по SMTP', () => {
+  it('конверт — почта сайта, адресаты — из письма, тело — с вложением', async () => {
+    server = fakeServer();
+    await defineSmtpSender().mail(settingsFor(server.port), {
+      from: { address: 'site@example.com', name: 'Kuechenly' },
+      to: ['a@example.com', 'b@example.com'],
+      subject: 'Termin',
+      html: '<p>Hallo</p>',
+      text: '',
+      attachments: [
+        {
+          filename: 'a.pdf',
+          contentType: 'application/pdf',
+          content: new TextEncoder().encode('%PDF'),
+          contentId: '',
+          inline: false,
+        },
+      ],
+    });
+    expect(server.heard.slice(2, 5)).toEqual([
+      'MAIL FROM:<site@example.com>',
+      'RCPT TO:<a@example.com>',
+      'RCPT TO:<b@example.com>',
+    ]);
+    expect(server.mail()).toContain('From: "Kuechenly" <site@example.com>');
+    expect(server.mail()).toContain('Content-Type: multipart/mixed');
+    expect(server.mail()).toContain('filename="a.pdf"');
+  });
+
+  it('проверка связи: приветствие 220 и QUIT, без входа', async () => {
+    server = fakeServer();
+    const probe = await defineSmtpSender().probe(settingsFor(server.port));
+    expect(probe.ok).toBe(true);
+    expect(probe.latencyMs).toBeGreaterThanOrEqual(0);
+    expect(server.heard).toEqual(['QUIT']);
+  });
+
+  it('проверка связи: сервер не слушает — connect_failed, без текста ошибки', async () => {
+    server = fakeServer();
+    const port = server.port;
+    server.stop();
+    server = null;
+    const probe = await defineSmtpSender().probe(settingsFor(port));
+    expect(probe).toMatchObject({ ok: false, error: 'connect_failed' });
+    expect(Object.keys(probe).sort()).toEqual(['error', 'latencyMs', 'ok']);
+  });
+
+  it('проверка связи: приветствие не 220 — unexpected_reply', async () => {
+    const listener = Bun.listen({
+      hostname: '127.0.0.1',
+      port: 0,
+      socket: {
+        open: (socket) => void socket.end('554 go away\r\n'),
+        data: () => undefined,
+      },
+    });
+    const probe = await defineSmtpSender().probe(settingsFor(listener.port));
+    listener.stop(true);
+    expect(probe).toMatchObject({ ok: false, error: 'unexpected_reply' });
+  });
+});
+
 // Самоподписанный сертификат на сто лет: клиент обязан ему не поверить.
 const _CERT = `-----BEGIN CERTIFICATE-----
 MIIBmzCCAUGgAwIBAgIUdmJR6a3RRJU3o5GIPhNYShbOX1wwCgYIKoZIzj0EAwIw

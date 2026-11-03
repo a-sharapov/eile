@@ -143,6 +143,8 @@ export type AppOptions = {
   readonly background?: boolean;
   /** Каналы уведомлений без сети — для тестов. */
   readonly transports?: Transports;
+  /** Журнал почтового шлюза: строка на запрос с письмом; по умолчанию — вывод сервера. */
+  readonly mailLog?: (line: string) => void;
   /** Адрес API релизов вместо GitHub — для тестов. */
   readonly releasesUrl?: string;
   /** Проверять обновления; по умолчанию да, если нет CMS_NO_UPDATE_CHECK=1. */
@@ -156,6 +158,8 @@ export type AppOptions = {
 /** То, что Bun передаёт в fetch вторым аргументом: по нему узнаём адрес посетителя. */
 export type ClientSource = {
   readonly requestIP: (request: Request) => { readonly address: string } | null;
+  /** Срок ответа на этот запрос вместо общего (у Bun — 10 с тишины): письмо через SMTP бывает дольше. */
+  readonly timeout?: (request: Request, seconds: number) => void;
 };
 
 export type App = {
@@ -274,6 +278,9 @@ const _USER: Localized = { en: 'User', de: 'Benutzer', ru: 'Пользовате
 const _isManager = (path: string): boolean =>
   path === MANAGER_PATH || path.startsWith(`${MANAGER_PATH}/`);
 
+// Письмо через почтовый шлюз ждёт ответа SMTP: подключение до 15 с, ответ на команду до 30 с.
+const _GATEWAY_SECONDS = 120;
+
 type Parts = Omit<
   App,
   'backup' | 'archive' | 'restore' | 'follow' | 'transaction' | 'close'
@@ -307,6 +314,7 @@ const _compose = (
         settings()
       ),
     transports: options.transports,
+    ...(options.mailLog ? { log: options.mailLog } : {}),
   });
   const report = notify.incidents.report;
   const certificates = defineCertificates({
@@ -541,7 +549,13 @@ const _compose = (
     db,
   });
 
-  const serve = (request: Request, client: string): Promise<Response> => {
+  // Почтовый шлюз — перед сайтом: его адрес перекрывает страницу и переадресацию с тем же адресом.
+  // Служебные адреса выше ему недоступны — их не пропускает parseGatewayPath.
+  const serve = (
+    request: Request,
+    client: string,
+    server?: ClientSource
+  ): Promise<Response> => {
     const path = new URL(request.url).pathname;
     return _isManager(path)
       ? manager.handle(request, client)
@@ -553,7 +567,10 @@ const _compose = (
             ? design.assets(request)
             : path.startsWith(MEDIA_PREFIX)
               ? Promise.resolve(media.handle(request))
-              : delivery.handle(request);
+              : notify.gateway.claims(path)
+                ? (server?.timeout?.(request, _GATEWAY_SECONDS),
+                  notify.gateway.handle(request, client))
+                : delivery.handle(request);
   };
 
   return {
@@ -561,7 +578,9 @@ const _compose = (
       Promise.resolve()
         .then(content.schedule.runDue)
         .then(undefined, scheduleFailed)
-        .then(() => serve(request, server?.requestIP(request)?.address ?? '')),
+        .then(() =>
+          serve(request, server?.requestIP(request)?.address ?? '', server)
+        ),
     content,
     design,
     site,
@@ -730,6 +749,8 @@ export var createApp = (options: AppOptions = {}): App => {
                 server?.requestIP(request)?.address ?? ''
               ),
             }),
+            // Срок ставится исходному запросу: переписанный по X-Forwarded-* Bun не знает.
+            timeout: (_request, seconds) => server?.timeout?.(request, seconds),
           })
         : parts.fetch(request, server)
     ),

@@ -54,6 +54,7 @@ import {
   type Delivery,
   message,
   type NotifyService,
+  type NotifyStatus,
 } from '../../notify/index.ts';
 import type { RedirectsService } from '../../redirects/index.ts';
 import type { SiteService, SiteSettings } from '../../site/index.ts';
@@ -358,12 +359,14 @@ export var bearerToken = (request: Request): string | null =>
   /^Bearer\s+(\S+)$/i.exec(request.headers.get('authorization') ?? '')?.[1] ??
   null;
 
-// Ключом API этого не сделать — только войдя в менеджер: утёкший ключ не выпустит новых, не сменит
-// пароль, не заведёт пользователя и не унесёт копию сайта с хэшами паролей.
+// Ключом API этого не сделать — только войдя в менеджер: утёкший ключ не выпустит новых ключей и токенов
+// почтового шлюза, не сменит пароль, не заведёт пользователя и не унесёт копию сайта с хэшами паролей.
 const _SESSION_ONLY: ReadonlySet<string> = new Set([
   'GET /tokens',
   'POST /tokens',
   'DELETE /tokens/:id',
+  'POST /notify/gateway/tokens',
+  'DELETE /notify/gateway/tokens/:id',
   'PUT /session/password',
   'POST /users',
   'PATCH /users/:id',
@@ -496,7 +499,7 @@ const _routes = (
       limit,
     }))(searchOf(request));
 
-  // Строка списка: превью — первые непустые значения, без снимка целиком.
+  // Строка списка: превью — первые непустые значения, без снимка целиком; скрытое поле — только с подписями.
   const rowOf = (submission: Submission) => ({
     id: submission.id,
     form: submission.form,
@@ -505,7 +508,7 @@ const _routes = (
     read: submission.readAt !== null,
     createdAt: submission.createdAt,
     preview: submission.values
-      .filter((_) => _.kind !== 'hidden' && _.value)
+      .filter((_) => (_.kind !== 'hidden' || _.raw !== undefined) && _.value)
       .slice(0, 3)
       .map((_) => _.value)
       .join(' · ')
@@ -520,6 +523,18 @@ const _routes = (
     attempts: delivery.attempts,
     lastError: delivery.lastError,
     sentAt: delivery.sentAt,
+  });
+
+  // Почтовый шлюз в менеджере: ещё последние запросы и опубликованная страница, которую его адрес перекрывает.
+  const notifyView = (status: NotifyStatus) => ({
+    ...status,
+    gateway: {
+      ...status.gateway,
+      recent: notify.gateway.recent(),
+      shadows: ((page) => page && { id: page.id, title: page.title })(
+        content.published.byPath(status.gateway.path.slice(0, -1))
+      ),
+    },
   });
 
   // Значение посетителя, которое начинается с = + - @ или табуляции, Excel счёл бы формулой: перед ним
@@ -1757,13 +1772,47 @@ const _routes = (
     ],
     ['DELETE', '/cache', 'site.edit', () => _json(200, pageCache.clear())],
     ['GET', '/https', 'site.edit', () => _json(200, https())],
-    ['GET', '/notify', 'site.edit', () => _json(200, notify.settings.status())],
+    [
+      'GET',
+      '/notify',
+      'site.edit',
+      () => _json(200, notifyView(notify.settings.status())),
+    ],
     [
       'PUT',
       '/notify',
       'site.edit',
       ({ body }) =>
-        body().then((_) => _json(200, notify.settings.save(_ ?? {}))),
+        body().then((_) =>
+          _json(200, notifyView(notify.settings.save(_ ?? {})))
+        ),
+    ],
+    [
+      'POST',
+      '/notify/gateway/tokens',
+      'site.edit',
+      ({ body }) =>
+        body().then((_: { label?: unknown } | null) =>
+          _json(201, notify.gateway.tokens.issue(_?.label))
+        ),
+    ],
+    [
+      'DELETE',
+      '/notify/gateway/tokens/:id',
+      'site.edit',
+      ({ params }) => (
+        notify.gateway.tokens.revoke(params.id!),
+        _json(200, notifyView(notify.settings.status()))
+      ),
+    ],
+    [
+      'POST',
+      '/notify/gateway/test',
+      'site.edit',
+      ({ user }) =>
+        notify.gateway
+          .test(user!.email)
+          .then(() => _json(200, { ok: true, to: user!.email })),
     ],
     [
       'POST',

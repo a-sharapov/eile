@@ -398,7 +398,7 @@ const copyTag = (name: string) =>
                 </dd>
               </div>
             {:else}
-              <div><dt>{value.label}</dt><dd>{value.value}</dd></div>
+              <div><dt>{value.label}</dt><dd>{value.value}{#if value.raw !== undefined && value.raw !== value.value} <span class="muted code">{value.raw}</span>{/if}</dd></div>
             {/if}
           {/each}
         </dl>

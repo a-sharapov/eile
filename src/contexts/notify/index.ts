@@ -5,6 +5,7 @@ import {
 } from './application/notify-service.ts';
 import type { Transports } from './domain/ports.ts';
 import { startBackground } from './infrastructure/background.ts';
+import { cryptoGatewaySecrets } from './infrastructure/gateway-secrets.ts';
 import { defineSmtpSender } from './infrastructure/smtp-client.ts';
 import {
   defineIncidentRepository,
@@ -13,12 +14,18 @@ import {
   defineSettingsRepository,
 } from './infrastructure/sqlite-notify.ts';
 import { defineTelegramClient } from './infrastructure/telegram-client.ts';
+import { defineGatewayHandler } from './interface/gateway-handler.ts';
 
+export type {
+  GatewayEntry,
+  GatewayOutcome,
+} from './application/gateway-service.ts';
 export type {
   NotifyService,
   SiteFacts,
 } from './application/notify-service.ts';
 export type { Delivery } from './domain/delivery.ts';
+export type { Mail, MailAttachment } from './domain/gateway.ts';
 export type { Incident } from './domain/incident.ts';
 export type {
   ChannelKind,
@@ -26,12 +33,13 @@ export type {
   Severity,
 } from './domain/message.ts';
 export { message } from './domain/message.ts';
-export type { Transports } from './domain/ports.ts';
-export type { NotifyStatus } from './domain/settings.ts';
+export type { SmtpProbe, Transports } from './domain/ports.ts';
+export type { GatewayStatus, NotifyStatus } from './domain/settings.ts';
 export {
   NOTIFY_TABLES,
   notifyMigrations,
 } from './infrastructure/migrations.ts';
+export { GATEWAY_BODY_LIMIT } from './interface/gateway-handler.ts';
 
 /** Контекст notify: каналы Telegram и почты, очередь отправки и сбои сайта. */
 export var defineNotify = ({
@@ -39,12 +47,15 @@ export var defineNotify = ({
   clock,
   site,
   transports,
+  log = (line) => console.info(line),
 }: {
   db: Database;
   clock: () => Date;
   site: () => SiteFacts;
   /** Подмена каналов в тестах: без сети. */
   transports?: Transports;
+  /** Журнал почтового шлюза: строка на запрос с письмом; по умолчанию — вывод сервера. */
+  log?: (line: string) => void;
 }) => {
   let kick = (): void => undefined;
   const runtime = defineRuntimeMark(db);
@@ -59,9 +70,13 @@ export var defineNotify = ({
     clock,
     site,
     kick: () => kick(),
+    secrets: cryptoGatewaySecrets,
+    log,
   });
+  const gateway = defineGatewayHandler({ gateway: service.gateway, clock });
   return {
     ...service,
+    gateway: { ...service.gateway, handle: gateway.handle },
     /** Фоновая отправка — только у сервера: команды CLI и тесты гоняют очередь сами. */
     start: (): (() => void) => {
       const background = startBackground({

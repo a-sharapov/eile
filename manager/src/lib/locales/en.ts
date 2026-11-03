@@ -587,6 +587,9 @@ export var messages: Dictionary['messages'] = {
   'formEditor.value': 'Value',
   'formEditor.hiddenHint':
     'Visitors don’t see this field. The server fills in page and site values itself — they can’t be tampered with.',
+  'formEditor.valueLabels': 'Value labels',
+  'formEditor.valueLabelsHint':
+    'One per line: “value | Label”. Emails, notifications, the submission and the CSV show the label instead of the value; a value without a label shows as is.',
   'formEditor.hint': 'Hint below the field',
   'formEditor.message': 'Error text',
   'formEditor.messagePlaceholder':
@@ -946,6 +949,58 @@ export var messages: Dictionary['messages'] = {
   'notify.severityError': 'Error',
   'notify.severityWarning': 'Warning',
   'notify.severityInfo': 'Info',
+  'gateway.on': 'Mail gateway',
+  'gateway.onHint':
+    'Other services — a platform, a CRM, your own backend — send emails through the site’s mail: a POST with JSON and a token.',
+  'gateway.path': 'Gateway path',
+  'gateway.pathHint':
+    'Latin letters, digits and dashes. The path also answers without the trailing slash; the gateway covers a page with the same address.',
+  'gateway.rateLimit': 'Requests per minute from one address',
+  'gateway.rateLimitHint':
+    '0 means no limit. Emails and connection checks (?probe=1) count.',
+  'gateway.senders': 'Other allowed senders',
+  'gateway.sendersHint':
+    'A client signs the email with the sender above or one of these addresses; any other address is replaced with the sender, the name stays. Separated by commas.',
+  'gateway.domains': 'Recipient domains',
+  'gateway.domainsHint':
+    'Empty means any. Otherwise the gateway rejects an email to an address outside these domains and their subdomains.',
+  'gateway.tokens': 'Tokens',
+  'gateway.noTokens':
+    'No tokens yet: without a token the gateway accepts no email at all.',
+  'gateway.tokenLabel': 'Who will send',
+  'gateway.tokenLabelPlaceholder': 'For example, Plattform',
+  'gateway.issue': 'New token',
+  'gateway.issued':
+    'Copy the token now: the server keeps only its hash and can’t show it again.',
+  'gateway.copyToken': 'Copy token',
+  'gateway.copyAddress': 'Copy address',
+  'gateway.copied': 'Copied',
+  'gateway.created': 'issued {when}',
+  'gateway.used': 'last request {when}',
+  'gateway.unused': 'no requests yet',
+  'gateway.revoke': 'Revoke',
+  'gateway.revokeTitle': 'Revoke the token {name}?',
+  'gateway.revokeBody':
+    'The service with this token stops sending emails through the site right away.',
+  'gateway.revoked': 'Token revoked',
+  'gateway.ready': 'Working: accepts emails at {url}',
+  'gateway.off': 'Off.',
+  'gateway.offClaimed':
+    'Off: clients with a token get a 503. Revoke the tokens to give the address back to the site.',
+  'gateway.notReady': 'Not ready — missing: {what}.',
+  'gateway.missingSmtp': 'saved email settings',
+  'gateway.missingSender': 'a sender address',
+  'gateway.missingToken': 'a token',
+  'gateway.shadows':
+    'A page {title} is published at this address: while the gateway holds it, visitors don’t see the page.',
+  'gateway.test': 'Send an email to me',
+  'gateway.testSent': 'The email went through the gateway to {email}.',
+  'gateway.recent': 'Recent requests',
+  'gateway.recentHint':
+    'Since the server started, without addresses or subjects.',
+  'gateway.noToken': 'no token',
+  'gateway.recipients': '{n} recipient|{n} recipients',
+  'gateway.outcomeSent': 'sent',
   'aiSettings.title': 'AI connection',
   'aiSettings.intro':
     'Any service with an OpenAI-compatible API: DeepSeek, OpenAI, OpenRouter or your own model. Once AI is connected, fields get a magic wand.',
@@ -1715,6 +1770,10 @@ export var errors: Dictionary['errors'] = {
     'This is a cookie of the CMS itself (cms_…, __Host-…, __Secure-…): a form field cannot take its value.',
   'forms.invalid_cookie':
     'This is not a cookie name: Latin letters, digits and signs like _ - . without spaces.',
+  'forms.invalid_labels':
+    'Labels of a hidden field (data-labels) are written as value=Label|value=Label: every value has a non-empty label, and no value repeats.',
+  'forms.labels_not_hidden':
+    'data-labels works only on a hidden field: a dropdown list or a choice takes labels from its options.',
   'manager.kit_changed':
     'This component was changed on the site — it can be restored from the kit only on explicit confirmation.',
   'manager.kit_not_found': 'The kit has no such component.',
@@ -1738,6 +1797,17 @@ export var errors: Dictionary['errors'] = {
   'notify.no_chats': 'Add at least one chat.',
   'notify.test_failed': 'The channel didn’t accept the message — {detail}',
   'notify.delivery_not_found': 'There’s no such notification in the queue.',
+  'notify.invalid_gateway_path':
+    'The gateway path looks like /mailer/: Latin letters, digits and dashes; not /manager, /media or /_cms.',
+  'notify.invalid_rate_limit': 'The limit is a whole number from 0 to 10000.',
+  'notify.invalid_sender':
+    'Allowed senders are email addresses separated by commas, at most 20.',
+  'notify.invalid_domain':
+    'Recipient domains look like example.com, separated by commas, at most 50.',
+  'notify.token_label': 'Name the token: who will send with it.',
+  'notify.too_many_tokens': 'At most 10 tokens — revoke one you don’t need.',
+  'notify.gateway_token_not_found':
+    'There’s no such token — it may have been revoked already.',
   'design.element_in_use':
     'The element is in use — remove it from there first.',
   'redirects.invalid_from':

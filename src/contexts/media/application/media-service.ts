@@ -1,5 +1,6 @@
 import { fail } from '../../../shared/kernel/errors.ts';
 import type { EventBus } from '../../../shared/kernel/events.ts';
+import { imageSize } from '../domain/image-size.ts';
 import {
   checkSize,
   contentTypeOf,
@@ -30,12 +31,27 @@ export type ImageSet = {
   readonly alt: string;
 };
 
+type Dimensions = {
+  readonly width: number | null;
+  readonly height: number | null;
+};
+
+// Не число, ноль и меньше — как будто размера не прислали: его прочтёт сервер.
 const _dimension = (value: number | null | undefined): number | null =>
-  value === null || value === undefined
-    ? null
-    : Number.isSafeInteger(value) && value > 0
-      ? value
-      : fail('media.invalid_size', `Invalid dimension ${value}`);
+  typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? value
+    : null;
+
+// Размеры клиента (менеджер мерит картинку в браузере) важнее; агент и API их не шлют — тогда из файла.
+const _measure = (upload: Upload, contentType: string): Dimensions =>
+  ((sent: Dimensions) =>
+    (sent.width !== null && sent.height !== null) ||
+    !contentType.startsWith('image/')
+      ? sent
+      : (imageSize(upload.data) ?? sent))({
+    width: _dimension(upload.width),
+    height: _dimension(upload.height),
+  });
 
 export var mediaUrl = (file: MediaFile): string =>
   `/media/${file.path}?v=${file.hash}`;
@@ -56,16 +72,16 @@ export var defineMediaService = ({
 
   const save = (upload: Upload): MediaFile => {
     const path = parseMediaPath(upload.path);
+    const contentType = contentTypeOf(path);
     const file: MediaFile = {
       path,
-      contentType: contentTypeOf(path),
+      contentType,
       size: checkSize(upload.data.byteLength),
       hash: new Bun.CryptoHasher('sha256')
         .update(upload.data)
         .digest('hex')
         .slice(0, 16),
-      width: _dimension(upload.width),
-      height: _dimension(upload.height),
+      ..._measure(upload, contentType),
       // Замена файла не стирает описание: картинка та же по смыслу, сменилось только содержимое.
       alt: files.meta(path)?.alt ?? '',
     };

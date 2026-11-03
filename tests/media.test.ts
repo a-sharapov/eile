@@ -1,8 +1,10 @@
+import { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type App, createApp } from '../src/app.ts';
+import type { MediaFile } from '../src/contexts/media/index.ts';
 import { attempt, isDomainError } from '../src/shared/kernel/errors.ts';
 import { DEMO } from './fixtures/demo.ts';
 
@@ -249,6 +251,192 @@ describe('медиатека', () => {
     // Файл вынесен из базы на диск: дальше его отдаёт sendfile (ADR 0038).
     expect(readdirSync(join(dir, 'cache'))).toContain('models~kitchen.glb');
     site.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+const u32 = (n: number): number[] => [
+  (n >>> 24) & 0xff,
+  (n >>> 16) & 0xff,
+  (n >>> 8) & 0xff,
+  n & 0xff,
+];
+
+// Подпись PNG и блок IHDR: серверу хватает заголовка, чтобы узнать размер.
+const png = (width: number, height: number): Uint8Array =>
+  new Uint8Array([
+    0x89,
+    0x50,
+    0x4e,
+    0x47,
+    0x0d,
+    0x0a,
+    0x1a,
+    0x0a,
+    ...u32(13),
+    ...bytes('IHDR'),
+    ...u32(width),
+    ...u32(height),
+    8,
+    2,
+    0,
+    0,
+    0,
+    ...u32(0),
+  ]);
+
+const sides = (file: { width: number | null; height: number | null }) => [
+  file.width,
+  file.height,
+];
+
+const managerCookie = (site: App): Promise<string> =>
+  site
+    .fetch(
+      new Request('http://localhost/manager/api/setup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          token: site.identity.setup.token(),
+          email: 'a@example.com',
+          password: 'correct horse battery',
+        }),
+      })
+    )
+    .then((_) => _.headers.get('set-cookie')!.split(';')[0]!);
+
+describe('размеры картинок', () => {
+  it('без width и height сервер читает их из файла — и при замене тоже', () => {
+    expect(
+      sides(
+        app.media.files.save({ path: 'img/cover.png', data: png(1600, 900) })
+      )
+    ).toEqual([1600, 900]);
+    expect(app.media.image('img/cover.png')).toMatchObject({
+      width: 1600,
+      height: 900,
+    });
+    app.media.files.save({ path: 'img/cover.png', data: png(800, 1200) });
+    expect(sides(app.media.image('img/cover.png')!)).toEqual([800, 1200]);
+    expect(
+      sides(
+        app.media.files.save({
+          path: 'img/logo.svg',
+          data: bytes('<svg viewBox="0 0 64 32"/>'),
+        })
+      )
+    ).toEqual([64, 32]);
+    expect(
+      sides(
+        app.media.files.save({ path: 'img/broken.png', data: bytes('png') })
+      )
+    ).toEqual([null, null]);
+    // Читаются только картинки: текст с разметкой SVG — всё ещё текст.
+    expect(
+      sides(
+        app.media.files.save({
+          path: 'docs/a.txt',
+          data: bytes('<svg width="5" height="5"/>'),
+        })
+      )
+    ).toEqual([null, null]);
+  });
+
+  it('присланные размеры важнее файла; ноль, дробь, NaN и одна сторона — как не присланные', () => {
+    expect(
+      sides(
+        app.media.files.save({
+          path: 'img/a.png',
+          data: png(1600, 900),
+          width: 800,
+          height: 450,
+        })
+      )
+    ).toEqual([800, 450]);
+    expect(
+      [
+        { width: 0, height: 450 },
+        { width: -5, height: 450 },
+        { width: 1.5, height: 450 },
+        { width: Number.NaN, height: 450 },
+        { width: 800, height: null },
+      ].map((sent) =>
+        sides(
+          app.media.files.save({
+            path: 'img/a.png',
+            data: png(1600, 900),
+            ...sent,
+          })
+        )
+      )
+    ).toEqual(Array(5).fill([1600, 900]));
+    // Файл не читается — остаётся то, что прислали.
+    expect(
+      sides(
+        app.media.files.save({
+          path: 'img/b.png',
+          data: bytes('png'),
+          width: 640,
+        })
+      )
+    ).toEqual([640, null]);
+  });
+
+  it('загрузка через менеджер без размеров или с пустыми — размеры из файла', async () => {
+    const cookie = await managerCookie(app);
+    const upload = (fields: Record<string, string>) => {
+      const form = new FormData();
+      form.set('file', new Blob([png(1920, 1280)]), 'hero.png');
+      form.set('path', 'img/hero.png');
+      Object.entries(fields).forEach(
+        ({ 0: name, 1: value }) => void form.set(name, value)
+      );
+      return app
+        .fetch(
+          new Request('http://localhost/manager/api/media', {
+            method: 'POST',
+            headers: { cookie },
+            body: form,
+          })
+        )
+        .then((_) => _.json() as Promise<MediaFile>);
+    };
+    expect(sides(await upload({}))).toEqual([1920, 1280]);
+    expect(sides(await upload({ width: '', height: '' }))).toEqual([
+      1920, 1280,
+    ]);
+    expect(sides(await upload({ width: '960', height: '640' }))).toEqual([
+      960, 640,
+    ]);
+  });
+
+  it('миграция дописывает размеры картинкам, которые лежат без них', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cms-sizes-'));
+    const path = join(dir, 'site.db');
+    const site = createApp({ databasePath: path });
+    site.media.files.save({ path: 'img/old.png', data: png(1024, 768) });
+    site.media.files.save({
+      path: 'img/old.svg',
+      data: bytes('<svg width="40" height="30"/>'),
+    });
+    site.media.files.save({ path: 'img/broken.jpg', data: bytes('jpg') });
+    site.media.files.save({ path: 'docs/a.txt', data: bytes('a') });
+    site.close();
+    // Строки без размеров и база, где миграция ещё не прошла.
+    const db = new Database(path);
+    db.run('UPDATE media_files SET width = NULL, height = NULL');
+    db.run("DELETE FROM _migrations WHERE id = 'media/004_image_size'");
+    db.close();
+    const again = createApp({ databasePath: path });
+    expect(
+      again.media.files.list().map((_) => [String(_.path), ...sides(_)])
+    ).toEqual([
+      ['docs/a.txt', null, null],
+      ['img/broken.jpg', null, null],
+      ['img/old.png', 1024, 768],
+      ['img/old.svg', 40, 30],
+    ]);
+    again.close();
     rmSync(dir, { recursive: true, force: true });
   });
 });

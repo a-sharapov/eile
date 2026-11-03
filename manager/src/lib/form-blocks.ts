@@ -15,7 +15,7 @@ export type FieldDraft = {
   max: string;
   step: string;
   maxLength: string;
-  /** Варианты по строке: «Подпись» или «значение | Подпись». */
+  /** Варианты по строке: «Подпись» или «значение | Подпись»; у скрытого поля — подписи значений, `data-labels`. */
   options: string;
   /** Свой текст ошибки — `data-message`. */
   message: string;
@@ -166,6 +166,28 @@ export var optionsOf = (text: string): { value: string; label: string }[] =>
             })(line.indexOf('|'))
     );
 
+/** Подписи скрытого поля из строк «значение | Подпись» — в `data-labels="значение=Подпись|…"`. */
+export var labelsAttr = (text: string): string =>
+  optionsOf(text)
+    .map((_) => `${_.value}=${_.label}`)
+    .join('|');
+
+/** `data-labels` — обратно в строки «значение | Подпись», как варианты списка в редакторе. */
+export var labelLines = (raw: string): string =>
+  raw
+    .split('|')
+    .map((_) => _.trim())
+    .filter(Boolean)
+    .map((entry) =>
+      ((at) =>
+        at < 0
+          ? entry
+          : `${entry.slice(0, at).trim()} | ${entry.slice(at + 1).trim()}`)(
+        entry.indexOf('=')
+      )
+    )
+    .join('\n');
+
 const _INPUT: Partial<Record<FieldKind, string>> = {
   text: 'text',
   email: 'email',
@@ -228,7 +250,7 @@ const _CANONICAL: Readonly<
   consent: (field) =>
     `${_open(field, 'div', ' field-consent')}\n  <label><input type="checkbox" name="${_attr(field.name)}" value="yes"${field.required ? ' required' : ''}> ${_consent(field)}</label>\n</div>`,
   hidden: (field) =>
-    `<input type="hidden" name="${_attr(field.name)}"${field.source ? _a('data-source', field.source) : _a('value', field.value)}${_a('data-label', field.label)}>`,
+    `<input type="hidden" name="${_attr(field.name)}"${field.source ? _a('data-source', field.source) : _a('value', field.value)}${_a('data-label', field.label)}${_a('data-labels', labelsAttr(field.options))}>`,
   file: (field, id) =>
     `${_open(field)}\n  <label for="${id}">${_text(field.label)}${_star(field)}</label>\n  <input id="${id}" name="${_attr(field.name)}" type="file"${field.required ? ' required' : ''}${_a('accept', field.accept)}${field.multiple ? ' multiple' : ''}${_a('data-max-size', field.maxSize)}>${_hint(field)}\n</div>`,
 };

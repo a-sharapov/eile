@@ -27,6 +27,8 @@ const transports: Transports = {
   },
   email: {
     send: (_settings, _to, item) => (sent.push(item), Promise.resolve()),
+    mail: () => Promise.resolve(),
+    probe: () => Promise.resolve({ ok: true, latencyMs: 1 }),
   },
 };
 

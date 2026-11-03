@@ -99,6 +99,8 @@ export type FormsEvent =
       readonly form: string;
       /** Значения по именам полей: плагин передаст заявку дальше. Шина в памяти — событие нигде не хранится. */
       readonly values: Readonly<Record<string, string>>;
+      /** Подписи значений скрытых полей с `data-labels`: в `values` у них ключ, как пришёл. */
+      readonly labels: Readonly<Record<string, string>>;
       /** Спам тоже сохраняется и приходит сюда: дальше его передавать не нужно. */
       readonly spam: boolean;
     };

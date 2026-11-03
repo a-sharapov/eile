@@ -1,4 +1,5 @@
 import { fail } from '../../../shared/kernel/errors.ts';
+import { sentValues, valueLabels } from './schema.ts';
 import type { Submission } from './submission.ts';
 
 /** pending — ждёт попытки, delivered — приёмник ответил 2xx, failed — попытки кончились или отказ насовсем. */
@@ -18,12 +19,17 @@ export type WebhookDelivery = {
   readonly deliveredAt: string | null;
 };
 
-/** Тело запроса вебхука: значения по именам полей, у файлов — только имена. */
+/**
+ * Тело запроса вебхука: значения по именам полей, у файлов — только имена. У скрытого поля с `data-labels`
+ * в `values` — ключ, как пришёл, а подпись — в `labels`.
+ */
 export type WebhookPayload = {
   readonly form: string;
   readonly submissionId: number;
   readonly receivedAt: string;
   readonly values: Readonly<Record<string, string>>;
+  /** Только если в заявке есть скрытое поле с подписями: без него тело то же, что до подписей. */
+  readonly labels?: Readonly<Record<string, string>>;
   readonly files: readonly string[];
   readonly page: { readonly id: number | null; readonly url: string } | null;
 };
@@ -73,17 +79,19 @@ export var payloadOf = (
     'id' | 'form' | 'values' | 'context' | 'createdAt'
   >,
   files: readonly string[]
-): WebhookPayload => ({
-  form: submission.form,
-  submissionId: submission.id,
-  receivedAt: submission.createdAt,
-  values: Object.fromEntries(submission.values.map((_) => [_.name, _.value])),
-  files,
-  page:
-    submission.context.pageId === null && submission.context.url === ''
-      ? null
-      : { id: submission.context.pageId, url: submission.context.url },
-});
+): WebhookPayload =>
+  ((labels) => ({
+    form: submission.form,
+    submissionId: submission.id,
+    receivedAt: submission.createdAt,
+    values: sentValues(submission.values),
+    ...(Object.keys(labels).length > 0 ? { labels } : {}),
+    files,
+    page:
+      submission.context.pageId === null && submission.context.url === ''
+        ? null
+        : { id: submission.context.pageId, url: submission.context.url },
+  }))(valueLabels(submission.values));
 
 // Подождать и повторить: таймаут запроса, «рано», лимит частоты.
 const _RETRIED = new Set([408, 425, 429]);

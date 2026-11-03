@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { isDomainError } from '../../../shared/kernel/errors.ts';
+import type { Submission } from './submission.ts';
 import {
   answerFailure,
   nextWebhookAttempt,
@@ -71,6 +72,64 @@ describe('вебхук формы', () => {
       values: { name: 'Anna', partner: 'P-42' },
       files: ['plan.pdf'],
       page: { id: 3, url: 'https://kuechenly.de/bestellen' },
+    });
+  });
+
+  describe('скрытое поле с подписями', () => {
+    const submission = (values: Submission['values']) => ({
+      id: 8,
+      form: 'bestellung',
+      createdAt: '2026-11-03T10:00:00.000Z',
+      values,
+      context: {
+        pageId: null,
+        pageTitle: '',
+        url: '',
+        referrer: '',
+        utm: {},
+      },
+    });
+
+    it('в values — ключ, как раньше; подпись — рядом, в labels', () => {
+      expect(
+        payloadOf(
+          submission([
+            {
+              name: 'paket',
+              label: 'Paket',
+              kind: 'hidden',
+              value: 'KI-Küchenberater + KI-Planung',
+              raw: 'planung',
+            },
+            { name: 'firma', label: 'Firma', kind: 'text', value: 'Müller' },
+          ]),
+          []
+        )
+      ).toEqual({
+        form: 'bestellung',
+        submissionId: 8,
+        receivedAt: '2026-11-03T10:00:00.000Z',
+        values: { paket: 'planung', firma: 'Müller' },
+        labels: { paket: 'KI-Küchenberater + KI-Planung' },
+        files: [],
+        page: null,
+      });
+    });
+
+    it('без подписей тело то же до байта: ключа labels нет, порядок ключей прежний', () => {
+      expect(
+        JSON.stringify(
+          payloadOf(
+            submission([
+              { name: 'ref', label: 'ref', kind: 'hidden', value: 'friend' },
+              { name: 'topic', label: 'Thema', kind: 'select', value: 'Küche' },
+            ]),
+            ['plan.pdf']
+          )
+        )
+      ).toBe(
+        '{"form":"bestellung","submissionId":8,"receivedAt":"2026-11-03T10:00:00.000Z","values":{"ref":"friend","topic":"Küche"},"files":["plan.pdf"],"page":null}'
+      );
     });
   });
 

@@ -1,5 +1,6 @@
 import type { Localized } from '../../../shared/kernel/manager-language.ts';
 import type { Delivery, DeliveryStatus } from './delivery.ts';
+import type { Mail } from './gateway.ts';
 import type { ChannelKind, Message, Severity } from './message.ts';
 import type {
   Chat,
@@ -81,6 +82,17 @@ export type TelegramApi = {
   ) => Promise<Chat[]>;
 };
 
+/** Почтовый сервер на связи: подключился и поздоровался кодом 220; без входа и без письма. */
+export type SmtpProbe = {
+  readonly ok: boolean;
+  readonly latencyMs: number;
+  readonly error?:
+    | 'connect_failed'
+    | 'timeout'
+    | 'tls_failed'
+    | 'unexpected_reply';
+};
+
 export type EmailSender = {
   readonly send: (
     settings: EmailSettings,
@@ -88,6 +100,17 @@ export type EmailSender = {
     message: Message,
     site: string
   ) => Promise<void>;
+  /** Готовое письмо почтового шлюза: HTML, текст и вложения пришли от другого сервиса. */
+  readonly mail: (settings: EmailSettings, mail: Mail) => Promise<void>;
+  readonly probe: (settings: EmailSettings) => Promise<SmtpProbe>;
+};
+
+/** Токены шлюза: выпуск, хэш для хранения и сравнение хэшей за постоянное время. */
+export type GatewaySecrets = {
+  readonly issue: () => string;
+  readonly id: () => string;
+  readonly hash: (token: string) => string;
+  readonly same: (a: string, b: string) => boolean;
 };
 
 export type Transports = {

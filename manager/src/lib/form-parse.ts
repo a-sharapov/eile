@@ -3,6 +3,7 @@ import {
   type FieldDraft,
   type FormBlock,
   formBlockId,
+  labelLines,
 } from './form-blocks.ts';
 import type { FieldKind } from './types.ts';
 
@@ -113,6 +114,7 @@ const _hiddenOf = (input: Element): FieldDraft => ({
   label: _attrOf(input, 'data-label'),
   source: _attrOf(input, 'data-source'),
   value: _attrOf(input, 'value'),
+  options: labelLines(_attrOf(input, 'data-labels')),
 });
 
 // Подряд идущий текст и неполевая разметка — один текстовый блок.

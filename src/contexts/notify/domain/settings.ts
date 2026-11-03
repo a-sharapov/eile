@@ -4,11 +4,22 @@ import {
   type ManagerLanguage,
 } from '../../../shared/kernel/manager-language.ts';
 import {
+  DEFAULT_GATEWAY,
+  type GatewayChecks,
+  type GatewaySettings,
+  type GatewayTokenView,
+  gatewayChecks,
+  isReady,
+  parseGateway,
+  tokenView,
+} from './gateway.ts';
+import {
   CHANNELS,
   type ChannelKind,
   SEVERITIES,
   type Severity,
 } from './message.ts';
+import { list, parseEmail, text } from './values.ts';
 
 /** Чат, куда бот пишет: id из Telegram и название для людей. */
 export type Chat = { readonly id: string; readonly title: string };
@@ -44,6 +55,8 @@ export type NotifySettings = {
   readonly level: Severity;
   /** Язык уведомлений; null — язык сайта, если менеджер его знает, иначе английский. */
   readonly language: ManagerLanguage | null;
+  /** Почтовый шлюз: письма других сервисов через почту сайта. */
+  readonly gateway: GatewaySettings;
 };
 
 export var EMPTY_SETTINGS: NotifySettings = {
@@ -53,6 +66,14 @@ export var EMPTY_SETTINGS: NotifySettings = {
   incidents: CHANNELS,
   level: 'error',
   language: null,
+  gateway: DEFAULT_GATEWAY,
+};
+
+/** Шлюз для менеджера: токены без хэшей, что готово и чего не хватает. */
+export type GatewayStatus = Omit<GatewaySettings, 'tokens'> & {
+  readonly tokens: readonly GatewayTokenView[];
+  readonly checks: GatewayChecks;
+  readonly ready: boolean;
 };
 
 /** Настройки для менеджера: без токена и пароля — их он не показывает и не отдаёт. */
@@ -67,7 +88,20 @@ export type NotifyStatus = {
   readonly incidents: readonly ChannelKind[];
   readonly level: Severity;
   readonly language: ManagerLanguage | null;
+  readonly gateway: GatewayStatus;
 };
+
+export var gatewayStatusOf = (settings: NotifySettings): GatewayStatus =>
+  ((checks) => ({
+    enabled: settings.gateway.enabled,
+    path: settings.gateway.path,
+    rateLimit: settings.gateway.rateLimit,
+    senders: settings.gateway.senders,
+    domains: settings.gateway.domains,
+    tokens: settings.gateway.tokens.map(tokenView),
+    checks,
+    ready: isReady(checks),
+  }))(gatewayChecks(settings.gateway, settings.email));
 
 export var statusOf = (settings: NotifySettings): NotifyStatus => ({
   telegram: settings.telegram && {
@@ -88,6 +122,7 @@ export var statusOf = (settings: NotifySettings): NotifyStatus => ({
   incidents: settings.incidents,
   level: settings.level,
   language: settings.language,
+  gateway: gatewayStatusOf(settings),
 });
 
 /** Каналы, которые настроены: маршрут к ненастроенному каналу ничего не отправляет. */
@@ -100,7 +135,6 @@ const _TOKEN = /^\d{5,}:[A-Za-z0-9_-]{30,}$/;
 const _CHAT_ID = /^(?:-?\d{1,20}|@[A-Za-z0-9_]{5,32})$/;
 const _PROXY = /^https?:\/\/[^\s/?#]+(?::\d+)?\/?$/i;
 const _HOST = /^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/;
-const _EMAIL = /^[^\s@<>"',;]+@[^\s@<>"',;]+\.[^\s@<>"',;]+$/;
 const _SECURITY: readonly SmtpSecurity[] = ['tls', 'starttls', 'none'];
 const _PORTS: Readonly<Record<SmtpSecurity, number>> = {
   tls: 465,
@@ -108,35 +142,16 @@ const _PORTS: Readonly<Record<SmtpSecurity, number>> = {
   none: 25,
 };
 
-const _text = (value: unknown, max = 500): string =>
-  typeof value === 'string' ? value.trim().slice(0, max) : '';
-
-const _list = (value: unknown): unknown[] =>
-  Array.isArray(value)
-    ? value
-    : typeof value === 'string'
-      ? value.split(/[\s,;]+/).filter(Boolean)
-      : [];
-
-/** Адрес почты: строчными, без мусора вокруг; не похож на адрес — отказ. */
-export var parseEmail = (raw: unknown): string =>
-  ((value) =>
-    _EMAIL.test(value)
-      ? value
-      : fail('notify.invalid_email', `"${value}" is not an email address`))(
-    _text(raw, 254).toLowerCase()
-  );
-
 const _chats = (raw: unknown): Chat[] =>
   ((chats) =>
     chats.length > 20
       ? fail('notify.invalid_chat', 'At most 20 chats')
       : chats)(
-    _list(raw).map((item): Chat => {
+    list(raw).map((item): Chat => {
       const chat = (item ?? {}) as Input;
-      const id = _text(chat.id ?? item, 40);
+      const id = text(chat.id ?? item, 40);
       return _CHAT_ID.test(id)
-        ? { id, title: _text(chat.title, 100) || id }
+        ? { id, title: text(chat.title, 100) || id }
         : fail('notify.invalid_chat', `"${id}" is not a Telegram chat id`);
     })
   );
@@ -146,8 +161,8 @@ const _telegram = (
   raw: Input,
   previous: TelegramSettings | null
 ): TelegramSettings => {
-  const token = _text(raw.token, 200) || previous?.token || '';
-  const proxy = _text(raw.proxy, 300);
+  const token = text(raw.token, 200) || previous?.token || '';
+  const proxy = text(raw.proxy, 300);
   return {
     token:
       token === ''
@@ -165,10 +180,10 @@ const _telegram = (
 
 // Пустой пароль — прежний, но только для того же сервера и входа: на чужой хост он не уходит.
 const _email = (raw: Input, previous: EmailSettings | null): EmailSettings => {
-  const host = _text(raw.host, 253).toLowerCase();
-  const security = (_text(raw.security) || 'tls') as SmtpSecurity;
+  const host = text(raw.host, 253).toLowerCase();
+  const security = (text(raw.security) || 'tls') as SmtpSecurity;
   const port = Number(raw.port || _PORTS[security] || 0);
-  const user = _text(raw.user, 200);
+  const user = text(raw.user, 200);
   const same = previous?.host === host && previous.user === user;
   const password =
     (typeof raw.password === 'string' ? raw.password : '') ||
@@ -193,12 +208,12 @@ const _email = (raw: Input, previous: EmailSettings | null): EmailSettings => {
     to: ((to) =>
       to.length === 0 || to.length > 10
         ? fail('notify.invalid_email', 'From 1 to 10 recipients')
-        : to)([...new Set(_list(raw.to).map(parseEmail))]),
+        : to)([...new Set(list(raw.to).map(parseEmail))]),
   };
 };
 
 const _channels = (raw: unknown): ChannelKind[] =>
-  CHANNELS.filter((_) => _list(raw).includes(_));
+  CHANNELS.filter((_) => list(raw).includes(_));
 
 /** Новые настройки из формы; `telegram: null` или `email: null` убирают канал. */
 export var parseSettings = (
@@ -239,4 +254,8 @@ export var parseSettings = (
         : isManagerLanguage(input.language)
           ? input.language
           : fail('notify.invalid_language', 'Language is en, de or ru'),
+  gateway:
+    input.gateway === undefined || input.gateway === null
+      ? previous.gateway
+      : parseGateway(input.gateway as Input, previous.gateway),
 });

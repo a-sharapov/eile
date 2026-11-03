@@ -5,8 +5,14 @@ import { pipe } from '../shared/kernel/pipe.ts';
 
 export type { Database };
 
-/** Изменение схемы одного контекста. `id` — `context/NNN_description`, после выпуска не меняется. */
-export type Migration = { readonly id: string; readonly sql: string };
+/**
+ * Изменение схемы одного контекста. `id` — `context/NNN_description`, после выпуска не меняется. `run` —
+ * перенос данных, которому мало SQL (разбор BLOB); идёт в той же транзакции, что и запись в журнал.
+ */
+export type Migration = { readonly id: string } & (
+  | { readonly sql: string }
+  | { readonly run: (db: Database) => void }
+);
 
 const _PRAGMAS = [
   'PRAGMA journal_mode = WAL',
@@ -23,7 +29,7 @@ export var openDatabase = (path: string): Database =>
   )(path);
 
 const _apply = (db: Database) => (migration: Migration) => {
-  db.run(migration.sql);
+  void ('sql' in migration ? db.run(migration.sql) : migration.run(db));
   db.run('INSERT INTO _migrations (id, applied_at) VALUES (?, ?)', [
     migration.id,
     new Date().toISOString(),

@@ -1,9 +1,9 @@
 import type { Socket, SocketHandler } from 'bun';
 import { pipe } from '../../../shared/kernel/pipe.ts';
 import type { SendFailure } from '../domain/delivery.ts';
-import type { EmailSender } from '../domain/ports.ts';
+import type { EmailSender, SmtpProbe } from '../domain/ports.ts';
 import type { EmailSettings } from '../domain/settings.ts';
-import { mimeMessage } from './mime.ts';
+import { mailMime, mimeMessage } from './mime.ts';
 
 /** Ответ сервера: код и строки текста (многострочный ответ — `250-…` и последняя `250 …`). */
 type Reply = { readonly code: number; readonly lines: readonly string[] };
@@ -254,37 +254,100 @@ const _secure = (session: Session, settings: EmailSettings, hello: Reply) =>
           _failure('The mail server does not offer STARTTLS', true)
         );
 
+// Разговор целиком: приветствие, вход, конверт, письмо, QUIT; письмо собирается, когда сервер его ждёт.
+const _transmit = (
+  settings: EmailSettings,
+  to: readonly string[],
+  body: () => string
+): Promise<void> =>
+  _open(settings).then((session) =>
+    session
+      .greeting([220])
+      .then(
+        pipe(
+          () => _hello(session, settings),
+          (hello) => _secure(session, settings, hello),
+          (hello) => _login(session, settings, hello),
+          () => session.command(`MAIL FROM:<${settings.from}>`, [250]),
+          () =>
+            to.reduce<Promise<unknown>>(
+              (chain, address) =>
+                chain.then(() =>
+                  session.command(`RCPT TO:<${address}>`, [250, 251])
+                ),
+              Promise.resolve()
+            ),
+          () => session.command('DATA', [354]),
+          () => session.data(body()),
+          () => session.command('QUIT', [221]).then(undefined, () => null)
+        )
+      )
+      .then(
+        () => session.close(),
+        (error) => (session.close(), Promise.reject(error))
+      )
+  );
+
+// Проверка связи не ждёт сроков отправки: 8 секунд на подключение и приветствие.
+const _PROBE_MS = 8_000;
+const _PROBE_TIMEOUT = 'The probe timed out';
+
+const _PROBE_ERRORS: readonly (readonly [
+  string,
+  NonNullable<SmtpProbe['error']>,
+])[] = [
+  [_PROBE_TIMEOUT, 'timeout'],
+  ['Cannot reach', 'connect_failed'],
+  ['TLS:', 'tls_failed'],
+];
+
+// Причина — кодом, без текста сервера: ответ проверки виден без входа.
+const _probeError = (error: unknown): NonNullable<SmtpProbe['error']> =>
+  ((text) =>
+    _PROBE_ERRORS.find(({ 0: start }) => text.startsWith(start))?.[1] ??
+    'unexpected_reply')(error instanceof Error ? error.message : String(error));
+
+const _greet = (settings: EmailSettings): Promise<void> =>
+  _open(settings).then((session) =>
+    session
+      .greeting([220])
+      .then(() => session.command('QUIT', [221]).then(undefined, () => null))
+      .then(
+        () => session.close(),
+        (error) => (session.close(), Promise.reject(error))
+      )
+  );
+
+const _probe = (settings: EmailSettings): Promise<SmtpProbe> => {
+  const started = performance.now();
+  const elapsed = (): number => Math.round(performance.now() - started);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    _greet(settings),
+    new Promise<never>((_done, refuse) => {
+      timer = setTimeout(() => refuse(new Error(_PROBE_TIMEOUT)), _PROBE_MS);
+    }),
+  ])
+    .then(
+      (): SmtpProbe => ({ ok: true, latencyMs: elapsed() }),
+      (error): SmtpProbe => ({
+        ok: false,
+        latencyMs: elapsed(),
+        error: _probeError(error),
+      })
+    )
+    .finally(() => clearTimeout(timer));
+};
+
 /** Отправка письма по SMTP без зависимостей: `Bun.connect` и `upgradeTLS`, вход PLAIN или LOGIN. */
 export var defineSmtpSender = (): EmailSender => ({
   send: (settings, to, item, site) =>
-    _open(settings).then((session) =>
-      session
-        .greeting([220])
-        .then(
-          pipe(
-            () => _hello(session, settings),
-            (hello) => _secure(session, settings, hello),
-            (hello) => _login(session, settings, hello),
-            () => session.command(`MAIL FROM:<${settings.from}>`, [250]),
-            () =>
-              to.reduce<Promise<unknown>>(
-                (chain, address) =>
-                  chain.then(() =>
-                    session.command(`RCPT TO:<${address}>`, [250, 251])
-                  ),
-                Promise.resolve()
-              ),
-            () => session.command('DATA', [354]),
-            () =>
-              session.data(
-                mimeMessage({ from: settings.from, to, item, site })
-              ),
-            () => session.command('QUIT', [221]).then(undefined, () => null)
-          )
-        )
-        .then(
-          () => session.close(),
-          (error) => (session.close(), Promise.reject(error))
-        )
+    _transmit(settings, to, () =>
+      mimeMessage({ from: settings.from, to, item, site })
     ),
+  mail: (settings, mail) =>
+    _transmit(settings, mail.to, () =>
+      mailMime({ envelope: settings.from, mail })
+    ),
+  probe: _probe,
 });

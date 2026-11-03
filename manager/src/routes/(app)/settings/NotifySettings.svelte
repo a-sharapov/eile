@@ -15,6 +15,8 @@ import type {
   ChannelKind,
   Chat,
   Delivery,
+  GatewayForm,
+  GatewayStatus,
   IncidentRecord,
   NotifyStatus,
   Severity,
@@ -22,6 +24,7 @@ import type {
 import LoadState from '#lib/ui/LoadState.svelte';
 import PasswordInput from '#lib/ui/PasswordInput.svelte';
 import { firstInvalid } from '#lib/validity.ts';
+import GatewaySettings from './GatewaySettings.svelte';
 
 type Check = { ok: boolean; text: string };
 
@@ -44,6 +47,16 @@ let routes = $state({
   // null — язык сайта.
   language: null as Language | null,
 });
+
+const gatewayForm = (next: GatewayStatus | null): GatewayForm => ({
+  on: next?.enabled ?? false,
+  path: next?.path ?? '/mailer/',
+  rateLimit: String(next?.rateLimit ?? 15),
+  senders: next?.senders.join(', ') ?? '',
+  domains: next?.domains.join(', ') ?? '',
+});
+
+let gateway = $state<GatewayForm>(gatewayForm(null));
 let found = $state<Chat[] | null>(null);
 let checks = $state<Partial<Record<ChannelKind, Check>>>({});
 let journal = $state<IncidentRecord[]>([]);
@@ -74,6 +87,7 @@ const accept = (next: NotifyStatus): void => {
     level: next.level,
     language: next.language,
   };
+  gateway = gatewayForm(next.gateway);
 };
 
 const refreshJournal = (): Promise<void> =>
@@ -139,6 +153,13 @@ const save = (event: SubmitEvent) => {
               }
             : null,
           ...routes,
+          gateway: {
+            enabled: gateway.on,
+            path: gateway.path,
+            rateLimit: gateway.rateLimit,
+            senders: gateway.senders,
+            domains: gateway.domains,
+          },
         })
         .then((_) => (accept(_), (checks = {}), notify(t('notify.saved'))))
         .then(undefined, failed)
@@ -338,6 +359,7 @@ const off = (channel: ChannelKind) =>
           </div>
         {/if}
         {#if checks.email}<p class={checks.email.ok ? 'ok' : 'field-error'} role="status">{checks.email.text}</p>{/if}
+        <GatewaySettings bind:form={gateway} status={status?.gateway ?? null} onstatus={(next) => void (status && (status = { ...status, gateway: next }))} />
       {/if}
     </div>
   </section>

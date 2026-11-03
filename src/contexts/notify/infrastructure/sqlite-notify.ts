@@ -1,6 +1,7 @@
 import type { Database } from '../../../platform/database.ts';
 import { textIn } from '../../../shared/kernel/manager-language.ts';
 import type { Delivery, DeliveryStatus } from '../domain/delivery.ts';
+import { DEFAULT_GATEWAY } from '../domain/gateway.ts';
 import type { ChannelKind, Message, Severity } from '../domain/message.ts';
 import type {
   IncidentRecord,
@@ -18,14 +19,23 @@ export var defineSettingsRepository = (db: Database): SettingsRepository => {
   const upsert = db.query(`
     INSERT INTO notify_settings (id, value, updated_at) VALUES (1, ?, ?)
     ON CONFLICT (id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`);
+  const read = (): NotifySettings =>
+    ((row) =>
+      ((stored) => ({
+        ...EMPTY_SETTINGS,
+        ...stored,
+        gateway: { ...DEFAULT_GATEWAY, ...stored.gateway },
+      }))(row ? (JSON.parse(row.value) as Partial<NotifySettings>) : {}))(
+      get.get()
+    );
+  // Адрес почтового шлюза сверяется на каждом запросе сайта: база читается один раз, дальше — до записи.
+  // Запись другим процессом пересобирает контексты (data_version), а с ними и этот репозиторий.
+  let cached: NotifySettings | null = null;
   return {
-    get: (): NotifySettings =>
-      ((row) =>
-        row
-          ? { ...EMPTY_SETTINGS, ...(JSON.parse(row.value) as NotifySettings) }
-          : EMPTY_SETTINGS)(get.get()),
+    get: (): NotifySettings => (cached ??= read()),
     save: (settings) =>
-      void upsert.run(JSON.stringify(settings), new Date().toISOString()),
+      void (upsert.run(JSON.stringify(settings), new Date().toISOString()),
+      (cached = settings)),
   };
 };
 

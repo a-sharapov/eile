@@ -9,7 +9,12 @@ import {
   letterOf,
 } from './confirmation.ts';
 import { type Confirmation, NO_CONFIRMATION } from './form.ts';
-import type { FieldSpec, Value } from './schema.ts';
+import {
+  checkValues,
+  type FieldSpec,
+  parseLabels,
+  type Value,
+} from './schema.ts';
 
 const field = (name: string, kind: FieldSpec['kind']): FieldSpec => ({
   name,
@@ -25,6 +30,7 @@ const field = (name: string, kind: FieldSpec['kind']): FieldSpec => ({
   multiple: false,
   options: [],
   source: null,
+  labels: null,
   message: null,
   showIf: null,
   accept: [],
@@ -135,6 +141,33 @@ describe('письмо отправителю', () => {
         value('mail', 'anna@example.com', 'email'),
       ])?.subject
     ).toBe('Bestellung');
+  });
+
+  it('скрытое поле с подписями: в теме и тексте — подпись, значение без подписи — как есть', () => {
+    const paket = {
+      ...field('paket', 'hidden'),
+      labels: 'berater=KI-Küchenberater|planung=KI-Küchenberater + KI-Planung',
+      options: parseLabels(
+        'berater=KI-Küchenberater|planung=KI-Küchenberater + KI-Planung'
+      ),
+    };
+    const fields = [..._FIELDS, paket];
+    const letter = (key: string) =>
+      letterOf(
+        on({ subject: 'Ihre Bestellung: {paket}', text: 'Paket: {paket}' }),
+        fields,
+        checkValues(
+          fields,
+          { name: ['Anna'], mail: ['anna@example.com'], paket: [key] },
+          'de'
+        ).values
+      );
+    expect(letter('planung')).toEqual({
+      to: 'anna@example.com',
+      subject: 'Ihre Bestellung: KI-Küchenberater + KI-Planung',
+      text: 'Paket: KI-Küchenberater + KI-Planung',
+    });
+    expect(letter('sonder')?.text).toBe('Paket: sonder');
   });
 });
 

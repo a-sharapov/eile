@@ -20,6 +20,8 @@ const transports: Transports = {
     send: (_settings, to, item) => (
       letters.push({ to: to.join(','), message: item }), Promise.resolve()
     ),
+    mail: () => Promise.resolve(),
+    probe: () => Promise.resolve({ ok: true, latencyMs: 1 }),
   },
 };
 

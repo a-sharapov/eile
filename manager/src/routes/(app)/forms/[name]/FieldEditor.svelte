@@ -178,6 +178,11 @@ const needsKey = $derived(sourceBase.endsWith(':'));
         <label><span>{t('formEditor.value')}</span><input bind:value={field.value} /></label>
       {/if}
     </div>
+    <label>
+      <span>{t('formEditor.valueLabels')}</span>
+      <textarea rows="3" bind:value={field.options} spellcheck="false"></textarea>
+      <small>{t('formEditor.valueLabelsHint')}</small>
+    </label>
     <small class="muted">{t('formEditor.hiddenHint')}</small>
   {:else}
     <label>

@@ -26,6 +26,7 @@ import {
   message,
 } from '../domain/message.ts';
 import type {
+  GatewaySecrets,
   IncidentRecord,
   IncidentRepository,
   OutboxRepository,
@@ -39,6 +40,7 @@ import {
   parseSettings,
   statusOf,
 } from '../domain/settings.ts';
+import { defineGatewayService } from './gateway-service.ts';
 
 /** Сайт глазами уведомлений: имя — подпись, адрес — ссылки в менеджер, язык — язык уведомлений по умолчанию. */
 export type SiteFacts = {
@@ -56,6 +58,9 @@ export type NotifyPorts = {
   readonly site: () => SiteFacts;
   /** Очередь пополнилась: отправить сейчас, не дожидаясь расписания. */
   readonly kick: () => void;
+  readonly secrets: GatewaySecrets;
+  /** Журнал почтового шлюза: строка на запрос с письмом. */
+  readonly log: (line: string) => void;
 };
 
 /** Сколько строк очереди отправляется за один проход; остальные — в следующий. */
@@ -142,6 +147,8 @@ export var defineNotifyService = ({
   clock,
   site,
   kick,
+  secrets,
+  log,
 }: NotifyPorts) => {
   let throttle = EMPTY_THROTTLE;
   let running: Promise<number> | null = null;
@@ -392,8 +399,20 @@ export var defineNotifyService = ({
             ))(settings.get().email),
   };
 
+  const gateway = defineGatewayService({
+    settings,
+    email: transports.email,
+    secrets,
+    clock,
+    siteName: () => site().name,
+    language,
+    report,
+    log,
+  });
+
   return {
     language,
+    gateway,
     settings: {
       status: (): NotifyStatus => statusOf(settings.get()),
       save: (input: Record<string, unknown>): NotifyStatus =>

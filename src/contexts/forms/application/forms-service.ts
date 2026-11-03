@@ -37,15 +37,19 @@ import type {
   WebhookRepository,
 } from '../domain/ports.ts';
 import {
+  assertLabels,
   checkValues,
   type FieldSpec,
+  fieldValue,
   formTextsFor,
   isShown,
   messagesFor,
   type Posted,
+  sentValues,
   shownValues,
   uploadsOf,
   type Value,
+  valueLabels,
 } from '../domain/schema.ts';
 import {
   assertSources,
@@ -271,10 +275,12 @@ export var defineFormsService = ({
   const publish = (events: readonly FormsEvent[]): void =>
     events.forEach((_) => void bus.publish(_ as FormsEvent & DomainEvent));
 
-  // Поля сохраняемой формы: служебную cookie CMS не взять в поле, письму отправителю нужно поле адреса.
+  // Поля сохраняемой формы: служебную cookie CMS не взять в поле, подписи скрытых полей — `значение=подпись`,
+  // письму отправителю нужно поле адреса.
   const assertFields = (change: FormChange): FormChange =>
     ((fields) => (
       assertSources(fields),
+      assertLabels(fields),
       assertConfirmation(fields, change.state.confirmation),
       change
     ))(markup.fields(change.state.source));
@@ -364,7 +370,8 @@ export var defineFormsService = ({
     goal: form.goal,
   });
 
-  // Скрытые поля, которые знает сервер (страница, сайт, время), — с сервера, а не из присланного.
+  // Скрытые поля, которые знает сервер (страница, сайт, время), — с сервера, а не из присланного; подписи
+  // `data-labels` — и к ним.
   const withServerValues = (
     fields: readonly FieldSpec[],
     values: readonly Value[],
@@ -373,7 +380,7 @@ export var defineFormsService = ({
     values.map((value) =>
       ((field) =>
         field?.kind === 'hidden' && field.source && !fromVisitor(field.source)
-          ? { ...value, value: resolveSource(field.source, context) }
+          ? fieldValue(field, [resolveSource(field.source, context)])
           : value)(fields.find((_) => _.name === value.name))
     );
 
@@ -473,7 +480,8 @@ export var defineFormsService = ({
         type: 'forms.submission_received',
         submissionId: id,
         form: form.name,
-        values: Object.fromEntries(final.map((_) => [_.name, _.value])),
+        values: sentValues(final),
+        labels: valueLabels(final),
         spam,
       },
     ]);

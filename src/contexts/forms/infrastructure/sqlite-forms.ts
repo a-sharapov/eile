@@ -125,9 +125,17 @@ const _submission = (row: SubmissionRow): Submission => ({
   updatedAt: row.updated_at,
 });
 
-// Поиск — по значениям полей без учёта регистра: строка в одной колонке.
+// Поиск — по значениям полей без учёта регистра: строка в одной колонке. У скрытого поля с подписями
+// находится и подпись, и ключ.
 const _search = (values: readonly Value[], note = ''): string =>
-  [...values.map((_) => _.value), note].join('\n').toLowerCase();
+  [
+    ...values.flatMap((_) =>
+      _.raw === undefined ? [_.value] : [_.value, _.raw]
+    ),
+    note,
+  ]
+    .join('\n')
+    .toLowerCase();
 
 // Один запрос на все сочетания фильтров: пустой фильтр не сужает выборку, спам — только по просьбе.
 const _LIST = `

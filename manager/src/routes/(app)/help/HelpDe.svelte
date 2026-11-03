@@ -260,7 +260,9 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         Finger ziehen; ein Schritt wandert mit seinen Feldern. Mit der Tastatur: Leertaste auf dem Griff, Pfeil nach oben und
         unten, Leertaste legt ab, Esc stellt zurück. Ein verstecktes Feld merkt sich die Seite, Werbeparameter, einen Parameter der Adresse oder ein Cookie des Besuchers (etwa
         einen Partnercode) – Werte der Seite und Cookies setzt der Server selbst ein, sie lassen sich nicht fälschen; eigene Cookies des CMS
-        werden nie übernommen. Ein Formular löschen Sie mit dem Papierkorb auf seiner Karte oder mit „Löschen“ im Editor:
+        werden nie übernommen. Kommt in einem versteckten Feld ein Schlüssel an, etwa <code>?paket=planung</code>, geben Sie ihm
+        „Beschriftungen der Werte“ – Zeilen wie „planung | KI-Küchenberater + KI-Planung“: E-Mails, Benachrichtigungen, die Anfrage
+        und die CSV zeigen die Beschriftung, der Webhook bekommt Schlüssel und Beschriftung. Ein Formular löschen Sie mit dem Papierkorb auf seiner Karte oder mit „Löschen“ im Editor:
         Der Manager nennt die Seiten, auf denen es steht, und seine Anfragen bleiben noch 30 Tage erhalten.
       </p>
       <p>
@@ -418,6 +420,33 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         <dt>KI-Assistent</dt>
         <dd>API-Adresse, Modell und Schlüssel (DeepSeek, OpenAI und andere mit derselben API) sowie Anweisungen für die KI – Ton und Regeln für Texte. Der Schlüssel liegt nur auf dem Server.</dd>
       </dl>
+    </section>
+    <section id="admin-gateway" data-topic hidden={!shown('admin-gateway')}>
+      <h3>Mail-Gateway</h3>
+      <p>
+        Über das Gateway senden andere Dienste – eine Plattform, ein CRM, Ihr eigenes Backend – E-Mails mit dem Postfach der Website,
+        ohne eigenes SMTP. Sie schalten es mit dem Kästchen „Mail-Gateway“ unter
+        <a href={`${resolve('/(app)/settings')}?tab=notify`}>„Einstellungen → Benachrichtigungen“</a> im Abschnitt E-Mail ein: Es braucht
+        gespeicherte E-Mail-Einstellungen und mindestens einen Token. Ein Token wird nur einmal angezeigt, beim Erstellen – der Server
+        behält nur seinen Hash; jeder Client bekommt einen eigenen Token mit Bezeichnung, einen nicht mehr gebrauchten widerrufen Sie
+        mit dem Papierkorb.
+      </p>
+      <p>
+        Ein Client sendet einen <code>POST</code> an die Adresse des Gateways (standardmäßig <code>/mailer/</code>, auch ohne Schrägstrich
+        am Ende) mit dem Header <code>Authorization: Bearer Token</code> und JSON <code>{'{ to, subject, html, text, from, attachments }'}</code>:
+        <code>to</code> ist eine Adresse, eine Liste oder <code>{'{ address, name }'}</code>; Anhänge haben <code>filename</code>,
+        <code>contentType</code>, <code>contentBase64</code>, Bilder in der E-Mail eine <code>contentId</code> (im HTML <code>cid:…</code>),
+        bis zu 40 Stück mit je 2 MB. Die Antwort ist <code>{'{"ok":true}'}</code>, sobald der Mailserver die E-Mail angenommen hat;
+        sonst <code>ok: false</code> mit einem Fehlercode: <code>unauthorized</code>, <code>rate_limited</code>, <code>to_required</code>,
+        <code>send_failed</code> und andere.
+      </p>
+      <p>
+        Absender der E-Mail ist der Absender der Website-Mail oder eine Adresse aus „Weitere erlaubte Absender“; jede andere Adresse
+        ersetzt das Gateway durch die eigene, der Name bleibt. Die Grenze gilt für Anfragen pro Minute von einer Adresse (standardmäßig
+        15). Vor einer Seite mit derselben Adresse hat das Gateway Vorrang. Ein <code>GET</code> auf die Adresse des Gateways zeigt, ob
+        es bereit ist, <code>?probe=1</code> zusätzlich, ob der Mailserver erreichbar ist. Jede Anfrage ist eine Zeile in der Ausgabe
+        des Servers und unter „Letzte Anfragen“: Bezeichnung des Tokens, Zahl der Empfänger und Ergebnis, ohne Adressen und Betreff.
+      </p>
     </section>
     <section id="admin-elements" data-topic hidden={!shown('admin-elements')}>
       <h3>Elemente</h3>

@@ -134,7 +134,10 @@ export var subjectOf = (
     )
     .slice(0, 300);
 
-/** Уведомление о заявке: поля, страница и ссылка в менеджер, ответ — на почту посетителя. */
+/**
+ * Уведомление о заявке: поля, страница и ссылка в менеджер, ответ — на почту посетителя. Скрытое поле
+ * в нём — только с подписями (`data-labels`): такое выбрали на сайте, как вариант списка.
+ */
 export var noticeOf = (
   form: Pick<Form, 'subject'>,
   submission: NewSubmission & { readonly id: number },
@@ -145,7 +148,9 @@ export var noticeOf = (
   title: subjectOf(form.subject, submission.formTitle, submission.values),
   fields: [
     ...submission.values
-      .filter((_) => _.kind !== 'hidden' && _.value !== '')
+      .filter(
+        (_) => (_.kind !== 'hidden' || _.raw !== undefined) && _.value !== ''
+      )
       .map((_) => ({ label: _.label, value: _.value })),
     ...(submission.context.pageTitle
       ? [

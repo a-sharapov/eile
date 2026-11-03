@@ -258,7 +258,9 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         a visitor will see it. Reorder blocks with the arrows or drag the handle on their left with a mouse or finger; a step moves
         together with its fields. With the keyboard: Space on the handle, up and down arrows, Space to drop, Esc to put it
         back. A hidden field remembers the page, ad tags, a URL parameter or a visitor’s cookie (a partner code, say) — the server
-        fills in page and cookie values itself, so they can’t be tampered with; the CMS’s own cookies are never taken. To delete a form, use the trash icon on its card or “Delete” in the editor:
+        fills in page and cookie values itself, so they can’t be tampered with; the CMS’s own cookies are never taken. If a hidden field
+        gets a key, like <code>?plan=pro</code>, give it “Value labels” — lines such as “pro | Pro plan with support”: emails,
+        notifications, the submission and the CSV show the label, and the webhook gets both the key and the label. To delete a form, use the trash icon on its card or “Delete” in the editor:
         the manager names the pages where the form is used, and its submissions stay for another 30 days.
       </p>
       <p>
@@ -414,6 +416,31 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         <dt>AI assistant</dt>
         <dd>API URL, model and key (DeepSeek, OpenAI and others with the same API) and instructions for AI — the tone and rules for texts. The key is stored only on the server.</dd>
       </dl>
+    </section>
+    <section id="admin-gateway" data-topic hidden={!shown('admin-gateway')}>
+      <h3>Mail gateway</h3>
+      <p>
+        Through the gateway, other services — a platform, a CRM, your own backend — send emails with the site’s mail, without SMTP of
+        their own. Turn it on with the “Mail gateway” checkbox in <a href={`${resolve('/(app)/settings')}?tab=notify`}>Settings → Notifications</a>,
+        in the email section: it needs saved email settings and at least one token. A token is shown once, when issued — the server
+        keeps only its hash; every client gets its own token with a label, and one you don’t need is revoked with the trash button.
+      </p>
+      <p>
+        A client sends a <code>POST</code> to the gateway path (<code>/mailer/</code> by default, it also works without the trailing slash)
+        with the header <code>Authorization: Bearer token</code> and JSON <code>{'{ to, subject, html, text, from, attachments }'}</code>:
+        <code>to</code> is an address, a list or <code>{'{ address, name }'}</code>; attachments have <code>filename</code>,
+        <code>contentType</code>, <code>contentBase64</code>, and images in the email a <code>contentId</code> (<code>cid:…</code> in the HTML),
+        up to 40 of 2 MB each. The answer is <code>{'{"ok":true}'}</code> once the mail server has accepted the email; otherwise
+        <code>ok: false</code> with an error code: <code>unauthorized</code>, <code>rate_limited</code>, <code>to_required</code>,
+        <code>send_failed</code> and others.
+      </p>
+      <p>
+        The sender of the email is the sender of the site’s mail or an address from “other allowed senders”; the gateway replaces any
+        other address with its own and keeps the name. The limit is requests per minute from one address (15 by default). The gateway
+        path covers a page with the same address. A <code>GET</code> on the gateway path shows whether it is ready, <code>?probe=1</code>
+        also whether the mail server can be reached. Each request is a line in the server output and in “Recent requests”: the token
+        label, how many recipients and the outcome, without addresses or subjects.
+      </p>
     </section>
     <section id="admin-elements" data-topic hidden={!shown('admin-elements')}>
       <h3>Elements</h3>

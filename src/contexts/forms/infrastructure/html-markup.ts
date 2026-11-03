@@ -6,6 +6,7 @@ import {
   type FieldSpec,
   type FormTexts,
   type Option,
+  parseLabels,
   parseShowIf,
 } from '../domain/schema.ts';
 import { ENHANCE_URL } from './enhance.ts';
@@ -218,6 +219,7 @@ const _field = (
   const first = group[0]!;
   const kind = _kindOf(first, group);
   const attributes = first.attributes;
+  const labels = attributes['data-labels']?.trim() || null;
   return {
     name: attributes.name!,
     kind,
@@ -238,8 +240,11 @@ const _field = (
         ? first.options.filter((_) => _.value !== '')
         : kind === 'radio' || kind === 'checkbox' || kind === 'consent'
           ? group.map((_) => _choice(_, labelsFor))
-          : [],
+          : kind === 'hidden'
+            ? parseLabels(labels ?? '')
+            : [],
     source: attributes['data-source'] ?? null,
+    labels,
     message: first.wrapper?.message || attributes['data-message'] || null,
     showIf: parseShowIf(
       first.wrapper?.showIf || attributes['data-show-if'] || ''
