@@ -1,7 +1,7 @@
 import { VERSION } from './cli/version.ts';
 import {
   ASSISTANT_TABLE,
-  type AssistantService,
+  type Assistant,
   assistantMigrations,
   defineAssistant,
 } from './contexts/assistant/index.ts';
@@ -49,7 +49,7 @@ import {
 import {
   defineIdentity,
   IDENTITY_SERVER_TABLES,
-  type IdentityService,
+  type Identity,
   identityMigrations,
   type UserView,
 } from './contexts/identity/index.ts';
@@ -60,8 +60,10 @@ import {
   managerMigrations,
 } from './contexts/manager/index.ts';
 import {
+  defineImageResizer,
   defineMedia,
   defineMediaCache,
+  type ImageResizer,
   MEDIA_PREFIX,
   type Media,
   type MediaCache,
@@ -96,11 +98,21 @@ import {
   siteMigrations,
 } from './contexts/site/index.ts';
 import {
+  defineStats,
+  defineStatsRecorder,
+  GOAL_PATH,
+  STATS_SERVER_TABLES,
+  type Stats,
+  type StatsRecorder,
+  statsMigrations,
+} from './contexts/stats/index.ts';
+import {
   defineUpkeep,
   UPKEEP_SERVER_TABLES,
   type Upkeep,
   upkeepMigrations,
 } from './contexts/upkeep/index.ts';
+import { defineHealth, isHealthRequest } from './health.ts';
 import { KIT, KIT_ENGLISH, KIT_GERMAN, kitFor } from './kit/index.ts';
 import {
   type Archive,
@@ -125,6 +137,12 @@ import { defineEventBus } from './platform/event-bus.ts';
 import { REPOSITORY } from './product.ts';
 import { applyScaffold, type Scaffold } from './scaffolds/scaffold.ts';
 import { serverChecks } from './server-checks.ts';
+import {
+  applyServerSettings,
+  readServerSettings,
+  type ServerSettings,
+  type ServerSettingsReport,
+} from './server-settings.ts';
 import { attempt, fail, rethrow } from './shared/kernel/errors.ts';
 import { type Localized, localized } from './shared/kernel/manager-language.ts';
 import { errorDetail, errorKey } from './shared/kernel/report.ts';
@@ -145,7 +163,7 @@ export type AppOptions = {
   readonly transports?: Transports;
   /** Журнал почтового шлюза: строка на запрос с письмом; по умолчанию — вывод сервера. */
   readonly mailLog?: (line: string) => void;
-  /** Адрес API релизов вместо GitHub — для тестов. */
+  /** Адрес API релизов вместо GitHub: проверенный `CMS_RELEASES_URL` или сервер тестов. */
   readonly releasesUrl?: string;
   /** Проверять обновления; по умолчанию да, если нет CMS_NO_UPDATE_CHECK=1. */
   readonly updateCheck?: boolean;
@@ -170,10 +188,10 @@ export type App = {
   readonly content: ContentService;
   readonly design: DesignService;
   readonly site: SiteService;
-  readonly identity: IdentityService;
+  readonly identity: Identity;
   readonly extensions: ExtensionsService;
   readonly media: Media;
-  readonly assistant: AssistantService;
+  readonly assistant: Assistant;
   readonly notify: Notify;
   readonly forms: Forms;
   /** Автокопии по расписанию и проверка обновлений. */
@@ -181,6 +199,8 @@ export type App = {
   readonly search: Search;
   readonly certificates: Certificates;
   readonly redirects: RedirectsService;
+  /** Статистика посещений: счёт без cookie, цели, отчёт. */
+  readonly stats: Stats;
   /** Диагностика сайта; другие модули добавляют проверки через `register`. */
   readonly diagnostics: DiagnosticsService;
   /** Копия всего сайта в один файл: база, элементы, медиа. */
@@ -189,6 +209,14 @@ export type App = {
   readonly archive: () => Archive;
   /** Восстановить сайт из копии — файла .db или JSON. */
   readonly restore: (bytes: Uint8Array) => Promise<RestoreReport>;
+  /** Восстановить сайт из временного файла .db (распечатанная копия из хранилища); файл после удаляется. */
+  readonly restoreFile: (path: string) => Promise<RestoreReport>;
+  /** Настройки этого сервера, которых нет в копии сайта: прочитать для файла настроек и применить привезённые. */
+  readonly serverSettings: {
+    readonly read: () => ServerSettings;
+    /** Одной транзакцией; контексты затем собираются заново. */
+    readonly apply: (settings: ServerSettings) => ServerSettingsReport;
+  };
   /** MCP от имени пользователя: сообщение JSON-RPC → ответ, у уведомления — null. */
   readonly mcp: (
     message: unknown,
@@ -224,10 +252,12 @@ const _MIGRATIONS: readonly Migration[] = [
   ...searchMigrations,
   ...certificatesMigrations,
   ...redirectsMigrations,
+  ...statsMigrations,
 ];
 
 // Сеансы входа, подключение ИИ (его ключ), каналы уведомлений и их очередь, сертификаты HTTPS и их
-// ключи — не содержимое сайта, а этого сервера: в копию не попадают и при восстановлении остаются свои.
+// ключи, посетители дня статистики — не содержимое сайта, а этого сервера: в копию не попадают и при
+// восстановлении остаются свои. Сводки статистики по дням — сайта: едут с ним в копии.
 const _SERVER_ONLY = [
   ...IDENTITY_SERVER_TABLES,
   ASSISTANT_TABLE,
@@ -235,6 +265,7 @@ const _SERVER_ONLY = [
   ...FORMS_SERVER_TABLES,
   ...UPKEEP_SERVER_TABLES,
   ...CERTIFICATES_TABLES,
+  ...STATS_SERVER_TABLES,
 ];
 
 // Индекс поиска выводится из страниц: в JSON-копию не идёт, восстановление его не трогает, а после
@@ -283,13 +314,21 @@ const _GATEWAY_SECONDS = 120;
 
 type Parts = Omit<
   App,
-  'backup' | 'archive' | 'restore' | 'follow' | 'transaction' | 'close'
+  | 'backup'
+  | 'archive'
+  | 'restore'
+  | 'restoreFile'
+  | 'serverSettings'
+  | 'follow'
+  | 'transaction'
+  | 'close'
 >;
 
 type Backup = {
   readonly database: () => Promise<Uint8Array>;
   readonly archive: () => Archive;
   readonly restore: (bytes: Uint8Array) => Promise<RestoreReport>;
+  readonly restoreFile: (path: string) => Promise<RestoreReport>;
 };
 
 // Контексты на открытой базе. Восстановление копии собирает их заново: кэши страниц, шаблонов и
@@ -299,6 +338,8 @@ const _compose = (
   options: AppOptions,
   backup: Backup,
   cache: MediaCache,
+  recorder: StatsRecorder,
+  resize: ImageResizer,
   setup: string | null = null
 ): Parts => {
   const clock = options.clock ?? (() => new Date());
@@ -375,7 +416,7 @@ const _compose = (
   });
   const identity = defineIdentity({ db, bus, clock, setup });
   const scope = defineRenderScope();
-  const media = defineMedia({ db, bus, cache });
+  const media = defineMedia({ db, bus, cache, resize, report });
   // Переводы и свои настройки — для `{i18n.key}`, `[@key]`, `t()` и `setting()` в шаблонах и контенте.
   const dictionary = {
     text: site.translations.text,
@@ -427,6 +468,14 @@ const _compose = (
         url: _.siteUrl,
       }))(settings()),
   });
+  // Статистика: формы создаются ниже, их названия нужны только отчёту.
+  const stats = defineStats({
+    db,
+    bus,
+    recorder,
+    siteUrl: () => settings().siteUrl,
+    forms: () => forms.forms.list(),
+  });
   // Формы: страница — для скрытых полей и возврата, заявка — в уведомления по маршруту формы.
   const forms = defineForms({
     db,
@@ -462,6 +511,7 @@ const _compose = (
         source
       ),
     noticeLanguage: notify.language,
+    accepted: (_) => void stats.submission(_.form, _.ip, _.userAgent),
   });
   const redirects = defineRedirects({
     db,
@@ -482,6 +532,8 @@ const _compose = (
     redirects: { match: redirects.match, hit: redirects.hit },
     // Менеджер создаётся ниже: полоса понадобится только на запрос, когда он уже есть.
     editBar: (request, page) => manager.editBar(request, page),
+    pageViews: stats.view,
+    beacon: stats.beacon,
   });
   const diagnostics = defineDiagnostics({
     bus,
@@ -547,6 +599,7 @@ const _compose = (
     https: certificates.status,
     redirects,
     diagnostics,
+    stats,
     version: VERSION,
     db,
   });
@@ -561,18 +614,20 @@ const _compose = (
     const path = new URL(request.url).pathname;
     return _isManager(path)
       ? manager.handle(request, client)
-      : path.startsWith(FORMS_PREFIX)
-        ? forms.handle(request, client)
-        : path === SEARCH_PATH
-          ? Promise.resolve(searchHandler.handle(request, client))
-          : path.startsWith(`${ASSETS_PREFIX}/`)
-            ? design.assets(request)
-            : path.startsWith(MEDIA_PREFIX)
-              ? Promise.resolve(media.handle(request))
-              : notify.gateway.claims(path)
-                ? (server?.timeout?.(request, _GATEWAY_SECONDS),
-                  notify.gateway.handle(request, client))
-                : delivery.handle(request);
+      : path === GOAL_PATH
+        ? stats.handle(request, client)
+        : path.startsWith(FORMS_PREFIX)
+          ? forms.handle(request, client)
+          : path === SEARCH_PATH
+            ? Promise.resolve(searchHandler.handle(request, client))
+            : path.startsWith(`${ASSETS_PREFIX}/`)
+              ? design.assets(request)
+              : path.startsWith(MEDIA_PREFIX)
+                ? Promise.resolve(media.handle(request))
+                : notify.gateway.claims(path)
+                  ? (server?.timeout?.(request, _GATEWAY_SECONDS),
+                    notify.gateway.handle(request, client))
+                  : delivery.handle(request, client);
   };
 
   return {
@@ -596,6 +651,7 @@ const _compose = (
     search,
     certificates,
     redirects,
+    stats,
     diagnostics,
     mcp: manager.mcp,
   };
@@ -649,17 +705,11 @@ export var createApp = (options: AppOptions = {}): App => {
 
   // Копия текущего сайта сохраняется рядом с базой, затем записи заменяются, контексты собираются
   // заново; сеанс того, кто восстанавливал, остаётся, если в копии он тот же человек.
-  const restore = (bytes: Uint8Array): Promise<RestoreReport> => {
-    const source = tempPath();
-    return (
-      isSqlite(bytes)
-        ? Bun.write(source, bytes).then(() =>
-            prepareDatabase(source, _MIGRATIONS)
-          )
-        : Promise.resolve(bytes).then((_) =>
-            databaseFromArchive(_parseArchive(_), source, _MIGRATIONS)
-          )
-    )
+  const restoreFrom = (
+    source: string,
+    prepared: Promise<unknown>
+  ): Promise<RestoreReport> =>
+    prepared
       .then(() => {
         // Пустой базе (переезд на новый сервер) нечего терять — копию «до» не делаем.
         const savedTo =
@@ -678,6 +728,8 @@ export var createApp = (options: AppOptions = {}): App => {
         const before = parts.identity.users
           .list()
           .map((_) => ({ id: _.id, email: _.email }));
+        // Прибавки статистики до этой минуты — в прежние сводки: восстановление заменит их сводками копии.
+        statsRecorder.flush();
         restoreDatabase(db, source, _DERIVED);
         clearSearchIndex(db);
         // В восстановленной базе другие файлы: прежний кэш не нужен, он наберётся заново.
@@ -691,12 +743,31 @@ export var createApp = (options: AppOptions = {}): App => {
           .delete()
           .then(undefined, () => undefined)
       );
-  };
+
+  const restore = (bytes: Uint8Array): Promise<RestoreReport> =>
+    ((source) =>
+      restoreFrom(
+        source,
+        isSqlite(bytes)
+          ? Bun.write(source, bytes).then(() =>
+              prepareDatabase(source, _MIGRATIONS)
+            )
+          : Promise.resolve(bytes).then((_) =>
+              databaseFromArchive(_parseArchive(_), source, _MIGRATIONS)
+            )
+      ))(tempPath());
+
+  const restoreFile = (path: string): Promise<RestoreReport> =>
+    restoreFrom(
+      path,
+      Promise.resolve(path).then((_) => prepareDatabase(_, _MIGRATIONS))
+    );
 
   const backup: Backup = {
     database: () => snapshot(db, _SERVER_ONLY),
     archive: () => exportArchive(db, _DERIVED),
     restore,
+    restoreFile,
   };
 
   // Кэш медиатеки — один на процесс: пересборка контекстов не теряет его состояние.
@@ -704,16 +775,27 @@ export var createApp = (options: AppOptions = {}): App => {
     dir:
       options.mediaCache ?? mediaCacheDir(options.databasePath ?? ':memory:'),
   });
-  let parts = _compose(db, options, backup, mediaCache);
+  // Счётчик статистики — тоже один на процесс: соль дня и буфер не теряются при пересборке.
+  const statsRecorder = defineStatsRecorder({
+    db,
+    clock: options.clock ?? (() => new Date()),
+  });
+  const stopStats = options.background
+    ? statsRecorder.start()
+    : statsRecorder.flush;
+  // Нарезка картинок — тоже одна на процесс: два декодирования сразу не уместились бы в память VPS.
+  const resize = defineImageResizer();
+  let parts = _compose(db, options, backup, mediaCache, statsRecorder, resize);
   // Фон — у собранных заново контекстов: восстановление копии останавливает прежний и запускает новый.
   const startBackground = (): (() => void) =>
     options.background
-      ? ((notify, forms, upkeep, warm) => () => (
-          notify(), forms(), upkeep(), clearTimeout(warm)
+      ? ((notify, forms, upkeep, media, warm) => () => (
+          notify(), forms(), upkeep(), media(), clearTimeout(warm)
         ))(
           parts.notify.start(),
           parts.forms.start(),
           parts.upkeep.start(),
+          parts.media.start(),
           // Индекс поиска строится вскоре после запуска, а не на первом поиске посетителя.
           setTimeout(
             () =>
@@ -731,6 +813,8 @@ export var createApp = (options: AppOptions = {}): App => {
       { ...options, scaffold: undefined },
       backup,
       mediaCache,
+      statsRecorder,
+      resize,
       parts.identity.setup.token()
     );
     stopBackground = startBackground();
@@ -751,22 +835,33 @@ export var createApp = (options: AppOptions = {}): App => {
       recompose()
     );
 
+  // Проверка здоровья — мимо всего остального: без расписания публикаций, сборки контекстов и прокси.
+  const health = defineHealth({
+    db,
+    version: VERSION,
+    proxied: options.trustProxy === true,
+  });
+
   return {
-    fetch: (request, server) => (
-      follow(),
-      options.trustProxy
-        ? parts.fetch(_forwarded(request), {
-            requestIP: () => ({
-              address: _forwardedClient(
-                request,
-                server?.requestIP(request)?.address ?? ''
-              ),
-            }),
-            // Срок ставится исходному запросу: переписанный по X-Forwarded-* Bun не знает.
-            timeout: (_request, seconds) => server?.timeout?.(request, seconds),
-          })
-        : parts.fetch(request, server)
-    ),
+    fetch: (request, server) =>
+      isHealthRequest(request.url)
+        ? Promise.resolve(
+            health(request, server?.requestIP(request)?.address ?? '')
+          )
+        : (follow(),
+          options.trustProxy
+            ? parts.fetch(_forwarded(request), {
+                requestIP: () => ({
+                  address: _forwardedClient(
+                    request,
+                    server?.requestIP(request)?.address ?? ''
+                  ),
+                }),
+                // Срок ставится исходному запросу: переписанный по X-Forwarded-* Bun не знает.
+                timeout: (_request, seconds) =>
+                  server?.timeout?.(request, seconds),
+              })
+            : parts.fetch(request, server)),
     follow,
     mcp: (message, user, session) => (
       follow(), parts.mcp(message, user, session)
@@ -810,13 +905,29 @@ export var createApp = (options: AppOptions = {}): App => {
     get redirects() {
       return parts.redirects;
     },
+    get stats() {
+      return parts.stats;
+    },
     get diagnostics() {
       return parts.diagnostics;
     },
     backup: (target) => backupDatabase(db, target, _SERVER_ONLY),
     archive: backup.archive,
     restore,
+    restoreFile,
+    serverSettings: {
+      read: () =>
+        readServerSettings(
+          parts,
+          VERSION,
+          (options.clock ?? (() => new Date()))()
+        ),
+      apply: (settings) =>
+        ((report) => (recompose(), report))(
+          db.transaction(() => applyServerSettings(parts, settings))()
+        ),
+    },
     transaction: (run) => db.transaction(run)(),
-    close: () => (stopBackground(), db.close()),
+    close: () => (stopBackground(), stopStats(), db.close()),
   };
 };

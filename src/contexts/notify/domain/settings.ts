@@ -259,3 +259,16 @@ export var parseSettings = (
       ? previous.gateway
       : parseGateway(input.gateway as Input, previous.gateway),
 });
+
+/** Настройки из файла настроек сервера — в том виде, в каком их хранит база; недостающее — умолчания. */
+export var restoredSettings = (value: unknown): NotifySettings =>
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? ((stored) => ({
+        ...EMPTY_SETTINGS,
+        ...stored,
+        gateway: { ...DEFAULT_GATEWAY, ...stored.gateway },
+      }))(value as Partial<NotifySettings>)
+    : fail(
+        'notify.invalid_settings',
+        'The notification settings are not an object'
+      );

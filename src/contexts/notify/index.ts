@@ -4,6 +4,7 @@ import {
   type SiteFacts,
 } from './application/notify-service.ts';
 import type { Transports } from './domain/ports.ts';
+import { type NotifySettings, restoredSettings } from './domain/settings.ts';
 import { startBackground } from './infrastructure/background.ts';
 import { cryptoGatewaySecrets } from './infrastructure/gateway-secrets.ts';
 import { defineSmtpSender } from './infrastructure/smtp-client.ts';
@@ -34,7 +35,11 @@ export type {
 } from './domain/message.ts';
 export { message } from './domain/message.ts';
 export type { SmtpProbe, Transports } from './domain/ports.ts';
-export type { GatewayStatus, NotifyStatus } from './domain/settings.ts';
+export type {
+  GatewayStatus,
+  NotifySettings,
+  NotifyStatus,
+} from './domain/settings.ts';
 export {
   NOTIFY_TABLES,
   notifyMigrations,
@@ -62,8 +67,9 @@ export var defineNotify = ({
 }) => {
   let kick = (): void => undefined;
   const runtime = defineRuntimeMark(db);
+  const settings = defineSettingsRepository(db);
   const service = defineNotifyService({
-    settings: defineSettingsRepository(db),
+    settings,
     outbox: defineOutboxRepository(db),
     incidents: defineIncidentRepository(db),
     transports: transports ?? {
@@ -84,6 +90,11 @@ export var defineNotify = ({
   return {
     ...service,
     gateway: { ...service.gateway, handle: gateway.handle },
+    /** Каналы, маршруты и почтовый шлюз с хэшами токенов — для файла настроек сервера. */
+    serverSettings: {
+      read: (): NotifySettings | null => settings.stored(),
+      apply: (value: unknown): void => settings.save(restoredSettings(value)),
+    },
     /** Фоновая отправка — только у сервера: команды CLI и тесты гоняют очередь сами. */
     start: (): (() => void) => {
       const background = startBackground({

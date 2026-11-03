@@ -5,8 +5,8 @@ import { ago, moment } from '#lib/format.ts';
 import { type MessageKey, t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { fileSize } from '#lib/media.ts';
-import { failed } from '#lib/notices.svelte.ts';
-import type { UpkeepStatus } from '#lib/types.ts';
+import { describe, failed } from '#lib/notices.svelte.ts';
+import type { OffsiteStatus, RemoteCopy, UpkeepStatus } from '#lib/types.ts';
 import PageHeader from '#lib/ui/PageHeader.svelte';
 import { resolve } from '$app/paths';
 
@@ -16,13 +16,61 @@ let restoring = $state(false);
 
 // Расписание автокопий — сводкой; настраивается во вкладке настроек.
 let backups = $state<UpkeepStatus['backups'] | null>(null);
+let offsite = $state<OffsiteStatus | null>(null);
+// Копии в хранилище: null — ещё не спрашивали или хранилище не настроено.
+let copies = $state<RemoteCopy[] | null>(null);
+let copiesError = $state<string | null>(null);
+
+const configured = (_: OffsiteStatus): boolean =>
+  _.settings.bucket !== '' && _.hasSecret;
+
+const loadCopies = (): Promise<void> =>
+  api.get<{ copies: RemoteCopy[] }>('/upkeep/offsite/copies').then(
+    (_) => void ((copies = _.copies), (copiesError = null)),
+    (error) => void (copiesError = describe(error))
+  );
+
 $effect(
   () =>
     void api.get<UpkeepStatus>('/upkeep').then(
-      (_) => void (backups = _.backups),
+      (_) => (
+        (backups = _.backups),
+        (offsite = _.offsite),
+        configured(_.offsite) ? loadCopies() : undefined
+      ),
       () => undefined
     )
 );
+
+const restoreRemote = (copy: RemoteCopy) =>
+  ask({
+    title: t('backup.remoteRestoreTitle'),
+    body: t('backup.restoreBody'),
+    items: [`${copy.name} · ${_size(copy.size)}`],
+    confirm: t('backup.restoreConfirm'),
+    tone: 'danger',
+  })
+    .then((confirmed) =>
+      confirmed
+        ? ((restoring = true),
+          api
+            .send<{ pages: number; savedTo: string | null }>(
+              'POST',
+              '/upkeep/offsite/restore',
+              { name: copy.name }
+            )
+            .then((_) =>
+              ask({
+                title: t('backup.doneTitle'),
+                body: `${t('backup.donePages')} ${_.pages}.${_.savedTo ? ` ${t('backup.doneSaved')} ${_.savedTo}` : ''}`,
+                confirm: t('backup.reload'),
+              })
+            )
+            .then(() => location.reload()))
+        : undefined
+    )
+    .then(undefined, failed)
+    .finally(() => (restoring = false));
 
 const _EVERY: Readonly<Record<number, MessageKey>> = {
   24: 'upkeep.every24',
@@ -100,6 +148,36 @@ const restoreFrom = (input: HTMLInputElement) =>
       <span class="button">{@html icons.upload}{t(restoring ? 'backup.restoring' : 'backup.chooseFile')}</span>
       <span id="restore-hint" class="help">{t('backup.restoreHint')}</span>
     </label>
+  </div>
+</section>
+<section class="form-section">
+  <header>
+    <h2>{t('backup.remoteTitle')}</h2>
+    <p>{t('backup.remoteIntro')}</p>
+  </header>
+  <div class="fields">
+    {#if offsite && configured(offsite)}
+      {#if copiesError}
+        <p class="field-error" role="status">{copiesError}</p>
+      {:else if copies && copies.length === 0}
+        <p class="muted">{t('backup.remoteEmpty')}</p>
+      {:else if copies}
+        <ul class="copies">
+          {#each copies as copy (copy.name)}
+            <li>
+              <span class="what">
+                <span class="code">{copy.name}</span>
+                <small class="muted">{_size(copy.size)}{#if copy.at}{' · '}<time datetime={copy.at} title={moment(copy.at)}>{ago(copy.at)}</time>{/if}</small>
+              </span>
+              <button type="button" class="button" aria-disabled={restoring} onclick={() => restoreRemote(copy)}>{t('backup.remoteRestore')}</button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    {:else if offsite}
+      <p class="muted">{t('backup.remoteOff')}</p>
+      <a class="button" href={`${resolve('/(app)/settings')}?tab=upkeep`}>{t('backup.remoteSetup')}</a>
+    {/if}
   </div>
 </section>
 <section class="form-section">
@@ -213,5 +291,34 @@ const restoreFrom = (input: HTMLInputElement) =>
 
   .facts .danger {
     color: var(--danger);
+  }
+
+  .copies {
+    display: grid;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .copies li {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+    border: 0.0625rem solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+
+  .what {
+    display: grid;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .fields > .muted {
+    margin: 0;
   }
 </style>

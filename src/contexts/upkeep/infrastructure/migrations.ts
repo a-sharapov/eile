@@ -11,4 +11,15 @@ export var upkeepMigrations: readonly Migration[] = [
       );
     `,
   },
+  {
+    // Хранилище копий вне сервера: настройки, секрет доступа и ключ копий — одна строка JSON на сервер.
+    id: 'upkeep/002_offsite',
+    sql: `
+      CREATE TABLE upkeep_offsite (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `,
+  },
 ];

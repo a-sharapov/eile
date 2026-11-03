@@ -167,6 +167,12 @@ bun run release pack --repo owner/name   # .gz, SHA256SUMS, install.sh
 CMS_DOWNLOAD_URL="file://$PWD/dist/release" CMS_INSTALL_DIR=/tmp/cms-bin bash dist/release/install.sh
 ```
 
+`cms update` и его откат проверяются без особой сборки: своя лента релизов в формате GitHub на этой машине
+(`/repos/<owner>/<name>/releases` со ссылками на файлы из `dist/release`) и `CMS_RELEASES_URL=http://127.0.0.1:<порт>`
+перед `cms update`. Для отката в ленту кладётся выпуск с номером новее, чей «бинарник» на `version` отвечает, а
+сайт не поднимает (скрипт `#!/bin/sh` с `echo "Eile 9.9.9"`): пробный запуск он пройдёт, а 200 на `/_cms/health`
+служба на нём не даст ([ADR 0048](docs/adr/0048-health-releases-url-redirect-check.md)).
+
 Бинарники для macOS, собранные на Linux, перед запуском на Mac нужно подписать (`codesign --sign -`);
 в CI их собирает и подписывает раннер macOS.
 

@@ -1,4 +1,12 @@
-export type Rendered = { readonly head: string; readonly body: string };
+/** CSS компонента, как его собрал Svelte при рендере: класс области и код. */
+export type RenderedStyle = { readonly hash: string; readonly code: string };
+
+export type Rendered = {
+  readonly head: string;
+  readonly body: string;
+  /** Стили нарисованных компонентов по порядку рендера: в head их нет, теги ставит документ. */
+  readonly styles?: readonly RenderedStyle[];
+};
 
 const _escapeAttribute = (value: string): string =>
   value
@@ -46,7 +54,10 @@ export var regionMarker = (index: number): string =>
 
 const _REGION_MARKER = /<!--cms:region:(\d+)-->/g;
 
-/** Подставляет регионы на места маркеров; стили регионов, которых нет в head, дописываются в него. */
+/**
+ * Подставляет регионы на места маркеров: head регионов, которого ещё нет, дописывается в head, стили
+ * регионов — к стилям страницы; один компонент — один раз.
+ */
 export var fillRegions = (
   snapshot: Rendered,
   regions: readonly Rendered[]
@@ -61,4 +72,10 @@ export var fillRegions = (
     _REGION_MARKER,
     (_match, index: string) => regions[Number(index)]?.body ?? ''
   ),
+  styles: [
+    ...new Set([
+      ...(snapshot.styles ?? []),
+      ...regions.flatMap((_) => _.styles ?? []),
+    ]),
+  ],
 });

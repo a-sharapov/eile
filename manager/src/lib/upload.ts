@@ -3,27 +3,16 @@ import { t } from './i18n.ts';
 import { transliterate } from './translit.ts';
 import type { MediaFile } from './types.ts';
 
-// Ширины вариантов: телефон, ноутбук, большой экран; больше оригинала не растягиваем.
-const _WIDTHS = [480, 960, 1920];
-const _RESIZABLE = ['image/jpeg', 'image/png', 'image/webp'];
-const _QUALITY = 0.82;
-
 const _slug = (name: string): string =>
   transliterate(name)
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '');
 
-const _send = (
-  path: string,
-  blob: Blob,
-  width?: number,
-  height?: number
-): Promise<MediaFile> => {
+// Размеры картинки и её варианты 480, 960 и 1920 px делает сервер (ADR 0046): менеджер шлёт только файл.
+const _send = (path: string, blob: Blob): Promise<MediaFile> => {
   const form = new FormData();
   form.set('file', blob);
   form.set('path', path);
-  void (width && form.set('width', String(width)));
-  void (height && form.set('height', String(height)));
   return fetch('/manager/api/media', { method: 'POST', body: form }).then(
     (response) =>
       response
@@ -45,37 +34,6 @@ const _send = (
         )
   );
 };
-
-const _variant = (bitmap: ImageBitmap, width: number): Promise<Blob> => {
-  const height = Math.round((bitmap.height * width) / bitmap.width);
-  const canvas = new OffscreenCanvas(width, height);
-  canvas.getContext('2d')!.drawImage(bitmap, 0, 0, width, height);
-  return canvas.convertToBlob({ type: 'image/webp', quality: _QUALITY });
-};
-
-const _image = (path: string, file: File): Promise<MediaFile[]> =>
-  createImageBitmap(file).then((bitmap) => {
-    const stem = path.slice(0, path.lastIndexOf('.'));
-    const widths = _WIDTHS.filter((_) => _ < bitmap.width);
-    return _send(path, file, bitmap.width, bitmap.height).then((original) =>
-      widths
-        .reduce<Promise<MediaFile[]>>(
-          (done, width) =>
-            done.then((files) =>
-              _variant(bitmap, width).then((blob) =>
-                _send(
-                  `${stem}@${width}.webp`,
-                  blob,
-                  width,
-                  Math.round((bitmap.height * width) / bitmap.width)
-                ).then((_) => [...files, _])
-              )
-            ),
-          Promise.resolve([original])
-        )
-        .finally(() => bitmap.close())
-    );
-  });
 
 /** Папка как её примет сервер: строчная латиница, цифры, дефисы, сегменты через «/». */
 export var folderSlug = (raw: string): string =>
@@ -122,10 +80,6 @@ export var confirmReplace = (
       .filter((path) => existing.some((_) => _.path === path))
   );
 
-/** Загружает файл в папку; для изображений — ещё и варианты размеров. */
-export var upload = (folder: string, file: File): Promise<MediaFile[]> => {
-  const path = uploadPath(folder, file);
-  return _RESIZABLE.includes(file.type)
-    ? _image(path, file)
-    : _send(path, file).then((_) => [_]);
-};
+/** Загружает файл в папку; варианты размеров картинки сервер сделает следом. */
+export var upload = (folder: string, file: File): Promise<MediaFile> =>
+  _send(uploadPath(folder, file), file);

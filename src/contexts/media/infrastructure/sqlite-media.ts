@@ -7,12 +7,20 @@ import {
 } from '../../../platform/chunks.ts';
 import type { Database, Migration } from '../../../platform/database.ts';
 import { imageSize } from '../domain/image-size.ts';
-import type { MediaFile, MediaPath } from '../domain/media.ts';
+import {
+  type MediaFile,
+  type MediaPath,
+  stemOf,
+  variantWidth,
+} from '../domain/media.ts';
 import type {
   MediaPiece,
   MediaRepository,
   UploadContent,
+  VariantJob,
+  VariantQueue,
 } from '../domain/ports.ts';
+import { takesVariants } from '../domain/variants.ts';
 
 // Картинки, загруженные без размеров (агентом, через API): размеры — из заголовка самого файла. Список
 // путей берётся из покрывающего индекса, BLOB читается по одному.
@@ -70,6 +78,48 @@ const _toChunks = (db: Database): void => {
   db.run('ALTER TABLE media_files DROP COLUMN data');
 };
 
+// Варианты размеров делает сервер (ADR 0046). Очередь сразу получает картинки, загруженные без вариантов
+// (агентом, через API); у картинок с вариантами ничего не меняется, даже если их набор неполный.
+const _queueVariants = (db: Database): void => {
+  db.run(`
+    CREATE TABLE media_variant_jobs (
+      path TEXT PRIMARY KEY,
+      hash TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      queued_at TEXT NOT NULL
+    )`);
+  const files = db
+    .query<
+      {
+        path: string;
+        content_type: string;
+        hash: string;
+        width: number | null;
+      },
+      []
+    >('SELECT path, content_type, hash, width FROM media_files ORDER BY path')
+    .all();
+  const resized = new Set(
+    files
+      .filter((_) => variantWidth(_.path) !== null)
+      .map((_) => stemOf(_.path))
+  );
+  const insert = db.query<unknown, [string, string, string]>(
+    'INSERT INTO media_variant_jobs (path, hash, queued_at) VALUES (?, ?, ?)'
+  );
+  const now = new Date().toISOString();
+  files
+    .filter(
+      (_) =>
+        takesVariants({
+          path: _.path as MediaPath,
+          contentType: _.content_type,
+          width: _.width,
+        }) && !resized.has(stemOf(_.path))
+    )
+    .forEach((_) => void insert.run(_.path, _.hash, now));
+};
+
 // Файлы — в той же базе: бэкап сайта остаётся копией одного файла.
 export var mediaMigrations: readonly Migration[] = [
   {
@@ -107,6 +157,7 @@ export var mediaMigrations: readonly Migration[] = [
   },
   { id: 'media/004_image_size', run: _measureStored },
   { id: 'media/005_chunks', run: _toChunks },
+  { id: 'media/006_variant_jobs', run: _queueVariants },
 ];
 
 type MetaRow = {
@@ -209,5 +260,37 @@ export var defineMediaRepository = (
     save: (file, content) => void save(file, content),
     remove: (path) => void remove(path),
     describe: (path, alt) => void describe.run(alt, path),
+    transaction: (run) => db.transaction(run)(),
+  };
+};
+
+export var defineVariantQueue = (db: Database): VariantQueue => {
+  const add = db.query<unknown, [string, string, string]>(`
+    INSERT INTO media_variant_jobs (path, hash, attempts, queued_at) VALUES (?, ?, 0, ?)
+    ON CONFLICT (path) DO UPDATE SET
+      hash = excluded.hash, attempts = 0, queued_at = excluded.queued_at`);
+  const next = db.query<VariantJob, []>(
+    'SELECT path, hash, attempts FROM media_variant_jobs ORDER BY queued_at, path LIMIT 1'
+  );
+  const attempt = db.query<unknown, [string]>(
+    'UPDATE media_variant_jobs SET attempts = attempts + 1 WHERE path = ?'
+  );
+  const done = db.query<unknown, [string, string]>(
+    'DELETE FROM media_variant_jobs WHERE path = ? AND hash = ?'
+  );
+  const size = db.query<{ n: number }, []>(
+    'SELECT count(*) AS n FROM media_variant_jobs'
+  );
+  const take = db.transaction((): VariantJob | null =>
+    ((job) =>
+      job && (attempt.run(job.path), { ...job, attempts: job.attempts + 1 }))(
+      next.get()
+    )
+  );
+  return {
+    add: (path, hash) => void add.run(path, hash, new Date().toISOString()),
+    take: () => take(),
+    done: (path, hash) => void done.run(path, hash),
+    size: () => size.get()!.n,
   };
 };

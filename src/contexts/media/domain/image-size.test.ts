@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { imageSize } from './image-size.ts';
+import { imageSize, imageTraits } from './image-size.ts';
 
 // Образцы собираются из байтов прямо в тесте: парсеру нужен заголовок, а не картинка целиком.
 type Part = number | readonly number[];
@@ -370,5 +370,91 @@ describe('размеры картинки из заголовка', () => {
     expect([rgb, rgba, ...files].map(imageSize)).toEqual(
       Array(8).fill(size(37, 21))
     );
+  });
+});
+
+describe('признаки картинки из заголовка', () => {
+  const still = { animated: false, progressive: false, samples: 4 };
+
+  it('APNG — блок acTL до первого IDAT; acTL после IDAT — уже не анимация', () => {
+    const png = (...chunks: number[][]) =>
+      bytes(
+        PNG_SIGNATURE,
+        pngChunk('IHDR', [...u32be(64), ...u32be(64), 8, 6, 0, 0, 0]),
+        ...chunks,
+        pngChunk('IEND', [])
+      );
+    const actl = pngChunk('acTL', [...u32be(2), ...u32be(0)]);
+    const idat = pngChunk('IDAT', [0]);
+    expect(imageTraits(png(actl, idat))).toEqual({
+      format: 'png',
+      ...still,
+      animated: true,
+    });
+    expect(imageTraits(png(idat, actl))).toEqual({ format: 'png', ...still });
+    expect(imageTraits(realPng(8, 8, true))).toEqual({
+      format: 'png',
+      ...still,
+    });
+  });
+
+  it('WebP с анимацией — флаг в VP8X', () => {
+    const animated = riff('VP8X', [0x12, 0, 0, 0, ...u24le(99), ...u24le(99)]);
+    expect(imageTraits(animated)).toMatchObject({
+      format: 'webp',
+      animated: true,
+    });
+    expect(imageTraits(vp8x(100, 100)).animated).toBe(false);
+    expect(imageTraits(vp8(100, 100))).toEqual({ format: 'webp', ...still });
+  });
+
+  it('JPEG: прогрессивный кадр SOF2, обычный — SOF0, мимо сегментов', () => {
+    expect(
+      imageTraits(jpeg(exif(6, true), JFIF, DHT, sof(0xc2, 1200, 800)))
+    ).toEqual({
+      format: 'jpeg',
+      animated: false,
+      progressive: true,
+      samples: 1,
+    });
+    expect(imageTraits(jpeg(JFIF, DQT, sof(0xc0, 640, 480)))).toEqual({
+      format: 'jpeg',
+      ...still,
+      samples: 1,
+    });
+    // Без кадра — как худший случай, 4:4:4.
+    expect(imageTraits(jpeg(JFIF, DQT))).toMatchObject({
+      progressive: false,
+      samples: 3,
+    });
+  });
+
+  it('JPEG: отсчётов на пиксель — по субдискретизации компонент', () => {
+    const color = (marker: number, factors: readonly number[]) =>
+      jpeg(
+        JFIF,
+        segment(marker, [
+          8,
+          ...u16be(600),
+          ...u16be(800),
+          factors.length,
+          ...factors.flatMap((factor, k) => [k + 1, factor, 0]),
+        ])
+      );
+    expect(imageTraits(color(0xc2, [0x11, 0x11, 0x11])).samples).toBe(3);
+    expect(imageTraits(color(0xc2, [0x22, 0x11, 0x11])).samples).toBe(1.5);
+    expect(imageTraits(color(0xc0, [0x21, 0x11, 0x11])).samples).toBe(2);
+    expect(imageTraits(color(0xc2, [0x11])).samples).toBe(1);
+  });
+
+  it('формат — по подписи, а не по расширению', async () => {
+    const rgb = realPng(37, 21, false);
+    const progressive = await new Bun.Image(rgb)
+      .jpeg({ quality: 80, progressive: true })
+      .bytes();
+    expect(imageTraits(progressive).progressive).toBe(true);
+    expect(imageTraits(gif('89a', 10, 10)).format).toBe('gif');
+    expect(imageTraits(text('<svg/>'))).toEqual({ format: null, ...still });
+    expect(imageTraits(new Uint8Array(0)).format).toBeNull();
   });
 });

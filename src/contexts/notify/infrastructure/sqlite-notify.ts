@@ -12,7 +12,12 @@ import type {
 import { EMPTY_SETTINGS, type NotifySettings } from '../domain/settings.ts';
 
 // Одна строка JSON: настройки каналов читаются целиком и целиком меняются.
-export var defineSettingsRepository = (db: Database): SettingsRepository => {
+export var defineSettingsRepository = (
+  db: Database
+): SettingsRepository & {
+  /** Сохранённые владельцем; ничего не сохраняли — null, а не умолчания. */
+  readonly stored: () => NotifySettings | null;
+} => {
   const get = db.query<{ value: string }, []>(
     'SELECT value FROM notify_settings WHERE id = 1'
   );
@@ -32,6 +37,7 @@ export var defineSettingsRepository = (db: Database): SettingsRepository => {
   // Запись другим процессом пересобирает контексты (data_version), а с ними и этот репозиторий.
   let cached: NotifySettings | null = null;
   return {
+    stored: () => (get.get() ? read() : null),
     get: (): NotifySettings => (cached ??= read()),
     save: (settings) =>
       void (upsert.run(JSON.stringify(settings), new Date().toISOString()),

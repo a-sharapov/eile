@@ -4,6 +4,7 @@ import {
   defineHttpListener,
   valid,
 } from '../contexts/certificates/index.ts';
+import { HEALTH_PATH } from '../health.ts';
 import { attempt } from '../shared/kernel/errors.ts';
 
 type Server = ReturnType<typeof Bun.serve>;
@@ -99,6 +100,7 @@ export var serveSecure = ({
       challenge: app.certificates.challenge,
       secured: () => secure !== null,
       site: app.fetch,
+      direct: [HEALTH_PATH],
     }),
   });
 

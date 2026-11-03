@@ -33,6 +33,7 @@ type Section = {
   href:
     | '/(app)/pages'
     | '/(app)/media'
+    | '/(app)/stats'
     | '/(app)/elements'
     | '/(app)/forms'
     | '/(app)/users'
@@ -72,6 +73,13 @@ const _NAV: readonly Section[] = [
     href: '/(app)/media',
     label: 'nav.media',
     icon: 'images',
+    roles: ['admin', 'editor'],
+  },
+  // Статистику смотрят все менеджеры; включает и настраивает её администратор во вкладке настроек.
+  {
+    href: '/(app)/stats',
+    label: 'nav.stats',
+    icon: 'chart',
     roles: ['admin', 'editor'],
   },
   { href: '/(app)/users', label: 'nav.users', icon: 'users', roles: ['admin'] },

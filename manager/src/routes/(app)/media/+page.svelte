@@ -50,21 +50,53 @@ const shown = $derived(
 const url = previewUrl;
 const size = fileSize;
 
+// Варианты размеров сервер делает следом за загрузкой: пока у новых картинок их нет, список
+// перечитывается, но не больше десяти раз. Маленьким, SVG и GIF вариантов не положено.
+const _RESIZABLE = /^image\/(jpeg|png|webp)$/;
+let follow: ReturnType<typeof setTimeout> | undefined;
+
+$effect(() => () => clearTimeout(follow));
+
+const followVariants = (sent: readonly MediaFile[], left = 10): void =>
+  void (
+    left > 0 &&
+    sent.some(
+      (_) =>
+        _RESIZABLE.test(_.contentType) &&
+        (_.width ?? 0) > 480 &&
+        family(_).length === 1
+    ) &&
+    (follow = setTimeout(
+      () =>
+        void load().then(
+          () => followVariants(sent, left - 1),
+          () => undefined
+        ),
+      1500
+    ))
+  );
+
 const sendAll = (list: File[]) => (
   (busy = true),
   (progress = { done: 0, total: list.length }),
   list
-    .reduce<Promise<number>>(
+    .reduce<Promise<MediaFile[]>>(
       (done, file) =>
-        // Варианты размеров — служебные копии: считаем файлы, которые выбрал человек.
-        done.then((n) =>
+        done.then((sent) =>
           upload(folder, file).then(
-            () => ((progress = { ...progress, done: n + 1 }), n + 1)
+            (_) => (
+              (progress = { ...progress, done: sent.length + 1 }), [...sent, _]
+            )
           )
         ),
-      Promise.resolve(0)
+      Promise.resolve([])
     )
-    .then((n) => (notify(`${t('media.uploaded')} ${n}`), load()))
+    .then(
+      (sent) => (
+        notify(`${t('media.uploaded')} ${sent.length}`),
+        load().then(() => followVariants(sent))
+      )
+    )
     .then(undefined, (error) => (failed(error), load()))
     .finally(() => (busy = false))
 );

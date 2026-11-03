@@ -11,10 +11,18 @@ import {
   defineSiteScripts,
   SCRIPTS_PREFIX,
 } from './infrastructure/site-scripts.ts';
+import {
+  defineSiteStyles,
+  STYLES_PREFIX,
+} from './infrastructure/site-styles.ts';
 import { defineElementRepository } from './infrastructure/sqlite-element-repository.ts';
-import { svelteSourceCompiler } from './infrastructure/svelte-compiler.ts';
+import {
+  defineServerCompiler,
+  type ServerCompiler,
+  svelteSourceCompiler,
+} from './infrastructure/svelte-compiler.ts';
 import { defineAssetsHandler } from './interface/assets-handler.ts';
-import { defineScriptsHandler } from './interface/scripts-handler.ts';
+import { defineFileHandler } from './interface/file-handler.ts';
 
 export type { ElementKind } from './domain/element.ts';
 export type { DesignEvent } from './domain/events.ts';
@@ -31,20 +39,17 @@ export {
 export { designMigrations } from './infrastructure/migrations.ts';
 
 // Шаблон и компонент компилирует Svelte; скрипт — готовый ES-модуль, его только разбирают.
-const _CHECKS: Readonly<Record<ElementKind, (element: Element) => void>> = {
-  template: svelteSourceCompiler.check,
-  component: svelteSourceCompiler.check,
+const _checks = (
+  compile: ServerCompiler
+): Readonly<Record<ElementKind, (element: Element) => void>> => ({
+  template: (element) => void compile(element),
+  component: (element) => void compile(element),
   script: checkScript,
-};
-
-const _compiler: SourceCompiler = {
-  ...svelteSourceCompiler,
-  check: (element) => _CHECKS[element.kind](element),
-};
+});
 
 /**
  * Контекст design: шаблоны и компоненты хранятся исходником Svelte и компилируются во время работы;
- * скрипты сайта — ES-модули для браузера по адресам с хэшем.
+ * скрипты и стили сайта — файлы для браузера по адресам с хэшем.
  */
 export var defineDesign = ({
   db,
@@ -58,22 +63,37 @@ export var defineDesign = ({
   builtins: Readonly<Record<string, string>>;
 }) => {
   const elements = defineElementRepository(db);
-  const loader = defineViewLoader({ elements, runtime, builtins });
+  // Одна компиляция на версию элемента: проверка при сохранении, виды и стили сайта.
+  const compile = defineServerCompiler();
+  const checks = _checks(compile);
+  const compiler: SourceCompiler = {
+    ...svelteSourceCompiler,
+    check: (element) => checks[element.kind](element),
+  };
+  const loader = defineViewLoader({ elements, runtime, builtins, compile });
   const islands = defineClientViews({
     elements,
     runtime: defineClientRuntime(),
   });
   const scripts = defineSiteScripts(elements);
+  const styles = defineSiteStyles({ elements, compile });
   bus.onAny(
     (event) =>
       void (
         event.type.startsWith('design.') &&
-        (loader.invalidate(), islands.invalidate(), scripts.invalidate())
+        (loader.invalidate(),
+        islands.invalidate(),
+        scripts.invalidate(),
+        styles.invalidate())
       )
   );
-  const service = defineDesignService({ elements, compiler: _compiler, bus });
+  const service = defineDesignService({ elements, compiler, bus });
   const islandAssets = defineAssetsHandler(islands);
-  const scriptAssets = defineScriptsHandler(scripts);
+  const scriptAssets = defineFileHandler(
+    'text/javascript; charset=utf-8',
+    scripts.file
+  );
+  const styleAssets = defineFileHandler('text/css; charset=utf-8', styles.file);
   return {
     ...service,
     scripts: { ...service.scripts, url: scripts.url },
@@ -82,12 +102,16 @@ export var defineDesign = ({
       component: loader.component,
       island: islands.url,
       hydrator: islands.hydrator,
+      styles: styles.tags,
     },
-    /** `/_cms/*`: скрипты сайта, модули островов и рантайм Svelte для браузера. */
+    /** `/_cms/*`: скрипты и стили сайта, модули островов и рантайм Svelte для браузера. */
     assets: (request: Request): Promise<Response> =>
-      new URL(request.url).pathname.startsWith(SCRIPTS_PREFIX)
-        ? Promise.resolve(scriptAssets(request))
-        : islandAssets(request),
+      ((path) =>
+        path.startsWith(SCRIPTS_PREFIX)
+          ? Promise.resolve(scriptAssets(request))
+          : path.startsWith(STYLES_PREFIX)
+            ? Promise.resolve(styleAssets(request))
+            : islandAssets(request))(new URL(request.url).pathname),
   };
 };
 

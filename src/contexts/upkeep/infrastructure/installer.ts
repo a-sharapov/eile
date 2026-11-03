@@ -10,7 +10,9 @@ import {
 import { basename, dirname, join } from 'node:path';
 import { attempt, fail } from '../../../shared/kernel/errors.ts';
 import type { ReleaseSource } from '../domain/ports.ts';
+import { safeDownload } from '../domain/releases-url.ts';
 import { newerRelease, type Release } from '../domain/version.ts';
+import type { Fetch } from './releases.ts';
 
 type Probe = {
   readonly platform: string;
@@ -72,18 +74,38 @@ export type UpdateResult =
       readonly alias: string | null;
     };
 
-const _download = (url: string, version: string): Promise<Uint8Array> =>
-  fetch(url, {
-    headers: { 'user-agent': `Eile/${version}` },
-    signal: AbortSignal.timeout(10 * 60_000),
-  }).then((response) =>
-    response.ok
-      ? response.bytes()
-      : fail(
-          'upkeep.download_failed',
-          `${basename(new URL(url).pathname)} did not download: ${response.status}`
-        )
-  );
+type _Source = {
+  readonly fetch: Fetch;
+  /** http разрешён не только на этой машине: `CMS_RELEASES_INSECURE=1`. */
+  readonly insecure: boolean;
+};
+
+// Бинарник и его сумма — только по https (http — на этой машине): по http их обе подменит кто угодно.
+const _download = (
+  url: string,
+  version: string,
+  source: _Source
+): Promise<Uint8Array> =>
+  Promise.resolve(url)
+    .then((_) =>
+      safeDownload(_, source.insecure)
+        ? source.fetch(_, {
+            headers: { 'user-agent': `Eile/${version}` },
+            signal: AbortSignal.timeout(10 * 60_000),
+          })
+        : fail(
+            'upkeep.insecure_download',
+            `The release offers its file over plain http: ${_}`
+          )
+    )
+    .then((response) =>
+      response.ok
+        ? response.bytes()
+        : fail(
+            'upkeep.download_failed',
+            `${basename(new URL(url).pathname)} did not download: ${response.status}`
+          )
+    );
 
 /** Сумма файла из SHA256SUMS: строки `<hex>  <имя>` или `<hex> *<имя>`. */
 export var checksumOf = (sums: string, name: string): string | null =>
@@ -170,12 +192,13 @@ const _install = (
   release: Release,
   target: string,
   binary: string,
-  version: string
+  version: string,
+  source: _Source
 ): Promise<string> =>
   ((archive) =>
     Promise.all([
-      _download(_asset(release, archive), version),
-      _download(_asset(release, 'SHA256SUMS'), version).then((_) =>
+      _download(_asset(release, archive), version, source),
+      _download(_asset(release, 'SHA256SUMS'), version, source).then((_) =>
         new TextDecoder().decode(_)
       ),
     ]).then(({ 0: bytes, 1: sums }) =>
@@ -204,6 +227,8 @@ export var updateProgram = ({
   binary = process.execPath,
   standalone = Bun.isStandaloneExecutable,
   target = buildTarget(),
+  fetch: get = fetch,
+  insecure = false,
 }: {
   releases: ReleaseSource;
   current: string;
@@ -211,6 +236,8 @@ export var updateProgram = ({
   binary?: string;
   standalone?: boolean;
   target?: string | null;
+  fetch?: Fetch;
+  insecure?: boolean;
 }): Promise<UpdateResult> =>
   releases()
     .then((list) => newerRelease(current, list))
@@ -229,7 +256,10 @@ export var updateProgram = ({
                   'upkeep.unsupported_platform',
                   `No builds for ${process.platform}-${process.arch}`
                 )
-              : _install(release, target, binary, current).then((previous) => ({
+              : _install(release, target, binary, current, {
+                  fetch: get,
+                  insecure,
+                }).then((previous) => ({
                   status: 'updated',
                   current,
                   release,

@@ -169,18 +169,38 @@ const _RU: readonly CommandHelp[] = [
   },
   {
     name: 'diagnose',
-    summary: 'Диагностика сайта: ссылки, страницы, медиа, настройки',
-    usage: ['cms diagnose [--db <файл>] [--json]'],
+    summary: 'Диагностика сайта: ссылки, страницы, медиа, переадресации',
+    usage: [
+      'cms diagnose [--db <файл>] [--json]',
+      'cms diagnose redirects [<список>|<sitemap>|-] [--db <файл>] [--json]',
+      'cms diagnose redirects <список> --base <адрес сайта>',
+    ],
     details: [
       'То же, что вкладка «Диагностика» в менеджере: битые ссылки, страницы без описания, пропавшие файлы медиатеки, настройки и сервер.',
       'Если есть ошибки, код выхода 1 — проверку можно поставить в cron или CI. --json — отчёт целиком, для скриптов и агентов.',
+      'redirects проверяет старые адреса после переезда: каждый должен прийти одним переходом 301 или 308 на живую страницу (200) этого же сайта. Цепочки, петли, 302 и 307, 404, ответы с ошибкой и уход на другой хост — ошибки, код выхода 1.',
+      'Список — файл текстом: по адресу в строке, путь или URL (хост старого сайта не в счёт, проверяются путь и query), # — комментарий. Второе слово строки — куда адрес должен вести: /uber-uns/ /ueber-uns. Подойдёт и sitemap.xml или индекс sitemap — файлом или по адресу, можно .gz. Без файла или с - список читается из stdin.',
+      'Без --base проверка идёт прямо в процессе, без сети: на снимке базы --db во временной папке, поэтому счётчики переходов и статистика сайта не меняются. С --base — по сети, на живом сайте, например на новом сервере до переключения домена.',
+      'В таблице видно, что стало со слэшем на конце и с query: /kontakt/ → 301 /kontakt. Адрес с query, на который сайт отвечает 200 сам (/?p=12 — главная), — тоже ошибка: страницу выбирает путь, а query она не видит.',
     ],
-    options: [['--json', 'Отчёт в JSON'], _DB],
+    options: [
+      ['--json', 'Отчёт в JSON'],
+      _DB,
+      ['--base <адрес>', 'redirects: живой сайт по сети вместо базы'],
+    ],
     examples: [
       ['Проверить сайт', 'cms diagnose --db site.db'],
       [
         'Каждую ночь, с письмом от cron',
         '0 3 * * * cms diagnose --db /srv/site.db',
+      ],
+      [
+        'Старые адреса — на базу нового сайта',
+        'cms diagnose redirects old-urls.txt --db site.db',
+      ],
+      [
+        'Sitemap старого сайта — на новый сервер',
+        'cms diagnose redirects old/sitemap.xml --base https://new.a.ru',
       ],
     ],
   },
@@ -208,15 +228,25 @@ const _RU: readonly CommandHelp[] = [
   },
   {
     name: 'backup',
-    summary: 'Копия всего сайта в один файл',
-    usage: ['cms backup [<файл>] [--db <файл>]'],
+    summary: 'Копия сайта в файл или в хранилище S3; файл настроек сервера',
+    usage: [
+      'cms backup [<файл>] [--db <файл>]',
+      'cms backup --remote [--db <файл>]',
+      'cms backup --server [<файл>] [--db <файл>]',
+    ],
     details: [
       'База, шаблоны, компоненты и медиатека — в одном файле SQLite. Можно на работающем сайте: копия согласованная (VACUUM INTO). Кэш медиатеки (site.media-cache) в копию не входит: он берётся из базы.',
       'Имя с .json — те же записи текстом: можно открыть, сравнить две копии, перенести. Сеансов входа в копии нет.',
       'Без имени файла — cms-ГГГГ-ММ-ДД.db в текущем каталоге. Существующий файл не перезаписывается.',
+      '--remote — копия сейчас, как кнопка «Сделать копию сейчас»: в каталог автокопий и в хранилище S3, настроенное в менеджере («Настройки» → «Копии и обновления»). В хранилище копия уходит зашифрованной ключом копий этого сервера.',
+      '--server — файл настроек сервера, которых нет в копии сайта: почта, Telegram, почтовый шлюз с токенами, секрет печатей форм, расписание копий, хранилище с ключом копий, подключение ИИ, ключи API. Файл шифруется паролем (не короче 12 знаков): его спросят дважды, для скриптов — CMS_SETTINGS_PASSPHRASE. Без имени — cms-server-ГГГГ-ММ-ДД.enc. Сеансов, сертификатов HTTPS, очереди уведомлений и журнала сбоев в нём нет.',
       'Восстановление — cms restore или раздел «Копии» в менеджере.',
     ],
-    options: [_DB],
+    options: [
+      _DB,
+      ['--remote', 'Копия сейчас и отправка в хранилище S3'],
+      ['--server', 'Файл настроек сервера под паролем'],
+    ],
     examples: [
       ['Копия рядом, с датой в имени', 'cms backup --db site.db'],
       [
@@ -224,25 +254,73 @@ const _RU: readonly CommandHelp[] = [
         'cms backup /backups/site-$(date +%F).db --db site.db',
       ],
       ['Записи текстом', 'cms backup site.json --db site.db'],
+      [
+        'Копию — в хранилище, по cron',
+        '0 4 * * * cms backup --remote --db /srv/site.db',
+      ],
+      [
+        'Настройки — на новый сервер',
+        'cms backup --server server.enc --db site.db',
+      ],
     ],
   },
   {
     name: 'restore',
-    summary: 'Восстановить сайт из копии .db или JSON',
-    usage: ['cms restore <файл> [--db <файл>]'],
+    summary: 'Сайт из копии или хранилища S3; настройки сервера из файла',
+    usage: [
+      'cms restore <файл> [--db <файл>]',
+      'cms restore --remote [<имя>|latest] [--db <файл>]',
+      'cms restore --server <файл> [--db <файл>]',
+    ],
     details: [
       'Сайт в базе становится таким, каким был в копии: страницы, элементы, медиатека, настройки, пользователи. Копия из более старой версии сначала доводится до текущей схемы.',
       'Если база уже есть, её прежнее состояние сохраняется рядом: site.before-restore-ГГГГММДД-ЧЧММСС.db. Новой базы не было — она создаётся: так сайт переезжает на другой сервер.',
       'Остановите сервер перед восстановлением из командной строки или восстанавливайте в менеджере: раздел «Копии».',
       'Кэш медиатеки стирается: файлы в копии другие, он наберётся заново из восстановленной базы.',
+      '--remote — из хранилища S3: без имени — список копий, latest — последняя. Хранилище — из базы, если оно там настроено, поверх — --endpoint, --region, --bucket, --prefix, --access-key или S3_ENDPOINT, S3_REGION, S3_BUCKET, CMS_S3_PREFIX, S3_ACCESS_KEY_ID; секрет — S3_SECRET_ACCESS_KEY или ввод на терминале. Копию своим ключом база открывает сама; на новой машине нужен ключ восстановления, который менеджер показал при включении хранилища: CMS_RECOVERY_KEY или ввод на терминале.',
+      '--server — применить файл настроек из cms backup --server к базе: что есть в файле, заменяет своё, чего нет — остаётся. Итоги копий, сеансы и сертификаты остаются свои; каталог копий с абсолютным путём другой машины сбрасывается на backups рядом с базой; ключ API достаётся пользователю с той же почтой. Пароль — CMS_SETTINGS_PASSPHRASE или ввод на терминале. Работающий сервер на этой базе подхватит настройки на следующем запросе; на базе службы — под root: sudo cms restore --server файл --db /var/lib/cms/site.db.',
     ],
-    options: [_DB, _MEDIA_CACHE],
+    options: [
+      _DB,
+      _MEDIA_CACHE,
+      ['--remote', 'Из хранилища S3: список, имя копии или latest'],
+      ['--endpoint <адрес>', 'Хранилище: https://fra1.digitaloceanspaces.com'],
+      ['--region <регион>', 'Регион подписи: fra1, eu-central-003'],
+      ['--bucket <бакет>', 'Бакет с копиями'],
+      ['--prefix <папка>', 'Папка в бакете'],
+      ['--access-key <ключ>', 'Ключ доступа; секрет — S3_SECRET_ACCESS_KEY'],
+      ['--server', 'Применить файл настроек сервера'],
+    ],
     examples: [
       [
         'Вернуть вчерашнюю копию',
         'cms restore /backups/site-2026-10-29.db --db site.db',
       ],
       ['Перенести сайт на новый сервер', 'cms restore site.json --db site.db'],
+      ['Копии в хранилище', 'cms restore --remote --db site.db'],
+      [
+        'Последнюю копию — на новую машину',
+        'cms restore --remote latest --bucket copies --db site.db',
+      ],
+      [
+        'Настройки — в базу службы',
+        'sudo cms restore --server server.enc --db /var/lib/cms/site.db',
+      ],
+    ],
+  },
+  {
+    name: 'compact',
+    summary: 'Сжать базу: отдать диску свободные страницы',
+    usage: ['cms compact [--db <файл>]'],
+    details: [
+      'Удалённые записи и файлы медиатеки оставляют в базе свободные страницы: SQLite не отдаёт их диску сам, файл не уменьшается. Сколько свободно, показывает cms info.',
+      'VACUUM пересобирает базу без них. Можно на работающем сайте: читатели не ждут, запись сервера ждёт до конца сжатия (на базе в 63 МБ — около 0,5 с). На диске нужно ещё два размера данных базы: временная копия и журнал.',
+      'Сервер и сам сжимает базу ночью (в 04:15), если свободно не меньше 8 МиБ и пятой части файла.',
+    ],
+    options: [_DB],
+    examples: [
+      ['Сколько свободно', 'cms info --db site.db'],
+      ['Сжать', 'cms compact --db site.db'],
     ],
   },
   {
@@ -276,6 +354,8 @@ const _RU: readonly CommandHelp[] = [
       'Повтор с тем же юнитом ничего не меняет. Другой юнит с этим именем заменяет только --force. --print печатает юнит и ничего не трогает: так его можно поставить и руками.',
       'Нужен root; без него команда напечатает строку для sudo.',
       'status — состояние, с какого времени, версия, адрес и память. logs — журнал службы, -f — следить за ним. restart — перезапуск с проверкой, что сайт ответил. uninstall — остановить и удалить юнит; база и копии остаются, команда скажет где.',
+      'Что служба поднялась, install, restart и cms update узнают по /_cms/health на её HTTP-порту: 200 — сервер работает и читает базу, 503 — базу не прочесть. Ждут до 30 секунд. Версии до 0.1.0-alpha.9 этого адреса не знают — им, как раньше, хватает любого ответа.',
+      'Тот же адрес — для мониторов вроде проверок DigitalOcean: https://example.com/_cms/health, без входа и кэша. Версию он называет только запросу с этой же машины.',
       'cms update перезапускает службу на новой версии и проверяет её; не поднялась — возвращает cms.old.',
     ],
     options: [
@@ -321,6 +401,7 @@ const _RU: readonly CommandHelp[] = [
       'Новая версия может перевести базу на свою схему. Если она при этом не поднялась, откат возвращает базу к копии, а базу, на которой она упала, со всем, что сайт записал после копии, кладёт рядом: site.db.failed-<версия>. Базу, которую новая версия не меняла, откат не трогает. Прежняя версия на базе, которую уже вела более новая, не запускается и говорит об этом.',
       'С альфы и беты обновление идёт и на следующие пре-релизы, со стабильной версии — только на стабильные.',
       'В менеджере о новой версии говорит меню профиля; проверку выключают в настройках или CMS_NO_UPDATE_CHECK=1.',
+      'CMS_RELEASES_URL — свой адрес API релизов вместо https://api.github.com: зеркало, сеть без выхода наружу или проверка обновления и отката без пересборки. По нему cms update и проверка в менеджере спрашивают <адрес>/repos/<владелец>/<имя>/releases — ответ в формате GitHub. Адрес и файлы выпуска — только https; http — на этой машине (localhost, 127.0.0.1) или вместе с CMS_RELEASES_INSECURE=1 для своего зеркала в своей сети. Сумма SHA256SUMS сверяется так же. Файлы установщика берёт CMS_DOWNLOAD_URL.',
     ],
     options: [
       ['--check', 'Только проверить, есть ли новая версия'],
@@ -329,6 +410,14 @@ const _RU: readonly CommandHelp[] = [
     examples: [
       ['Есть ли новая версия', 'cms update --check'],
       ['Обновить cms и службу сайта', 'sudo cms update'],
+      [
+        'С зеркала релизов',
+        'sudo CMS_RELEASES_URL=https://mirror.example/api cms update',
+      ],
+      [
+        'Проба на своей ленте на этой машине',
+        'CMS_RELEASES_URL=http://127.0.0.1:9000 cms update --check',
+      ],
     ],
   },
   {
@@ -518,18 +607,38 @@ const _EN: readonly CommandHelp[] = [
   },
   {
     name: 'diagnose',
-    summary: 'Site diagnostics: links, pages, media, settings',
-    usage: ['cms diagnose [--db <file>] [--json]'],
+    summary: 'Site diagnostics: links, pages, media, redirects',
+    usage: [
+      'cms diagnose [--db <file>] [--json]',
+      'cms diagnose redirects [<list>|<sitemap>|-] [--db <file>] [--json]',
+      'cms diagnose redirects <list> --base <site address>',
+    ],
     details: [
       'The same as the Diagnostics tab in the manager: broken links, pages without a description, missing media files, settings and the server.',
       'With errors, the exit code is 1, so the check can run from cron or CI. --json prints the whole report for scripts and agents.',
+      'redirects checks old addresses after a move: each must reach a live page (200) on the same site in one 301 or 308 hop. Chains, loops, 302 and 307, 404, error answers and leaving for another host are problems, with exit code 1.',
+      'The list is a text file: one address per line, a path or a URL (the old host does not count, the path and query are checked), # starts a comment. A second word on the line says where the address must lead: /about-us/ /about. A sitemap.xml or a sitemap index also works, as a file or an address, .gz too; no file or - reads stdin.',
+      'Without --base the check runs in the process, with no network: on a snapshot of the --db database in a temporary folder, so redirect hit counters and site statistics stay as they are. With --base it goes over the network to a live site, for example the new server before the domain moves.',
+      'The table shows what happened to a trailing slash and a query: /contact/ → 301 /contact. An address with a query that the site answers with 200 as is (/?p=12 is the home page) is a problem too: the path picks the page, and the page does not see the query.',
     ],
-    options: [['--json', 'The report as JSON'], _DB_EN],
+    options: [
+      ['--json', 'The report as JSON'],
+      _DB_EN,
+      ['--base <address>', 'redirects: a live site over the network'],
+    ],
     examples: [
       ['Check the site', 'cms diagnose --db site.db'],
       [
         'Every night, cron mails the output',
         '0 3 * * * cms diagnose --db /srv/site.db',
+      ],
+      [
+        'Old addresses against the new site database',
+        'cms diagnose redirects old-urls.txt --db site.db',
+      ],
+      [
+        'The old sitemap against the new server',
+        'cms diagnose redirects old/sitemap.xml --base https://new.a.com',
       ],
     ],
   },
@@ -557,15 +666,25 @@ const _EN: readonly CommandHelp[] = [
   },
   {
     name: 'backup',
-    summary: 'A copy of the whole site in one file',
-    usage: ['cms backup [<file>] [--db <file>]'],
+    summary: 'A site copy to a file or S3 storage; a server settings file',
+    usage: [
+      'cms backup [<file>] [--db <file>]',
+      'cms backup --remote [--db <file>]',
+      'cms backup --server [<file>] [--db <file>]',
+    ],
     details: [
       'The database, templates, components and media in one SQLite file. Safe on a running site: the copy is consistent (VACUUM INTO). The media cache (site.media-cache) is not part of the copy: it comes from the database.',
       'A name ending in .json writes the same records as text: you can open it, compare two copies, move it. Sign-in sessions are not copied.',
       'Without a file name: cms-YYYY-MM-DD.db in the current directory. An existing file is never overwritten.',
+      '--remote makes a copy now, like the “Back up now” button: into the backup folder and to the S3 storage set up in the manager (Settings → Backups and updates). The copy leaves encrypted with this server’s backup key.',
+      '--server writes a file with the server settings a site copy does not have: email, Telegram, the mail gateway with its tokens, the form stamp secret, the backup schedule, the storage with the backup key, the AI connection, API tokens. The file is encrypted with a passphrase (at least 12 characters), asked twice; for scripts, CMS_SETTINGS_PASSPHRASE. Without a name: cms-server-YYYY-MM-DD.enc. Sessions, HTTPS certificates, the notification queue and the error log are not in it.',
       'To restore, use cms restore or Backups in the manager.',
     ],
-    options: [_DB_EN],
+    options: [
+      _DB_EN,
+      ['--remote', 'A copy now, sent to S3 storage'],
+      ['--server', 'A passphrase-protected server settings file'],
+    ],
     examples: [
       ['A dated copy next to the database', 'cms backup --db site.db'],
       [
@@ -573,25 +692,73 @@ const _EN: readonly CommandHelp[] = [
         'cms backup /backups/site-$(date +%F).db --db site.db',
       ],
       ['Records as text', 'cms backup site.json --db site.db'],
+      [
+        'A copy to storage, from cron',
+        '0 4 * * * cms backup --remote --db /srv/site.db',
+      ],
+      [
+        'Settings for a new server',
+        'cms backup --server server.enc --db site.db',
+      ],
     ],
   },
   {
     name: 'restore',
-    summary: 'Restore the site from a .db or JSON copy',
-    usage: ['cms restore <file> [--db <file>]'],
+    summary: 'Restore the site from a copy or S3 storage; server settings',
+    usage: [
+      'cms restore <file> [--db <file>]',
+      'cms restore --remote [<name>|latest] [--db <file>]',
+      'cms restore --server <file> [--db <file>]',
+    ],
     details: [
       'The site in the database becomes what it was in the copy: pages, elements, media, settings, users. A copy from an older version is brought up to the current schema first.',
       'If the database exists, its previous state is saved next to it: site.before-restore-YYYYMMDD-HHMMSS.db. If there was no database, it is created: that is how a site moves to another server.',
       'Stop the server before restoring from the command line, or restore in the manager under Backups.',
       'The media cache is cleared: the copy has other files, and the cache fills up again from the restored database.',
+      '--remote restores from S3 storage: without a name it lists the copies, latest takes the newest. The storage comes from the database if it is set up there, overridden by --endpoint, --region, --bucket, --prefix, --access-key or S3_ENDPOINT, S3_REGION, S3_BUCKET, CMS_S3_PREFIX, S3_ACCESS_KEY_ID; the secret is S3_SECRET_ACCESS_KEY or typed in a terminal. A copy sealed with this database’s own key opens by itself; a new machine needs the recovery key the manager showed when the storage was turned on: CMS_RECOVERY_KEY or typed in a terminal.',
+      '--server applies a settings file from cms backup --server to the database: what is in the file replaces the local value, what is not stays. Backup results, sessions and certificates stay local; a backup folder with an absolute path of the other machine goes back to backups next to the database; an API token goes to the user with the same email. The passphrase is CMS_SETTINGS_PASSPHRASE or typed in a terminal. A server running on this database picks the settings up on its next request; for a service database, run it as root: sudo cms restore --server file --db /var/lib/cms/site.db.',
     ],
-    options: [_DB_EN, _MEDIA_CACHE_EN],
+    options: [
+      _DB_EN,
+      _MEDIA_CACHE_EN,
+      ['--remote', 'From S3 storage: list, a copy name or latest'],
+      ['--endpoint <url>', 'Storage: https://fra1.digitaloceanspaces.com'],
+      ['--region <region>', 'Signing region: fra1, eu-central-003'],
+      ['--bucket <bucket>', 'The bucket with the copies'],
+      ['--prefix <folder>', 'The folder in the bucket'],
+      ['--access-key <key>', 'Access key; the secret is S3_SECRET_ACCESS_KEY'],
+      ['--server', 'Apply a server settings file'],
+    ],
     examples: [
       [
         'Bring back yesterday’s copy',
         'cms restore /backups/site-2026-10-29.db --db site.db',
       ],
       ['Move the site to a new server', 'cms restore site.json --db site.db'],
+      ['Copies in storage', 'cms restore --remote --db site.db'],
+      [
+        'The newest copy onto a new machine',
+        'cms restore --remote latest --bucket copies --db site.db',
+      ],
+      [
+        'Settings into a service database',
+        'sudo cms restore --server server.enc --db /var/lib/cms/site.db',
+      ],
+    ],
+  },
+  {
+    name: 'compact',
+    summary: 'Compact the database: give its free pages back to the disk',
+    usage: ['cms compact [--db <file>]'],
+    details: [
+      'Deleted records and media files leave free pages in the database: SQLite does not give them back to the disk by itself, and the file does not shrink. cms info shows how much is free.',
+      'VACUUM rebuilds the database without them. Safe on a running site: readers do not wait, the server’s writes wait until it is done (about 0.5 s for a 63 MB database). The disk needs twice the size of the data on top: a temporary copy and the journal.',
+      'The server also compacts the database at night (at 04:15) when at least 8 MiB and a fifth of the file are free.',
+    ],
+    options: [_DB_EN],
+    examples: [
+      ['How much is free', 'cms info --db site.db'],
+      ['Compact', 'cms compact --db site.db'],
     ],
   },
   {
@@ -625,6 +792,8 @@ const _EN: readonly CommandHelp[] = [
       'Running it again with the same unit changes nothing. Another unit with this name is replaced only with --force. --print prints the unit and touches nothing, so it can also be installed by hand.',
       'Root is needed; without it the command prints the line to run with sudo.',
       'status shows the state, since when, the version, the address and memory. logs shows the service log, -f follows it. restart restarts and checks that the site answered. uninstall stops the service and removes the unit; the database and backups stay, and the command says where.',
+      'install, restart and cms update learn that the service is up from /_cms/health on its HTTP port: 200 means the server runs and reads its database, 503 means it cannot. They wait up to 30 seconds. Versions before 0.1.0-alpha.9 do not know this address, and any answer is enough for them, as before.',
+      'Uptime monitors such as DigitalOcean checks can use the same address: https://example.com/_cms/health, no sign-in, no cache. It names the version only to a request from this machine.',
       'cms update restarts the service on the new version and checks it; if it does not come up, cms.old goes back.',
     ],
     options: [
@@ -676,6 +845,7 @@ const _EN: readonly CommandHelp[] = [
       'A new version may move the database to its own schema. If it then does not come up, the rollback puts the copy back and keeps the database it failed on, with everything the site wrote after the copy, next to it as site.db.failed-<version>. A database the new version did not change is left alone. An older version refuses to start on a database a newer one has run, and says so.',
       'From an alpha or beta, updates follow the next pre-releases too; from a stable version, only stable ones.',
       'In the manager the profile menu tells you about a new version; turn the check off in settings or with CMS_NO_UPDATE_CHECK=1.',
+      'CMS_RELEASES_URL replaces https://api.github.com with your own releases API address: a mirror, a network without a way out, or a trial update and rollback without a rebuild. cms update and the manager check ask <address>/repos/<owner>/<name>/releases there, the answer in the GitHub format. The address and the release files are https only; http works on this machine (localhost, 127.0.0.1) or with CMS_RELEASES_INSECURE=1 for your own mirror on your own network. SHA256SUMS is checked the same way. The installer takes its files from CMS_DOWNLOAD_URL.',
     ],
     options: [
       ['--check', 'Only check whether there is a new version'],
@@ -687,6 +857,14 @@ const _EN: readonly CommandHelp[] = [
     examples: [
       ['Is there a new version', 'cms update --check'],
       ['Update cms and the site service', 'sudo cms update'],
+      [
+        'From a releases mirror',
+        'sudo CMS_RELEASES_URL=https://mirror.example/api cms update',
+      ],
+      [
+        'A trial with your own feed on this machine',
+        'CMS_RELEASES_URL=http://127.0.0.1:9000 cms update --check',
+      ],
     ],
   },
   {

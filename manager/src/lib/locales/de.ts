@@ -22,6 +22,7 @@ export var messages: Dictionary['messages'] = {
   'help.chapterText': 'Text der Seite',
   'help.chapterMedia': 'Mediathek',
   'help.chapterForms': 'Formulare und Anfragen',
+  'help.chapterStats': 'Statistik',
   'help.chapterSpeed': 'Schneller arbeiten',
   'help.chapterKeys': 'Tastenkürzel',
   'help.chapterAccount': 'Ihr Konto',
@@ -756,7 +757,7 @@ export var messages: Dictionary['messages'] = {
   'media.copied': 'Adresse kopiert',
   'media.remove': 'Datei löschen',
   'media.variants':
-    'Für Bilder werden Varianten mit 480, 960 und 1920 px als webp erstellt.',
+    'Für JPEG, PNG und WebP erstellt der Server Varianten mit 480, 960 und 1920 px als webp, nie breiter als das Original.',
   'media.empty': 'Die Mediathek ist noch leer.',
   'plugins.title': 'Plugins',
   'plugins.new': 'Neues Plugin',
@@ -1143,6 +1144,81 @@ export var messages: Dictionary['messages'] = {
   'upkeep.notChecked': 'Noch nicht geprüft.',
   'upkeep.checkedAt': 'Geprüft',
   'upkeep.checkNow': 'Jetzt prüfen',
+  'offsite.title': 'Sicherungen außerhalb des Servers',
+  'offsite.hint':
+    'Der Server schickt Sicherungen der Website in einen S3-Speicher: DigitalOcean Spaces, Backblaze B2, Hetzner, MinIO, AWS. Die Sicherung wird hier verschlüsselt, bevor sie den Server verlässt: Der Speicher bekommt nur eine verschlüsselte Datei.',
+  'offsite.enabled': 'Sicherungen in den Speicher schicken',
+  'offsite.enabledHint':
+    'Nach jeder automatischen Sicherung und nach „Jetzt sichern“.',
+  'offsite.noSchedule':
+    'Automatische Sicherungen sind aus: In den Speicher kommt eine Sicherung nur mit „Jetzt sichern“.',
+  'offsite.endpoint': 'Adresse des Speichers',
+  'offsite.endpointHint':
+    'Zum Beispiel https://fra1.digitaloceanspaces.com. Leer bedeutet AWS S3 nach Region.',
+  'offsite.region': 'Region',
+  'offsite.regionHint': 'fra1, eu-central-003, fsn1; leer bedeutet us-east-1.',
+  'offsite.bucket': 'Bucket',
+  'offsite.prefix': 'Ordner im Bucket',
+  'offsite.prefixHint':
+    'Liegen im Bucket Sicherungen mehrerer Websites, bekommt jede einen eigenen Ordner.',
+  'offsite.accessKey': 'Zugriffsschlüssel',
+  'offsite.secret': 'Geheimer Schlüssel',
+  'offsite.secretSaved': 'Gespeichert',
+  'offsite.secretHint':
+    'Leer lassen, um den gespeicherten zu behalten. Er bleibt nur auf diesem Server: Der Manager zeigt ihn nie, in einer Sicherung der Website ist er nicht enthalten.',
+  'offsite.virtualHosted': 'Bucket im Hostnamen',
+  'offsite.virtualHostedHint':
+    'bucket.host statt host/bucket, falls der Speicher das verlangt.',
+  'offsite.keep': 'Im Speicher behalten',
+  'offsite.keepHint':
+    'Die letzten Sicherungen dieser Website; ältere werden gelöscht, andere Dateien im Ordner bleiben.',
+  'offsite.save': 'Speicher sichern',
+  'offsite.saved': 'Speichereinstellungen gesichert',
+  'offsite.check': 'Verbindung prüfen',
+  'offsite.checking': 'Prüfe…',
+  'offsite.checkOk':
+    'Der Speicher antwortet: Auflisten, Schreiben und Löschen funktionieren.',
+  'offsite.last': 'Letzter Upload',
+  'offsite.never': 'Noch keiner',
+  'offsite.failed': 'Der letzte Upload ist fehlgeschlagen',
+  'offsite.key': 'Sicherungsschlüssel',
+  'offsite.keyNone': 'Wird beim Einschalten erzeugt',
+  'offsite.keyCreated': 'erzeugt {when}',
+  'offsite.rotate': 'Neuer Schlüssel',
+  'offsite.rotateTitle': 'Neuen Sicherungsschlüssel erzeugen?',
+  'offsite.rotateBody':
+    'Neue Sicherungen werden mit dem neuen Schlüssel versiegelt. Sicherungen, die schon im Speicher liegen, öffnet nur der alte Wiederherstellungsschlüssel: Bewahren Sie ihn auf, bis neue Sicherungen die alten ersetzt haben.',
+  'offsite.rotateConfirm': 'Schlüssel erzeugen',
+  'offsite.recoveryTitle': 'Wiederherstellungsschlüssel sichern',
+  'offsite.recoveryBody':
+    'Er öffnet die Sicherungen im Speicher, wenn es diesen Server nicht mehr gibt. Der Manager zeigt ihn nur jetzt: Speichern Sie ihn im Passwortmanager oder drucken Sie ihn aus. Ohne ihn kann niemand die Sicherungen im Speicher öffnen.',
+  'offsite.recoveryUse':
+    'Auf einem neuen Server: cms restore --remote latest fragt nach diesem Schlüssel.',
+  'offsite.recoveryCopy': 'Schlüssel kopieren',
+  'offsite.recoveryCopied': 'Wiederherstellungsschlüssel kopiert',
+  'offsite.recoveryDone': 'Schlüssel gesichert',
+  'database.title': 'Datenbankdatei',
+  'database.hint':
+    'Gelöschte Einträge und Dateien hinterlassen freie Seiten in der Datenbank, die Datei schrumpft nicht von selbst. Der Server verdichtet sie nachts, wenn mehr als ein Fünftel frei ist. Das geht auch jetzt: Die Website hält dafür den Bruchteil einer Sekunde inne.',
+  'database.size': 'Größe',
+  'database.free': 'Frei',
+  'database.freeValue': '{size} ({share} %)',
+  'database.compacted': 'Letzte Verdichtung',
+  'database.compactedValue': '{when}: {before} → {after}',
+  'database.never': 'Noch keine',
+  'database.compact': 'Jetzt verdichten',
+  'database.compacting': 'Verdichte…',
+  'database.done': 'Datenbank verdichtet: {before} → {after}',
+  'database.nothing': 'Keine freien Seiten: nichts zu verdichten.',
+  'backup.remoteTitle': 'Sicherungen im Speicher',
+  'backup.remoteIntro':
+    'Sicherungen, die dieser Server in den S3-Speicher geschickt hat, neueste zuerst. Hier lässt sich eine Sicherung mit dem Schlüssel dieses Servers wiederherstellen; eine mit anderem Schlüssel stellt cms restore --remote mit ihrem Wiederherstellungsschlüssel wieder her.',
+  'backup.remoteOff': 'Der Speicher für Sicherungen ist nicht eingerichtet.',
+  'backup.remoteSetup': 'Speicher einrichten',
+  'backup.remoteEmpty': 'Noch keine Sicherungen im Speicher.',
+  'backup.remoteRestore': 'Wiederherstellen',
+  'backup.remoteRestoreTitle':
+    'Website aus der Sicherung im Speicher wiederherstellen?',
   'settings.keyHint':
     'Buchstaben ohne Umlaute, Ziffern und _, am Anfang ein Buchstabe: phone, footerText.',
   'settings.replaceTitle': 'Diesen Schlüssel gibt es bereits. Wert ersetzen?',
@@ -1632,6 +1708,112 @@ export var messages: Dictionary['messages'] = {
   'elements.cheatFieldsCode': '{page.fields.name}',
   'elements.cheatCustomCode': '{site.custom.key}',
   'elements.cheatI18nCode': '{site.i18n.key}',
+  'nav.stats': 'Statistik',
+  'stats.title': 'Statistik',
+  'stats.period': 'Zeitraum',
+  'stats.days7': '7 Tage',
+  'stats.days30': '30 Tage',
+  'stats.days90': '90 Tage',
+  'stats.custom': 'Eigene Daten',
+  'stats.from': 'Von',
+  'stats.to': 'Bis',
+  'stats.show': 'Anzeigen',
+  'stats.refresh': 'Aktualisieren',
+  'stats.settings': 'Statistik-Einstellungen',
+  'stats.offTitle': 'Die Statistik ist aus',
+  'stats.offText':
+    'Eile zählt Besucher direkt auf dem Server: ohne Cookies, ohne gespeicherte Adressen und ohne Einwilligungsbanner. Schalten Sie die Zählung in den Einstellungen ein und erwähnen Sie sie in der Datenschutzerklärung der Website.',
+  'stats.offEditor':
+    'Die Zählung kann ein Administrator der Website einschalten.',
+  'stats.offWithData':
+    'Die Zählung ist aus: neue Aufrufe werden nicht gezählt, frühere Daten stehen unten.',
+  'stats.emptyTitle': 'Noch keine Besucher',
+  'stats.emptyText':
+    'Die Zählung ist an. Der erste Aufruf erscheint hier sofort: Öffnen Sie die Website in einem anderen Browser, ohne im Manager angemeldet zu sein. Angemeldete Manager, Bots und Vorabladen werden nicht gezählt.',
+  'stats.firstDay':
+    'Die Zählung läuft seit heute: Der Vergleich mit dem Vorzeitraum folgt später.',
+  'stats.since': 'Daten seit {date}.',
+  'stats.visitors': 'Besucher',
+  'stats.views': 'Seitenaufrufe',
+  'stats.visitorsCount': '{n} Besucher|{n} Besucher',
+  'stats.viewsCount': '{n} Seitenaufruf|{n} Seitenaufrufe',
+  'stats.perVisitor': 'Aufrufe pro Besucher',
+  'stats.conversions': 'Conversions',
+  'stats.rate': 'Conversion-Rate',
+  'stats.delta': '{delta} ggü. Vorzeitraum',
+  'stats.visitorsHint':
+    'Ein Besucher zählt einmal pro Tag: Wer an drei Tagen kommt, zählt dreimal.',
+  'stats.chartTitle': 'Nach Tagen',
+  'stats.chartLabel':
+    'Besucher und Seitenaufrufe nach Tagen vom {from} bis {to}',
+  'stats.chartKeys': 'Pfeiltasten links und rechts wechseln den Tag',
+  'stats.table': 'Tabelle nach Tagen',
+  'stats.day': 'Tag',
+  'stats.pages': 'Seiten',
+  'stats.page': 'Seite',
+  'stats.sources': 'Quellen',
+  'stats.source': 'Quelle',
+  'stats.direct': 'Direkt',
+  'stats.allSources': 'Alle',
+  'stats.referrers': 'Websites',
+  'stats.mediums': 'Kanäle',
+  'stats.campaigns': 'Kampagnen',
+  'stats.sourcesHint':
+    'Die Quelle ist das Tag utm_source, sonst die Website, von der der Besucher kam; bekannte Dienste stehen unter einem Namen (google.de und utm_source=google sind Google). Unter „Websites“ stehen die Hosts unverändert; Kanäle und Kampagnen sind die Tags utm_medium und utm_campaign.',
+  'stats.entries': 'Einstiegsseiten',
+  'stats.entriesHint': 'Die erste Seite eines Besuchers am Tag.',
+  'stats.devices': 'Geräte',
+  'stats.deviceDesktop': 'Desktop',
+  'stats.deviceMobile': 'Smartphone',
+  'stats.deviceTablet': 'Tablet',
+  'stats.languages': 'Sprachen',
+  'stats.pageLanguages': 'Seitensprache',
+  'stats.browserLanguages': 'Browsersprache',
+  'stats.none': 'In diesem Zeitraum nichts.',
+  'stats.more': 'Alle anzeigen ({n})',
+  'stats.less': 'Weniger anzeigen',
+  'stats.goals': 'Ziele',
+  'stats.goalsHint':
+    'Ein Ziel ist eine angenommene Formularanfrage (ohne Spam) oder ein Klick auf einen Ziel-Link. Die Conversion-Rate ist der Anteil der Tagesbesucher, die es erreicht haben.',
+  'stats.goalsEmpty':
+    'Keine Ziele in diesem Zeitraum. Formularanfragen zählen von selbst, Link-Klicks, sobald der Beacon in den Einstellungen an ist.',
+  'stats.goalForm': 'Formular',
+  'stats.goalLink': 'Link',
+  'stats.events': 'Insgesamt',
+  'stats.bySource': 'Nach Quelle',
+  'stats.byEntry': 'Nach Einstiegsseite',
+  'stats.reached': 'Erreicht',
+  'stats.base': 'Besucher',
+  'settings.tabStats': 'Statistik',
+  'statsSettings.title': 'Besucherstatistik',
+  'statsSettings.intro':
+    'Gezählt wird auf dem Server, ohne Cookies, localStorage oder Browser-Fingerprints. Adresse und Browser des Besuchers werden mit dem Salt des Tages zu einem kurzen Hash; das Salt liegt nur im Speicher des Servers und verschwindet um Mitternacht samt den Besuchern des Tages.',
+  'statsSettings.enabled': 'Besucher zählen',
+  'statsSettings.enabledHint':
+    'Auf dem Gerät des Besuchers wird nichts gespeichert oder ausgelesen. Erwähnen Sie die Zählung in der Datenschutzerklärung der Website: ein Muster steht unten.',
+  'statsSettings.timeZone': 'Zeitzone des Tages',
+  'statsSettings.timeZoneHint':
+    'Ein Statistiktag beginnt um Mitternacht in dieser Zeitzone. Leer — die Zeitzone des Servers.',
+  'statsSettings.retention': 'Zusammenfassungen aufbewahren',
+  'statsSettings.retentionForever': 'Unbegrenzt',
+  'statsSettings.retentionDays': '{n} Tag|{n} Tage',
+  'statsSettings.retentionHint':
+    'Tageszusammenfassungen sind Zahlen ohne Personendaten; sie gehören zur Sicherung der Website.',
+  'statsSettings.goalsTitle': 'Ziele',
+  'statsSettings.goalsIntro':
+    'Angenommene Anfragen aller Formulare sind von selbst Ziele. Einen Link-Klick sieht der Server nicht: Ihn meldet der Beacon, ein Skript unter einem Kilobyte ohne Cookies.',
+  'statsSettings.beacon': 'Beacon für Ziel-Links',
+  'statsSettings.beaconHint':
+    'Eile fügt ihn selbst am Ende jeder Seite ein, Vorlagen bleiben unverändert. Das Skript liest nichts vom Gerät, sendet aber selbst eine Anfrage; rechtlich ist das weniger eindeutig als die Zählung auf dem Server, deshalb bleibt er aus, bis Sie ihn einschalten.',
+  'statsSettings.links': 'Ziel-Links',
+  'statsSettings.linksHint':
+    'Eine pro Zeile, der Anfang einer Adresse: https://app.example.com/signup, /kontakt, tel: oder mailto:.',
+  'statsSettings.save': 'Statistik-Einstellungen speichern',
+  'statsSettings.saved': 'Statistik-Einstellungen gespeichert',
+  'statsSettings.privacyTitle': 'Datenschutzerklärung',
+  'statsSettings.privacyIntro':
+    'Ein Musterabsatz zur Zählung von Eile, auf Deutsch und Englisch. Er beschreibt nur die Statistik: Lassen Sie die ganze Erklärung rechtlich prüfen.',
+  'statsSettings.view': 'Statistik öffnen',
 };
 
 export var errors: Dictionary['errors'] = {
@@ -1653,6 +1835,36 @@ export var errors: Dictionary['errors'] = {
   'upkeep.backup_failed': 'Die Sicherung ist fehlgeschlagen: {detail}',
   'upkeep.releases_unavailable':
     'Die Release-Seite hat nicht geantwortet – versuchen Sie es später erneut.',
+  'upkeep.invalid_endpoint':
+    'Die Adresse des Speichers ist https://host, zum Beispiel https://fra1.digitaloceanspaces.com.',
+  'upkeep.invalid_prefix':
+    'Der Ordner im Bucket besteht aus lateinischen Buchstaben, Ziffern, Punkt, Binde- und Unterstrich und /.',
+  'upkeep.invalid_region':
+    'Die Region ist ein Name wie fra1 oder eu-central-1.',
+  'upkeep.invalid_bucket':
+    'Der Bucketname hat 3 bis 63 Buchstaben, Ziffern, Punkte und Bindestriche.',
+  'upkeep.invalid_access_key':
+    'Der Zugriffsschlüssel ist ein Wort ohne Leerzeichen.',
+  'upkeep.offsite_incomplete': 'Bucket und Zugriffsschlüssel sind nötig.',
+  'upkeep.offsite_no_secret': 'Der geheime Schlüssel ist nötig.',
+  'upkeep.offsite_not_configured':
+    'Der Speicher für Sicherungen ist nicht eingerichtet.',
+  'upkeep.offsite_denied':
+    'Der Speicher hat den Zugriff verweigert: Prüfen Sie Zugriffsschlüssel und geheimen Schlüssel. {detail}',
+  'upkeep.offsite_no_bucket': 'Diesen Bucket gibt es im Speicher nicht.',
+  'upkeep.offsite_unreachable':
+    'Der Speicher antwortet nicht: Prüfen Sie die Adresse. {detail}',
+  'upkeep.offsite_timeout':
+    'Der Speicher hat nicht rechtzeitig geantwortet; versuchen Sie es später.',
+  'upkeep.offsite_failed':
+    'Die Sicherung liegt auf dem Server, hat den Speicher aber nicht erreicht: {detail}',
+  'upkeep.offsite_other_key':
+    'Die Sicherung ist mit einem anderen Schlüssel versiegelt: Stellen Sie sie mit cms restore --remote und ihrem Wiederherstellungsschlüssel wieder her.',
+  'upkeep.offsite_not_found': 'Diese Sicherung gibt es im Speicher nicht.',
+  'upkeep.no_disk_space':
+    'Zu wenig Platz auf der Festplatte zum Verdichten: Nötig ist das Doppelte der Daten.',
+  'seal.damaged':
+    'Die Sicherung ist beschädigt oder verändert: Die Prüfung schlug fehl, die Website bleibt unverändert.',
   'identity.token_name': 'Benennen Sie den Schlüssel: wofür er ist.',
   'identity.too_many_tokens':
     'Es gibt bereits 20 Schlüssel: Widerrufen Sie die, die Sie nicht brauchen.',
@@ -1882,4 +2094,11 @@ export var errors: Dictionary['errors'] = {
     'Farbe im Format #rrggbb, Schema: System, hell oder dunkel.',
   'design.element_not_found': 'Dieses Element gibt es nicht.',
   'media.file_not_found': 'Diese Datei gibt es nicht.',
+  'stats.invalid_link':
+    'Ein Ziel-Link ist der Anfang einer Adresse ohne Leerzeichen: https://…, /pfad, tel: oder mailto:.',
+  'stats.too_many_links': 'Höchstens 20 Ziel-Links.',
+  'stats.invalid_retention': 'Unbegrenzt oder 30 bis 3650 Tage aufbewahren.',
+  'stats.invalid_time_zone': 'Eine Zeitzone sieht so aus: Europe/Berlin.',
+  'stats.invalid_period':
+    'Ein Zeitraum hat bis zu 366 Tage und beginnt vor seinem Ende.',
 };

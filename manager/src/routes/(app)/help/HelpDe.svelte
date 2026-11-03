@@ -206,8 +206,9 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
     <h3>Dateien hochladen</h3>
     <p>
       Ziehen Sie Dateien an eine beliebige Stelle der <a href={resolve('/(app)/media')}>Mediathek</a> oder klicken Sie auf die Upload-Leiste. Der Ordner steht
-      neben der Leiste; der Manager merkt ihn sich. Für Bilder entstehen automatisch verkleinerte Kopien (480, 960 und 1920 Pixel): Die Website liefert
-      jedem Bildschirm die passende. Gibt es schon eine Datei mit diesem Namen, fragt der Manager, ob er sie ersetzen soll.
+      neben der Leiste; der Manager merkt ihn sich. Von JPEG-, PNG- und WebP-Bildern erstellt der Server wenige Sekunden nach dem Hochladen
+      verkleinerte Kopien (480, 960 und 1920 Pixel, nie breiter als das Original): Die Website liefert jedem Bildschirm die passende. Das gilt
+      auch für Uploads von Agenten und über die API. Gibt es schon eine Datei mit diesem Namen, fragt der Manager, ob er sie ersetzen soll.
     </p>
   </section>
   <section id="media-card" data-topic hidden={!shown('media-card')}>
@@ -290,6 +291,31 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
       </p>
     </section>
   {/if}
+
+  <!-- Статистика -->
+  <h2 id="stats" hidden={!chapterShown('stats')}>Statistik</h2>
+  <section id="stats-read" data-topic hidden={!shown('stats-read')}>
+    <h3>Die Statistik lesen</h3>
+    <p>
+      <a href={resolve('/(app)/stats')}>„Statistik“</a> im oberen Menü zeigt Besucher und Seitenaufrufe für 7, 30 oder 90 Tage oder
+      eigene Daten, dazu Seiten, Quellen, Einstiegsseiten, Geräte und Sprachen. Der Server zählt selbst, ohne Cookies:
+      Angemeldete Manager, Bots und Vorabladen zählen nicht. Ein Besucher zählt einmal pro Tag: Wer an drei Tagen kommt,
+      zählt dreimal. Die Quelle ist das Tag utm_source, sonst die Website, von der der Besucher kam; leer heißt direkt.
+    </p>
+  </section>
+  <section id="stats-goals" data-topic hidden={!shown('stats-goals')}>
+    <h3>Ziele und Conversion-Rate</h3>
+    <p>
+      Ein Ziel ist eine angenommene Anfrage eines beliebigen Formulars (ohne Spam) oder ein Klick auf einen Ziel-Link. Die
+      Conversion-Rate ist der Anteil der Tagesbesucher mit dieser Quelle oder Einstiegsseite, die das Ziel erreicht haben.
+    </p>
+    {#if admin}
+      <p>
+        Zählung, Ziel-Links und Beacon schalten Sie unter <a href={`${resolve('/(app)/settings')}?tab=stats`}>„Einstellungen → Statistik“</a>
+        ein; dort steht auch ein Musterabsatz für die Datenschutzerklärung.
+      </p>
+    {/if}
+  </section>
 
   <!-- Быстрая работа -->
   <h2 id="speed" hidden={!chapterShown('speed')}>Schneller arbeiten</h2>
@@ -513,6 +539,19 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         wird automatisch gelöscht. Schlägt eine Sicherung fehl, erhalten Sie eine Benachrichtigung über eine Störung.
       </p>
       <p>
+        <strong>Sicherungen außerhalb des Servers</strong> richten Sie dort ebenfalls ein: Adresse des S3-Speichers (DigitalOcean Spaces,
+        Backblaze B2, Hetzner, MinIO, AWS), Bucket und Zugriffsschlüssel. Jede Sicherung wird auf dem Server verschlüsselt und in den
+        Speicher geschickt, der die letzten behält. Beim ersten Einschalten zeigt der Manager einmal einen
+        <strong>Wiederherstellungsschlüssel</strong> – bewahren Sie ihn auf: Er öffnet eine Sicherung aus dem Speicher auf einem neuen
+        Server (<code>cms restore --remote latest</code>), wenn es diesen nicht mehr gibt. Eine Sicherung mit dem Schlüssel dieses Servers
+        lässt sich auch unter „Sicherungen“ wiederherstellen.
+      </p>
+      <p>
+        Mailpasswort, Telegram-Bot, Mail-Gateway, Speicher und KI-Schlüssel gehören zum Server, nicht zur Website: In einer Sicherung sind sie
+        nicht enthalten. Auf einen neuen Server bringt sie eine Einstellungsdatei mit Passphrase: <code>cms backup --server</code> hier und
+        <code>cms restore --server</code> dort. Unter „Datenbankdatei“ sehen Sie, wie viel in der Datenbank frei ist, und können sie verdichten.
+      </p>
+      <p>
         Dort finden Sie auch die <strong>Suche nach Updates</strong>: Einmal täglich fragt der Server auf der Release-Seite nach, ob es eine neue Version gibt, und
         zeigt sie im Profilmenü an. Aktualisiert wird mit dem Befehl <code>cms update</code> auf dem Server; starten Sie ihn danach neu.
       </p>
@@ -523,7 +562,9 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
       <ul>
         <li><code>cms help</code> – alle Befehle mit Beispielen;</li>
         <li><code>cms backup</code> – Sicherung der ganzen Website in einer Datei, <code>cms backup site.json</code> – als Datensätze in JSON;</li>
-        <li><code>cms restore datei</code> – die Website aus einer Sicherung wiederherstellen;</li>
+        <li><code>cms restore datei</code> – die Website aus einer Sicherung wiederherstellen, <code>cms restore --remote latest</code> – aus dem S3-Speicher;</li>
+        <li><code>cms backup --server</code> und <code>cms restore --server datei</code> – die Servereinstellungen auf einen neuen Rechner bringen;</li>
+        <li><code>cms compact</code> – die Datenbank verdichten und freie Seiten an die Festplatte zurückgeben;</li>
         <li><code>cms update</code> – das Programm auf die neue Version aktualisieren, <code>--check</code> – nur prüfen;</li>
         <li><code>cms elements pull ordner</code> – Vorlagen, Komponenten, Skripte, Plugins, Formulare und Felder als Dateien, mit einer Anleitung AGENTS.md für KI-Agenten; <code>cms elements push ordner</code> – zurück in die Website;</li>
         <li><code>cms mcp</code> – ein MCP-Server für einen Agenten auf diesem Server, <code>cms diagnose</code> – die Diagnose der Website im Terminal;</li>

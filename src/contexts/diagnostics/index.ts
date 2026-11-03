@@ -14,6 +14,12 @@ import {
 import { CHECK_TEXTS } from './domain/texts.ts';
 
 export type { DiagnosticsService } from './application/diagnostics-service.ts';
+export {
+  checkRedirects,
+  MAX_HOPS,
+  type Probe,
+  type RedirectReport,
+} from './application/redirect-check.ts';
 export type {
   Check,
   DiagnosticsReport,
@@ -24,12 +30,23 @@ export type {
   Severity,
 } from './domain/diagnostics.ts';
 export { finding } from './domain/diagnostics.ts';
+export {
+  type Hop,
+  OUTCOMES,
+  type Outcome,
+  parseUrlList,
+  type RedirectResult,
+  type RedirectSummary,
+  shownUrl,
+  type UrlEntry,
+} from './domain/redirect-check.ts';
 export type {
   FactFile,
   FactForm,
   FactPage,
   SiteFacts,
 } from './domain/site-checks.ts';
+export { type Load, readUrlSource } from './infrastructure/url-source.ts';
 
 /**
  * Контекст diagnostics: быстрая проверка сайта — ссылки, страницы, медиа, настройки. Встроенные

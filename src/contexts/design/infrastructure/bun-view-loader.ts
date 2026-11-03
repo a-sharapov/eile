@@ -15,6 +15,7 @@ import {
   BUILTIN_PREFIX,
   type CompiledView,
   compileForServer,
+  type ServerCompiler,
 } from './svelte-compiler.ts';
 
 // У Bun один реестр модулей на процесс. Виды — виртуальные модули рантайм-плагина:
@@ -50,11 +51,13 @@ export var defineViewLoader = ({
   elements,
   runtime,
   builtins,
+  compile = compileForServer,
 }: {
   elements: ElementRepository;
   runtime: object;
   /** Исходники встроенных компонентов по пути импорта: `$core/Uncached`. */
   builtins: Readonly<Record<string, string>>;
+  compile?: ServerCompiler;
 }) => {
   // Своя область спецификаторов у каждого приложения: два сайта в одном процессе не делят виды.
   const scope = `@cms/views-${++_instances}`;
@@ -131,7 +134,7 @@ export var defineViewLoader = ({
           )
         : pipe(
             () => load(kind, name),
-            compileForServer,
+            compile,
             (_: CompiledView) =>
               pipe(rewrite([...trail, key]), register(key, _))(_.code)
           )())

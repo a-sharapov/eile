@@ -22,6 +22,7 @@ export var messages: Dictionary['messages'] = {
   'help.chapterText': 'Page text',
   'help.chapterMedia': 'Media library',
   'help.chapterForms': 'Forms and submissions',
+  'help.chapterStats': 'Statistics',
   'help.chapterSpeed': 'Working faster',
   'help.chapterKeys': 'Keyboard shortcuts',
   'help.chapterAccount': 'Your account',
@@ -743,7 +744,8 @@ export var messages: Dictionary['messages'] = {
   'media.openFile': 'Open',
   'media.copied': 'URL copied',
   'media.remove': 'Delete file',
-  'media.variants': 'Images get 480, 960 and 1920 px variants in webp.',
+  'media.variants':
+    'The server makes 480, 960 and 1920 px webp variants of JPEG, PNG and WebP images, never wider than the original.',
   'media.empty': 'The media library is empty so far.',
   'plugins.title': 'Plugins',
   'plugins.new': 'New plugin',
@@ -1127,6 +1129,79 @@ export var messages: Dictionary['messages'] = {
   'upkeep.notChecked': 'Not checked yet.',
   'upkeep.checkedAt': 'Checked',
   'upkeep.checkNow': 'Check now',
+  'offsite.title': 'Backups off the server',
+  'offsite.hint':
+    'The server sends site backups to S3 storage: DigitalOcean Spaces, Backblaze B2, Hetzner, MinIO, AWS. A backup is encrypted here before it leaves: the storage only ever gets an encrypted file.',
+  'offsite.enabled': 'Send backups to storage',
+  'offsite.enabledHint':
+    'After every automatic backup and after “Back up now”.',
+  'offsite.noSchedule':
+    'Automatic backups are off: a backup reaches the storage only with “Back up now”.',
+  'offsite.endpoint': 'Storage address',
+  'offsite.endpointHint':
+    'For example https://fra1.digitaloceanspaces.com. Empty means AWS S3 by region.',
+  'offsite.region': 'Region',
+  'offsite.regionHint': 'fra1, eu-central-003, fsn1; empty means us-east-1.',
+  'offsite.bucket': 'Bucket',
+  'offsite.prefix': 'Folder in the bucket',
+  'offsite.prefixHint':
+    'If the bucket holds backups of several sites, give each its own folder.',
+  'offsite.accessKey': 'Access key',
+  'offsite.secret': 'Secret key',
+  'offsite.secretSaved': 'Saved',
+  'offsite.secretHint':
+    'Leave it empty to keep the saved one. It stays on this server only: the manager never shows it, and it is not part of a site backup.',
+  'offsite.virtualHosted': 'Bucket in the host name',
+  'offsite.virtualHostedHint':
+    'bucket.host instead of host/bucket, if the storage requires it.',
+  'offsite.keep': 'Keep in storage',
+  'offsite.keepHint':
+    'The latest backups of this site; older ones are deleted, other files in the folder are left alone.',
+  'offsite.save': 'Save storage',
+  'offsite.saved': 'Storage settings saved',
+  'offsite.check': 'Check connection',
+  'offsite.checking': 'Checking…',
+  'offsite.checkOk': 'The storage answers: listing, writing and deleting work.',
+  'offsite.last': 'Last upload',
+  'offsite.never': 'None yet',
+  'offsite.failed': 'The last upload failed',
+  'offsite.key': 'Backup key',
+  'offsite.keyNone': 'Created when you turn this on',
+  'offsite.keyCreated': 'created {when}',
+  'offsite.rotate': 'New key',
+  'offsite.rotateTitle': 'Create a new backup key?',
+  'offsite.rotateBody':
+    'New backups will be sealed with the new key. Backups already in storage open only with the old recovery key: keep it until new backups have replaced the old ones.',
+  'offsite.rotateConfirm': 'Create key',
+  'offsite.recoveryTitle': 'Save the recovery key',
+  'offsite.recoveryBody':
+    'It opens the backups in storage when this server is gone. The manager shows it only now: save it in a password manager or print it. Without it nobody can open the backups in storage.',
+  'offsite.recoveryUse':
+    'On a new server: cms restore --remote latest asks for this key.',
+  'offsite.recoveryCopy': 'Copy the key',
+  'offsite.recoveryCopied': 'Recovery key copied',
+  'offsite.recoveryDone': 'I saved the key',
+  'database.title': 'Database file',
+  'database.hint':
+    'Deleted records and files leave free pages in the database, and the file does not shrink by itself. The server compacts it at night when more than a fifth is free. You can also do it now: the site pauses for a fraction of a second.',
+  'database.size': 'Size',
+  'database.free': 'Free',
+  'database.freeValue': '{size} ({share}%)',
+  'database.compacted': 'Last compaction',
+  'database.compactedValue': '{when}: {before} → {after}',
+  'database.never': 'None yet',
+  'database.compact': 'Compact now',
+  'database.compacting': 'Compacting…',
+  'database.done': 'Database compacted: {before} → {after}',
+  'database.nothing': 'No free pages: nothing to compact.',
+  'backup.remoteTitle': 'Backups in storage',
+  'backup.remoteIntro':
+    'Backups this server sent to S3 storage, newest first. Here you can restore a backup sealed with this server’s key; one with another key is restored by cms restore --remote with its recovery key.',
+  'backup.remoteOff': 'Backup storage is not set up.',
+  'backup.remoteSetup': 'Set up storage',
+  'backup.remoteEmpty': 'No backups in storage yet.',
+  'backup.remoteRestore': 'Restore',
+  'backup.remoteRestoreTitle': 'Restore the site from the backup in storage?',
   'settings.keyHint':
     'Letters a–z, digits and _, starting with a letter: phone, footerText.',
   'settings.replaceTitle': 'This key already exists. Replace the value?',
@@ -1605,6 +1680,110 @@ export var messages: Dictionary['messages'] = {
   'elements.cheatFieldsCode': '{page.fields.name}',
   'elements.cheatCustomCode': '{site.custom.key}',
   'elements.cheatI18nCode': '{site.i18n.key}',
+  'nav.stats': 'Statistics',
+  'stats.title': 'Statistics',
+  'stats.period': 'Period',
+  'stats.days7': '7 days',
+  'stats.days30': '30 days',
+  'stats.days90': '90 days',
+  'stats.custom': 'Custom dates',
+  'stats.from': 'From',
+  'stats.to': 'To',
+  'stats.show': 'Show',
+  'stats.refresh': 'Refresh',
+  'stats.settings': 'Statistics settings',
+  'stats.offTitle': 'Statistics are off',
+  'stats.offText':
+    'Eile counts visitors on the server itself: no cookies, no stored addresses and no consent banner. Turn counting on in the settings and mention it in the site’s privacy policy.',
+  'stats.offEditor': 'A site administrator can turn counting on.',
+  'stats.offWithData':
+    'Counting is off: new page views are not counted, earlier data is below.',
+  'stats.emptyTitle': 'No visitors yet',
+  'stats.emptyText':
+    'Counting is on. The first page view shows up here right away: open the site in another browser without signing in to the manager. Signed-in managers, bots and prefetching are not counted.',
+  'stats.firstDay':
+    'Counting started today: the comparison with the previous period comes later.',
+  'stats.since': 'Data since {date}.',
+  'stats.visitors': 'Visitors',
+  'stats.views': 'Page views',
+  'stats.visitorsCount': '{n} visitor|{n} visitors',
+  'stats.viewsCount': '{n} page view|{n} page views',
+  'stats.perVisitor': 'Views per visitor',
+  'stats.conversions': 'Conversions',
+  'stats.rate': 'Conversion rate',
+  'stats.delta': '{delta} vs. previous period',
+  'stats.visitorsHint':
+    'A visitor is unique within a day: someone who came on three days counts three times.',
+  'stats.chartTitle': 'By day',
+  'stats.chartLabel': 'Visitors and page views by day from {from} to {to}',
+  'stats.chartKeys': 'Left and right arrows move between days',
+  'stats.table': 'Table by day',
+  'stats.day': 'Day',
+  'stats.pages': 'Pages',
+  'stats.page': 'Page',
+  'stats.sources': 'Sources',
+  'stats.source': 'Source',
+  'stats.direct': 'Direct',
+  'stats.allSources': 'All',
+  'stats.referrers': 'Websites',
+  'stats.mediums': 'Channels',
+  'stats.campaigns': 'Campaigns',
+  'stats.sourcesHint':
+    'A source is the utm_source tag, otherwise the website the visitor came from; well-known services are grouped under one name (google.de and utm_source=google are Google). Websites shows the hosts as they are; channels and campaigns are the utm_medium and utm_campaign tags.',
+  'stats.entries': 'Entry pages',
+  'stats.entriesHint': 'A visitor’s first page of the day.',
+  'stats.devices': 'Devices',
+  'stats.deviceDesktop': 'Desktop',
+  'stats.deviceMobile': 'Phone',
+  'stats.deviceTablet': 'Tablet',
+  'stats.languages': 'Languages',
+  'stats.pageLanguages': 'Page language',
+  'stats.browserLanguages': 'Browser language',
+  'stats.none': 'Nothing in this period.',
+  'stats.more': 'Show all ({n})',
+  'stats.less': 'Show fewer',
+  'stats.goals': 'Goals',
+  'stats.goalsHint':
+    'A goal is an accepted form submission (spam excluded) or a click on a goal link. The conversion rate is the share of the day’s visitors who reached it.',
+  'stats.goalsEmpty':
+    'No goals in this period. Form submissions count by themselves, link clicks once the beacon is on in the settings.',
+  'stats.goalForm': 'Form',
+  'stats.goalLink': 'Link',
+  'stats.events': 'Times in total',
+  'stats.bySource': 'By source',
+  'stats.byEntry': 'By entry page',
+  'stats.reached': 'Reached',
+  'stats.base': 'Visitors',
+  'settings.tabStats': 'Statistics',
+  'statsSettings.title': 'Visitor statistics',
+  'statsSettings.intro':
+    'Counting happens on the server, without cookies, localStorage or browser fingerprints. The visitor’s address and browser become a short hash with the day’s salt; the salt lives only in the server’s memory and is gone at midnight together with the day’s visitors.',
+  'statsSettings.enabled': 'Count visitors',
+  'statsSettings.enabledHint':
+    'Nothing is stored on or read from the visitor’s device. Mention the counting in the site’s privacy policy: a sample is below.',
+  'statsSettings.timeZone': 'Time zone of the day',
+  'statsSettings.timeZoneHint':
+    'A statistics day starts at midnight in this time zone. Empty — the server’s time zone.',
+  'statsSettings.retention': 'Keep summaries',
+  'statsSettings.retentionForever': 'Forever',
+  'statsSettings.retentionDays': '{n} day|{n} days',
+  'statsSettings.retentionHint':
+    'Daily summaries are numbers without data about people; they are part of the site backup.',
+  'statsSettings.goalsTitle': 'Goals',
+  'statsSettings.goalsIntro':
+    'Accepted submissions of every form are goals by themselves. The server does not see a link click: the beacon reports it, a script under a kilobyte without cookies.',
+  'statsSettings.beacon': 'Goal link beacon',
+  'statsSettings.beaconHint':
+    'Eile adds it to the end of every page itself, no template changes needed. The script reads nothing from the device but sends a request itself, so its legal assessment is less clear-cut than server counting: it stays off until you turn it on.',
+  'statsSettings.links': 'Goal links',
+  'statsSettings.linksHint':
+    'One per line, the start of an address: https://app.example.com/signup, /contact, tel: or mailto:.',
+  'statsSettings.save': 'Save statistics settings',
+  'statsSettings.saved': 'Statistics settings saved',
+  'statsSettings.privacyTitle': 'Privacy policy',
+  'statsSettings.privacyIntro':
+    'A sample paragraph about Eile’s counting, in German and English. It covers only the statistics: have the whole policy checked by a lawyer.',
+  'statsSettings.view': 'Open statistics',
 };
 
 export var errors: Dictionary['errors'] = {
@@ -1623,6 +1802,33 @@ export var errors: Dictionary['errors'] = {
   'upkeep.backup_failed': 'The backup failed: {detail}',
   'upkeep.releases_unavailable':
     'The releases page didn’t respond — try again later.',
+  'upkeep.invalid_endpoint':
+    'The storage address is https://host, for example https://fra1.digitaloceanspaces.com.',
+  'upkeep.invalid_prefix':
+    'The folder in the bucket is Latin letters, digits, dot, hyphen, underscore and /.',
+  'upkeep.invalid_region': 'The region is a name like fra1 or eu-central-1.',
+  'upkeep.invalid_bucket':
+    'The bucket name is 3 to 63 letters, digits, dots and hyphens.',
+  'upkeep.invalid_access_key': 'The access key is one word without spaces.',
+  'upkeep.offsite_incomplete': 'The bucket and the access key are required.',
+  'upkeep.offsite_no_secret': 'The secret key is required.',
+  'upkeep.offsite_not_configured': 'Backup storage is not set up.',
+  'upkeep.offsite_denied':
+    'The storage refused access: check the access key and the secret. {detail}',
+  'upkeep.offsite_no_bucket': 'The storage has no such bucket.',
+  'upkeep.offsite_unreachable':
+    'The storage does not answer: check the address. {detail}',
+  'upkeep.offsite_timeout':
+    'The storage did not answer in time; try again later.',
+  'upkeep.offsite_failed':
+    'The backup is on the server, but it did not reach the storage: {detail}',
+  'upkeep.offsite_other_key':
+    'The backup is sealed with another key: restore it with cms restore --remote and its recovery key.',
+  'upkeep.offsite_not_found': 'There is no such backup in storage.',
+  'upkeep.no_disk_space':
+    'Not enough disk space to compact: it needs twice the size of the data.',
+  'seal.damaged':
+    'The backup is damaged or was changed: the check failed, the site is untouched.',
   'identity.token_name': 'Name the key: what it is for.',
   'identity.too_many_tokens':
     'There are already 20 keys: revoke the ones you do not need.',
@@ -1839,4 +2045,11 @@ export var errors: Dictionary['errors'] = {
     'The color must be #rrggbb; the scheme must be system, light or dark.',
   'design.element_not_found': 'There’s no such element.',
   'media.file_not_found': 'There’s no such file.',
+  'stats.invalid_link':
+    'A goal link is the start of an address without spaces: https://…, /path, tel: or mailto:.',
+  'stats.too_many_links': 'At most 20 goal links.',
+  'stats.invalid_retention': 'Keep forever or 30 to 3650 days.',
+  'stats.invalid_time_zone': 'A time zone looks like Europe/Berlin.',
+  'stats.invalid_period':
+    'A period is up to 366 days and starts before it ends.',
 };

@@ -8,6 +8,8 @@ import type { UserView } from '../contexts/identity/index.ts';
 import { defineAgentSession } from '../contexts/manager/index.ts';
 import {
   defineReleases,
+  GITHUB_API,
+  parseReleasesUrl,
   type UpdateResult,
   updateProgram,
 } from '../contexts/upkeep/index.ts';
@@ -42,6 +44,13 @@ import {
   cliError,
   isCliError,
 } from './context.ts';
+import {
+  backupRemote,
+  backupServer,
+  compact,
+  restoreRemote,
+  restoreServer,
+} from './copies.ts';
 import { COMMANDS, commandHelp, overview, unknownText } from './help.ts';
 import { httpsUrl, type ServeBase, serveSecure } from './https.ts';
 import type { Language } from './language.ts';
@@ -49,6 +58,7 @@ import { motd, pages } from './motd.ts';
 import { type Paint, padEnd } from './paint.ts';
 import { named, PROGRAM } from './program.ts';
 import { promptHidden } from './prompt.ts';
+import { runRedirects } from './redirects.ts';
 import {
   defineHost,
   restartReport,
@@ -96,6 +106,16 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
       'Новая версия не запускается на этой системе — установленный cms не тронут.',
     'upkeep.no_write':
       'Нет прав на запись в каталог cms: запустите cms update через sudo.',
+    'upkeep.invalid_releases_url':
+      'CMS_RELEASES_URL — адрес API релизов вида https://mirror.example/api, без логина, пароля, query и #.',
+    'upkeep.insecure_releases_url':
+      'CMS_RELEASES_URL — только https; http — для этой машины (localhost, 127.0.0.1) или вместе с CMS_RELEASES_INSECURE=1.',
+    'upkeep.insecure_download':
+      'Выпуск отдаёт файл по http: бинарник и его сумму по пути подменит кто угодно. Нужен https; своему зеркалу в своей сети — CMS_RELEASES_INSECURE=1.',
+    'diagnostics.not_sitemap':
+      'Это XML, но не sitemap: нужен <urlset> или <sitemapindex>. Список адресов — текстом, по одному в строке.',
+    'diagnostics.sitemap_depth':
+      'Индекс sitemap ведёт на индексы глубже двух уровней — так sitemap не строят.',
     'certificates.invalid_domain':
       'Это не домен для сертификата: нужно имя вроде example.com — без *, IP и localhost.',
     'certificates.no_domain': 'Нужен домен: --domain example.com',
@@ -123,6 +143,35 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
       'Для --from нужен файл базы сайта (.db). Копию JSON сначала соберите в базу: cms restore site.json --db site.db',
     'service.has_database':
       'У службы уже есть своя база site.db, --from её не заменит. Сайт в работающую службу переносит менеджер: «Резервные копии» → «Восстановить из копии».',
+    'seal.not_sealed': 'Это не запечатанный файл Eile.',
+    'seal.unsupported':
+      'Файл запечатан форматом новее этой программы — обновите cms.',
+    'seal.other_content':
+      'Это не тот файл: копия сайта и файл настроек сервера — разные вещи.',
+    'seal.wrong_passphrase': 'Пароль не подходит к этому файлу.',
+    'seal.wrong_secret':
+      'Файл запечатан не тем, чем его открывают: копию открывает ключ восстановления, файл настроек — пароль.',
+    'seal.damaged':
+      'Файл повреждён или изменён: проверка не прошла, ничего не восстановлено.',
+    'seal.invalid_recovery_key':
+      'Это не ключ восстановления: 55 букв и цифр группами по 5.',
+    'settings.invalid': 'Это не файл настроек сервера.',
+    'settings.weak_passphrase':
+      'Пароль файла настроек — не короче 12 символов: в файле пароль почты и ключи.',
+    'upkeep.offsite_not_configured':
+      'Хранилище копий не настроено: укажите --bucket, --access-key, при необходимости --endpoint и --region, а секрет — в S3_SECRET_ACCESS_KEY.',
+    'upkeep.offsite_denied':
+      'Хранилище не пустило: проверьте ключ доступа и его секрет.',
+    'upkeep.offsite_no_bucket': 'В хранилище нет такого бакета.',
+    'upkeep.offsite_not_found': 'В хранилище нет такой копии.',
+    'upkeep.offsite_unreachable':
+      'Хранилище не отвечает: проверьте адрес (--endpoint) и сеть.',
+    'upkeep.offsite_timeout':
+      'Хранилище не ответило вовремя — попробуйте ещё раз позже.',
+    'upkeep.invalid_copy_name':
+      'Это не имя копии: список копий — cms restore --remote',
+    'upkeep.no_disk_space':
+      'На диске мало места для сжатия: нужно вдвое больше, чем занимают данные базы.',
   },
   en: {
     'identity.weak_password': 'A password needs at least 10 characters.',
@@ -151,6 +200,16 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
       'The new version does not run on this system. The installed cms is untouched.',
     'upkeep.no_write':
       'No write access to the cms directory: run cms update with sudo.',
+    'upkeep.invalid_releases_url':
+      'CMS_RELEASES_URL is a releases API address like https://mirror.example/api, without user, password, query or #.',
+    'upkeep.insecure_releases_url':
+      'CMS_RELEASES_URL must be https; http only on this machine (localhost, 127.0.0.1) or together with CMS_RELEASES_INSECURE=1.',
+    'upkeep.insecure_download':
+      'The release offers its file over http: anyone on the way could swap the binary and its checksum. Use https; for your own mirror on your own network, CMS_RELEASES_INSECURE=1.',
+    'diagnostics.not_sitemap':
+      'This is XML but not a sitemap: <urlset> or <sitemapindex> is needed. A list of addresses goes as text, one per line.',
+    'diagnostics.sitemap_depth':
+      'The sitemap index leads to indexes more than two levels deep, sitemaps are not built like that.',
     'certificates.invalid_domain':
       'This is not a domain for a certificate: use a name like example.com, without *, IP addresses or localhost.',
     'certificates.no_domain': 'A domain is needed: --domain example.com',
@@ -178,6 +237,35 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
       'For --from, use a site database file (.db). Turn a JSON copy into a database first: cms restore site.json --db site.db',
     'service.has_database':
       'The service already has its own site.db, and --from will not replace it. To move a site into a running service, use the manager: Backups → Restore from a backup.',
+    'seal.not_sealed': 'This is not a sealed Eile file.',
+    'seal.unsupported':
+      'The file is sealed in a format newer than this program: update cms.',
+    'seal.other_content':
+      'Wrong file: a site copy and a server settings file are different things.',
+    'seal.wrong_passphrase': 'The passphrase does not open this file.',
+    'seal.wrong_secret':
+      'The file is sealed differently: a copy opens with a recovery key, a settings file with a passphrase.',
+    'seal.damaged':
+      'The file is damaged or was changed: the check failed, nothing was restored.',
+    'seal.invalid_recovery_key':
+      'This is not a recovery key: 55 letters and digits in groups of 5.',
+    'settings.invalid': 'This is not a server settings file.',
+    'settings.weak_passphrase':
+      'The settings file passphrase needs at least 12 characters: the file holds the mail password and keys.',
+    'upkeep.offsite_not_configured':
+      'Backup storage is not set up: pass --bucket, --access-key, if needed --endpoint and --region, and the secret in S3_SECRET_ACCESS_KEY.',
+    'upkeep.offsite_denied':
+      'The storage refused access: check the access key and its secret.',
+    'upkeep.offsite_no_bucket': 'The storage has no such bucket.',
+    'upkeep.offsite_not_found': 'The storage has no such copy.',
+    'upkeep.offsite_unreachable':
+      'The storage does not answer: check the address (--endpoint) and the network.',
+    'upkeep.offsite_timeout':
+      'The storage did not answer in time: try again later.',
+    'upkeep.invalid_copy_name':
+      'This is not a copy name: list the copies with cms restore --remote',
+    'upkeep.no_disk_space':
+      'Not enough disk space to compact: it needs twice the size of the data in the database.',
   },
 };
 
@@ -232,6 +320,8 @@ const _SAY = {
     users: 'Пользователи',
     admins: (n: number) => `администраторов ${n}`,
     db: 'База',
+    free: (size: string, share: number) => `свободно ${size} (${share} %)`,
+    compactHint: ' — сжать: cms compact',
     schema: 'Схема',
     migrations: (n: number) => `миграций ${n}`,
     last: 'последняя',
@@ -274,6 +364,7 @@ const _SAY = {
     installed: (version: string) => ` · установлена ${version}`,
     updateWith: 'Обновить:',
     updated: `${PRODUCT} обновлена:`,
+    feed: 'Релизы',
     previous: 'Прежняя',
     alias: 'Второе имя',
     pulled: 'Элементы сайта — в папке',
@@ -297,6 +388,8 @@ const _SAY = {
     healthy: 'Диагностика ничего не нашла',
     andMore: (n: number) => `и ещё ${n}`,
     siteErrors: (n: number) => `На сайте ошибок: ${n}`,
+    noDiagnoseCommand: (name: string) =>
+      `Нет подкоманды diagnose ${name}. Есть: redirects — cms help diagnose`,
     noAgentUser:
       'Агент работает от имени пользователя, а их нет. Создайте администратора: cms users add <почта> --role admin',
     mcpReady: (site: string, who: string, role: string) =>
@@ -342,6 +435,8 @@ const _SAY = {
     users: 'Users',
     admins: (n: number) => `administrators ${n}`,
     db: 'Database',
+    free: (size: string, share: number) => `${size} free (${share}%)`,
+    compactHint: ' (compact: cms compact)',
     schema: 'Schema',
     migrations: (n: number) => `migrations ${n}`,
     last: 'last',
@@ -385,6 +480,7 @@ const _SAY = {
     installed: (version: string) => ` · installed ${version}`,
     updateWith: 'Update:',
     updated: `${PRODUCT} updated:`,
+    feed: 'Releases',
     previous: 'Previous',
     alias: 'Second name',
     pulled: 'Site elements are in',
@@ -408,6 +504,8 @@ const _SAY = {
     healthy: 'Diagnostics found nothing',
     andMore: (n: number) => `and ${n} more`,
     siteErrors: (n: number) => `Errors on the site: ${n}`,
+    noDiagnoseCommand: (name: string) =>
+      `No subcommand diagnose ${name}. There is redirects: cms help diagnose`,
     noAgentUser:
       'The agent works as a user, and there are none. Add an administrator: cms users add <email> --role admin',
     mcpReady: (site: string, who: string, role: string) =>
@@ -526,6 +624,12 @@ const _WELCOME: Readonly<Record<Language, Scaffold>> = {
   en: WELCOME_EN,
 };
 
+// CMS_RELEASES_URL — уже проверенным; не задан — GitHub.
+const _releasesUrl = (options: Options): string =>
+  options.releasesUrl
+    ? parseReleasesUrl(options.releasesUrl, options.releasesInsecure === true)
+    : GITHUB_API;
+
 const _serve = (ctx: Context): Promise<void> =>
   Bun.file(ctx.options.db)
     .exists()
@@ -533,12 +637,14 @@ const _serve = (ctx: Context): Promise<void> =>
       const domains = ctx.options.domain
         ? parseDomains(ctx.options.domain)
         : null;
+      const releasesUrl = _releasesUrl(ctx.options);
       const app = createApp({
         databasePath: ctx.options.db,
         ..._mediaCache(ctx),
         scaffold: _WELCOME[ctx.language],
         trustProxy: ctx.options.trustProxy,
         background: true,
+        releasesUrl,
         ...(domains
           ? {
               https: {
@@ -677,6 +783,7 @@ const _info = (ctx: Context): Promise<void> =>
     const kinds = (kind: string) =>
       elements.filter((_) => _.kind === kind).length;
     return {
+      space: app.upkeep.database.status(),
       facts: {
         site: { name: settings.name, language: settings.language },
         pages: {
@@ -738,7 +845,7 @@ const _info = (ctx: Context): Promise<void> =>
         ),
       ],
     };
-  }).then(({ facts, lines }) =>
+  }).then(({ facts, lines, space }) =>
     Promise.resolve(_schema(ctx.options.db)).then((schema) =>
       ((say) =>
         ctx.out(
@@ -748,6 +855,7 @@ const _info = (ctx: Context): Promise<void> =>
                   db: {
                     path: ctx.options.db,
                     bytes: _dbSize(ctx.options.db),
+                    free: space.free,
                     migrations: schema.count,
                     last: schema.last,
                   },
@@ -761,7 +869,11 @@ const _info = (ctx: Context): Promise<void> =>
                 _row(
                   ctx.paint,
                   say.db,
-                  `${ctx.paint.path(ctx.options.db)}${_dot(ctx.paint)}${_size(_dbSize(ctx.options.db), say)}`
+                  `${ctx.paint.path(ctx.options.db)}${_dot(ctx.paint)}${_size(_dbSize(ctx.options.db), say)}${
+                    space.free > 0
+                      ? `${_dot(ctx.paint)}${say.free(_size(space.free, say), Math.round((space.free / space.size) * 100))}${space.worth ? ctx.paint.dim(say.compactHint) : ''}`
+                      : ''
+                  }`
                 ),
                 _row(
                   ctx.paint,
@@ -1056,7 +1168,7 @@ const _findingLines = (paint: Paint, say: _Say, finding: Finding): string[] => [
 ];
 
 // Ошибки — код выхода 1: проверку можно поставить в CI или cron.
-const _diagnose = (ctx: Context): Promise<void> =>
+const _diagnoseSite = (ctx: Context): Promise<void> =>
   _withApp(ctx, (app) => app.diagnostics.report(true, ctx.language)).then(
     (report) =>
       ((say, errors) => (
@@ -1076,6 +1188,17 @@ const _diagnose = (ctx: Context): Promise<void> =>
         report.findings.filter((_) => _.severity === 'error').length
       )
   );
+
+const _DIAGNOSE: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
+  site: _diagnoseSite,
+  redirects: (ctx) => runRedirects(ctx),
+};
+
+const _diagnose = (ctx: Context): Promise<void> =>
+  (
+    _DIAGNOSE[ctx.args[0] ?? 'site'] ??
+    (() => _reject(_say(ctx).noDiagnoseCommand(ctx.args[0] ?? '')))
+  )(ctx);
 
 // --- mcp -------------------------------------------------------------------
 
@@ -1344,12 +1467,18 @@ const _restarted = (
     : Promise.resolve({ status: 'none' });
 
 // Итог обновления и служб; служба не поднялась на новой версии — откат уже сделан, код выхода 1.
+// Лента не GitHub — её адрес первой строкой: видно, откуда пришла версия.
 const _updated =
-  (ctx: Context, result: UpdateResult) =>
+  (ctx: Context, result: UpdateResult, feed: string) =>
   (restart: ServiceRestart): Promise<void> =>
     ((report) => (
       ctx.out(
         [
+          ...(feed === GITHUB_API
+            ? []
+            : [
+                `${ctx.paint.dim(`${_say(ctx).feed}:`)} ${ctx.paint.path(feed)}`,
+              ]),
           _UPDATE[result.status](ctx.paint, result, _say(ctx)),
           ...(report?.lines ?? []),
         ].join('\n')
@@ -1365,19 +1494,41 @@ const _updated =
     );
 
 const _update = (ctx: Context): Promise<void> =>
-  updateProgram({
-    releases: defineReleases({ repository: REPOSITORY, version: VERSION }),
-    current: VERSION,
-    check: ctx.options.check === true,
-  }).then((result) => _restarted(ctx, result).then(_updated(ctx, result)));
+  Promise.resolve(ctx.options)
+    .then(_releasesUrl)
+    .then((feed) =>
+      updateProgram({
+        releases: defineReleases({
+          base: feed,
+          repository: REPOSITORY,
+          version: VERSION,
+        }),
+        current: VERSION,
+        check: ctx.options.check === true,
+        insecure: ctx.options.releasesInsecure === true,
+      }).then((result) =>
+        _restarted(ctx, result).then(_updated(ctx, result, feed))
+      )
+    );
 
 export var RUN: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
   serve: _serve,
   new: _new,
   info: _info,
   users: _users,
-  backup: _backup,
-  restore: _restore,
+  backup: (ctx) =>
+    ctx.options.server
+      ? backupServer(ctx)
+      : ctx.options.remote
+        ? backupRemote(ctx)
+        : _backup(ctx),
+  restore: (ctx) =>
+    ctx.options.server
+      ? restoreServer(ctx)
+      : ctx.options.remote
+        ? restoreRemote(ctx)
+        : _restore(ctx),
+  compact,
   'import-evo': _import,
   elements: _elements,
   mcp: _mcp,

@@ -64,8 +64,15 @@ export type Delivery =
       /** MIME-тип ответа без параметров. */
       readonly contentType: string;
       readonly cache: CacheStatus;
+      /**
+       * HTML один и тот же для всех, пока страница не изменится: документ из кэша как есть. У страницы
+       * с регионами (форма со штампом, Uncached) каждый ответ свой, его сжатие запоминать незачем.
+       */
+      readonly shared: boolean;
       /** Страница дерева, которую показали; null — голый 404 без своей страницы. */
       readonly pageId: number | null;
+      /** Язык показанной страницы; у голого 404 — пусто. */
+      readonly language: string;
     }
   | {
       readonly kind: 'redirect';
@@ -93,6 +100,8 @@ export type PageDeliveryPorts = {
   readonly modules?: Modules;
   /** Правила переадресации из менеджера: адрес без страницы → цель. */
   readonly redirects?: RedirectRules;
+  /** Скрипт перед `</body>` каждой HTML-страницы (маячок целей статистики); пусто — ничего. */
+  readonly beacon?: () => string;
 };
 
 /** Ключ контекста, через который `$core/Uncached` отмечает свой регион. */
@@ -100,6 +109,12 @@ export var REGIONS_CONTEXT = 'cms:regions';
 
 /** Ключ контекста `$core/Content`: разбор тегов и загруженные заранее компоненты. */
 export var CONTENT_CONTEXT = 'cms:content';
+
+/**
+ * Тег страницы, которая ссылается на файлы стилей: общий файл сайта собран из всех шаблонов и
+ * компонентов, поэтому его новый хэш — после правки любого из них.
+ */
+export var STYLES_TAG = 'styles';
 
 const _BARE_NOT_FOUND =
   '<!doctype html>\n<title>404 Not Found</title>\n<h1>Not Found</h1>\n';
@@ -132,7 +147,9 @@ const _page =
     status: number,
     cache: CacheStatus,
     pageId: number | null,
-    contentType = HTML_TYPE
+    contentType = HTML_TYPE,
+    language = '',
+    shared = false
   ) =>
   (html: string): Delivery => ({
     kind: 'page',
@@ -140,7 +157,9 @@ const _page =
     html,
     contentType,
     cache,
+    shared,
     pageId,
+    language,
   });
 
 // Props региона хранятся в кэше: снимок через JSON отвязывает их от объектов рендера. Ключ `__proto__`
@@ -168,6 +187,7 @@ export var definePageDelivery = ({
   report = NO_REPORT,
   modules = {},
   redirects,
+  beacon = () => '',
 }: PageDeliveryPorts) => {
   const regionFailed =
     (request: RequestInfo, region: Region) =>
@@ -473,12 +493,16 @@ export var definePageDelivery = ({
           number > 1
             ? withTitleSuffix(result.head, ` — ${pageLabel(language, number)}`)
             : result.head;
+        // Стили — в конце head вида, перед SEO-шапкой и регионами: там их печатал Svelte, и стили форм
+        // (`:where`, нулевая специфичность) по-прежнему идут после них.
         return {
           pages,
           snapshot: {
-            ...result,
+            body: result.body,
             head: template
-              ? head + seo(request, page, site, status, head, { number, pages })
+              ? head +
+                views.styles(result.styles ?? []).join('') +
+                seo(request, page, site, status, head, { number, pages })
               : '',
             regions,
             language,
@@ -486,6 +510,7 @@ export var definePageDelivery = ({
           },
           tags: [
             ...tags,
+            ...((result.styles ?? []).length > 0 ? [STYLES_TAG] : []),
             ...[
               ...(template?.elements ?? []),
               ...[...called.values()].flatMap((_) => _.elements),
@@ -514,6 +539,7 @@ export var definePageDelivery = ({
     ]).then(({ 0: rendered, 1: module }) => ({
       head: rendered.head,
       body: islandHtml(module, region.props, rendered.body),
+      styles: rendered.styles,
       islands: true,
     }));
 
@@ -581,16 +607,27 @@ export var definePageDelivery = ({
       ? views.hydrator().then(islandLoader)
       : Promise.resolve('');
 
+  // Маячок — только посетителю: предпросмотр в менеджере его не получает.
   const secondPhase = (
     request: RequestInfo,
     snapshot: Snapshot,
-    site: SiteSettings
+    site: SiteSettings,
+    visitor = true
   ): Promise<string> =>
     Promise.all(snapshot.regions.map(renderRegion(request))).then((regions) =>
       loader(regions).then((script) =>
         isHtml(snapshot.contentType)
           ? pipe(
-              (_: Rendered) => ({ ..._, body: _.body + script }),
+              // Стили регионов — после их head; что уже подключено, второй раз не ставится.
+              (_: Rendered) => ({
+                head: [
+                  _.head,
+                  ...views
+                    .styles(_.styles ?? [])
+                    .filter((tag) => !_.head.includes(tag)),
+                ].join(''),
+                body: _.body + script + (visitor ? beacon() : ''),
+              }),
               (_: Rendered) =>
                 htmlDocument(snapshot.language || site.language, _)
             )(fillRegions(snapshot, regions))
@@ -624,6 +661,7 @@ export var definePageDelivery = ({
           content: snapshot.regions.length === 0 ? { html } : { snapshot },
           contentType: page.contentType,
           pageId: page.id,
+          language: snapshot.language || settings().language,
           tags: new Set(tags),
         }),
         'miss')
@@ -642,14 +680,19 @@ export var definePageDelivery = ({
         number > 1 && (pages === null || number > pages)
           ? notFoundPage(request, site)
           : secondPhase(request, snapshot, site).then((html) =>
-              _page(
-                status,
+              ((cache) =>
+                _page(
+                  status,
+                  cache,
+                  page.id,
+                  page.contentType,
+                  snapshot.language || settings().language,
+                  cache === 'miss' && snapshot.regions.length === 0
+                )(html))(
                 status === 200
                   ? store(request, request.path, page, snapshot, tags, html)
-                  : 'bypass',
-                page.id,
-                page.contentType
-              )(html)
+                  : 'bypass'
+              )
             )
     );
 
@@ -798,12 +841,14 @@ export var definePageDelivery = ({
 
   const fromCache = (
     request: RequestInfo,
-    { content, contentType, pageId }: CachedPage
+    { content, contentType, pageId, language }: CachedPage
   ) =>
     'html' in content
-      ? Promise.resolve(_page(200, 'hit', pageId, contentType)(content.html))
+      ? Promise.resolve(
+          _page(200, 'hit', pageId, contentType, language, true)(content.html)
+        )
       : secondPhase(request, content.snapshot, settings()).then(
-          _page(200, 'hit', pageId, contentType)
+          _page(200, 'hit', pageId, contentType, language)
         );
 
   const route =
@@ -829,7 +874,7 @@ export var definePageDelivery = ({
       page: PageView
     ): Promise<{ body: string; contentType: string }> =>
       firstPhase(request, page, settings()).then(({ snapshot }) =>
-        secondPhase(request, snapshot, settings()).then((body) => ({
+        secondPhase(request, snapshot, settings(), false).then((body) => ({
           body,
           contentType: page.contentType,
         }))

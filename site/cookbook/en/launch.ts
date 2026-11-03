@@ -45,9 +45,13 @@ const deploy: Chapter = {
     ),
     code('sh', '$ cms backup facade-copy.db'),
     p(
-      'You can make the copy while the site is running: it comes out complete, with no half-written records. Now send it to the server with <code>scp</code>, a command that copies files over SSH:'
+      'You can make the copy while the site is running: it comes out complete, with no half-written records. Email, Telegram and the mail gateway belong to this computer, not the site, and are not part of the copy. If you have set them up already, take them along in a server settings file:'
     ),
-    code('sh', '$ scp facade-copy.db root@203.0.113.10:'),
+    code('sh', '$ cms backup --server facade-server.enc'),
+    p(
+      'The command asks for a passphrase twice, at least 12 characters: the file is encrypted with it, since it holds the mail password and the bot token. Now send both files to the server with <code>scp</code>, a command that copies files over SSH:'
+    ),
+    code('sh', '$ scp facade-copy.db facade-server.enc root@203.0.113.10:'),
     h2('service', 'Run it as a service'),
     p(
       'If you start <code>cms</code> in the server’s terminal, the site stops as soon as you close the window. That’s why it runs as a service: Linux starts it when the server boots and restarts it if something goes wrong. Eile creates the service by itself. Log in to the server again and run one command, replacing the domains and the email with your own:'
@@ -66,7 +70,17 @@ const deploy: Chapter = {
     ),
     p(
       'First the command checks that the domains point to this server, that ports 80 and 443 are free and that there is enough memory. If something is wrong, it tells you what to fix. Then it creates the service, starts it and waits for the site to answer. At the end you see <code>✓ The service cms is running</code> with the addresses of the site and the manager.',
-      'After a minute, open <code>https://facade.example</code>: the site is there, with a padlock in the address bar. The manager is at <code>https://facade.example/manager</code>, and you sign in with the same email and password you used at home, because they moved along with the database. Set up email and Telegram again in the manager: they belong to the server, not the site, and are not part of the copy.'
+      'After a minute, open <code>https://facade.example</code>: the site is there, with a padlock in the address bar. The manager is at <code>https://facade.example/manager</code>, and you sign in with the same email and password you used at home, because they moved along with the database.'
+    ),
+    p(
+      'What’s left is the server settings from the file. The command asks for the same passphrase:'
+    ),
+    code(
+      'sh',
+      '$ cms restore --server facade-server.enc --db /var/lib/cms/site.db'
+    ),
+    p(
+      'Email, Telegram and the mail gateway work right away: the service picks them up by itself, no restart needed. Then delete <code>facade-server.enc</code> from the server and from your folder: it is only for the move. If you have no such file, set up email and Telegram in the manager again.'
     ),
     p(
       '<code>cms service status</code> shows how the site is doing. To see the service file without changing anything, add <code>--print</code>.'
@@ -97,9 +111,23 @@ const deploy: Chapter = {
         ', turn on automatic backups, for example once a day at three in the morning, keeping the last seven. The server makes them by itself. If a backup fails, you get a notification.'
     ),
     p(
-      'Now and then, download a backup to your own computer: it’s one button in the ' +
+      'A backup that sits only on the same server won’t help if that server breaks. So in the same place, under ' +
+        ui('Backups off the server') +
+        ', connect a storage: for example DigitalOcean Spaces at the same host, or Backblaze B2. Enter the storage address, the bucket, the access key and its secret, press ' +
+        ui('Check connection') +
+        ' and save. From now on every automatic backup goes to the storage encrypted, and the storage keeps the last fourteen.'
+    ),
+    aside(
+      'warn',
+      'The recovery key',
+      p(
+        'When you first turn it on, the manager shows a recovery key once: 55 letters and digits. Save it in a password manager. If the server disappears altogether, only this key opens a backup from the storage on a new server: <code>cms restore --remote latest</code> asks for it.'
+      )
+    ),
+    p(
+      'Now and then, download a backup to your own computer too: it’s one button in the ' +
         ui('Backups') +
-        ' section of the manager header. A backup that sits only on the same server won’t help if that server breaks.'
+        ' section of the manager header.'
     ),
     h2('updates', 'Updates'),
     p(
@@ -115,7 +143,7 @@ const deploy: Chapter = {
       'tip',
       'Moving to another server',
       p(
-        'It’s this chapter all over again: install <code>cms</code>, bring the copy of the site and run <code>cms service install</code>. Two files and ten minutes.'
+        'It’s this chapter all over again: install <code>cms</code>, bring the copy of the site and the settings file, run <code>cms service install</code> and <code>cms restore --server</code>. Two files and ten minutes. If the old server is already gone, <code>cms restore --remote latest</code> takes the backup from the storage, with the recovery key.'
       )
     ),
     aside(
@@ -124,7 +152,8 @@ const deploy: Chapter = {
       list(
         '<code>https://facade.example</code> opens with a padlock;',
         '<code>http://facade.example</code> switches to https by itself;',
-        'automatic backups are on, and you’ve downloaded one backup to your computer.'
+        'automatic backups are on and go to the storage, the recovery key is saved;',
+        'you’ve downloaded one backup to your computer.'
       )
     ),
   ].join('\n'),

@@ -54,6 +54,44 @@ export type UpkeepStatus = {
     running: boolean;
   };
   updates: UpdateStatus;
+  offsite: OffsiteStatus;
+  database: DatabaseStatus;
+};
+
+/** Хранилище S3 для копий вне сервера; секрет доступа и ключ копий менеджер не получает. */
+export type OffsiteSettings = {
+  enabled: boolean;
+  endpoint: string;
+  region: string;
+  bucket: string;
+  prefix: string;
+  accessKey: string;
+  virtualHosted: boolean;
+  keep: number;
+};
+
+export type OffsiteStatus = {
+  settings: OffsiteSettings;
+  hasSecret: boolean;
+  keyId: string | null;
+  keyCreatedAt: string | null;
+  last: { at: string; name: string; size: number } | null;
+  failure: { at: string; message: string } | null;
+  /** Только в ответе, который создал ключ копий: показать один раз. */
+  recoveryKey?: string;
+};
+
+/** Копия в хранилище. */
+export type RemoteCopy = { name: string; size: number; at: string | null };
+
+/** Файл базы: размер, свободные страницы и последнее сжатие. */
+export type DatabaseStatus = {
+  size: number;
+  free: number;
+  worth: boolean;
+  needs: number;
+  diskFree: number | null;
+  compacted: { at: string; before: number; after: number; ms: number } | null;
 };
 
 export type UpdateStatus = {
@@ -474,6 +512,68 @@ export type PageCacheStats = {
   bypass: number;
   since: string;
   manual: boolean;
+};
+
+/** Настройки статистики посещений: счёт, маячок ссылок-целей, срок хранения сводок и пояс суток. */
+export type StatsSettings = {
+  enabled: boolean;
+  beacon: boolean;
+  goalLinks: string[];
+  /** 0 — хранить всегда. */
+  retentionDays: number;
+  /** IANA; пусто — пояс сервера. */
+  timeZone: string;
+};
+
+export type StatsTotals = { visitors: number; views: number };
+
+/** Строка разреза за период: у разрезов страницы visitors — 0, там считаются просмотры. */
+export type StatsRow = StatsTotals & { value: string };
+
+export type StatsDay = StatsTotals & { day: string };
+
+/** Цель в разрезе: достигли (visitors) из посетителей с этим значением (base). */
+export type GoalSlice = {
+  value: string;
+  visitors: number;
+  events: number;
+  base: number;
+  rate: number;
+};
+
+export type StatsGoal = {
+  goal: string;
+  kind: 'form' | 'link';
+  name: string;
+  label: string;
+  visitors: number;
+  events: number;
+  rate: number;
+  sources: GoalSlice[];
+  entries: GoalSlice[];
+};
+
+/** Отчёт статистики за период: дни включительно, `since` — первый день с данными. */
+export type StatsReport = {
+  from: string;
+  to: string;
+  today: string;
+  since: string | null;
+  enabled: boolean;
+  totals: StatsTotals;
+  previous: StatsTotals;
+  daily: StatsDay[];
+  pages: StatsRow[];
+  languages: StatsRow[];
+  sources: StatsRow[];
+  referrers: StatsRow[];
+  utmSources: StatsRow[];
+  utmMediums: StatsRow[];
+  utmCampaigns: StatsRow[];
+  entries: StatsRow[];
+  devices: StatsRow[];
+  browserLanguages: StatsRow[];
+  goals: StatsGoal[];
 };
 
 /** Правило переадресации: откуда, куда, код, заметка и сколько раз сработало. */

@@ -118,3 +118,21 @@ export var keepNewest = (path: string, prefix: string, keep: number): void =>
 
 export var copyPrefix = (databasePath: string, label: string): string =>
   `${basename(databasePath).replace(/\.db$/, '')}.${label}-`;
+
+/** Размер файла базы и свободное в нём: страницы, которые освободили удалённые строки. */
+export var databaseSpace = (
+  db: Database
+): { readonly size: number; readonly free: number } =>
+  db
+    .query<{ size: number; free: number }, []>(
+      'SELECT page_count * page_size AS size, freelist_count * page_size AS free FROM pragma_page_count, pragma_page_size, pragma_freelist_count'
+    )
+    .get()!;
+
+/**
+ * Сжать базу на месте: VACUUM пересобирает её без свободных страниц, затем журнал WAL переносится в
+ * файл и обнуляется. Читатели других процессов не ждут, писатели ждут до busy_timeout.
+ */
+export var compactDatabase = (db: Database): void => (
+  db.run('VACUUM'), void db.run('PRAGMA wal_checkpoint(TRUNCATE)')
+);

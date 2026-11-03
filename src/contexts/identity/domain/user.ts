@@ -23,7 +23,9 @@ export type Permission =
   /** Видеть и разбирать заявки с форм — всем менеджерам. */
   | 'inbox.read'
   /** Удалить заявку навсегда — вместе с файлами: необратимо, только администратору. */
-  | 'inbox.delete';
+  | 'inbox.delete'
+  /** Смотреть статистику посещений — всем менеджерам; включает и настраивает её администратор. */
+  | 'stats.read';
 
 export type User = {
   readonly id: UserId;
@@ -55,8 +57,9 @@ const _PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     'forms.edit',
     'inbox.read',
     'inbox.delete',
+    'stats.read',
   ],
-  editor: ['content.edit', 'inbox.read'],
+  editor: ['content.edit', 'inbox.read', 'stats.read'],
 };
 
 export var parseUserId = (raw: number): UserId =>

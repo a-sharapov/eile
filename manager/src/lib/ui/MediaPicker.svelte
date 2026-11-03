@@ -66,10 +66,7 @@ const sendAll = (list: File[]) => (
   (uploading = true),
   list
     .reduce<Promise<MediaFile | null>>(
-      (done, file) =>
-        done.then(() =>
-          upload(folder || uploadFolder(), file).then((_) => _[0] ?? null)
-        ),
+      (done, file) => done.then(() => upload(folder || uploadFolder(), file)),
       Promise.resolve(null)
     )
     .then((last) =>

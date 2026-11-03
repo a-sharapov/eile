@@ -1,4 +1,6 @@
+import type { ImageSize } from './image-size.ts';
 import type { MediaFile, MediaPath } from './media.ts';
+import type { Variant } from './variants.ts';
 
 /** Кусок содержимого и хэш файла из того же запроса: по хэшу называется файл кэша. */
 export type MediaPiece = {
@@ -31,7 +33,38 @@ export type MediaRepository = {
   readonly save: (file: MediaFile, content: UploadContent) => void;
   readonly remove: (path: MediaPath) => void;
   readonly describe: (path: MediaPath, alt: string) => void;
+  /** Всё или ничего: исключение внутри `run` откатывает каждую запись. */
+  readonly transaction: <T>(run: () => T) => T;
 };
+
+/** Оригинал этой версии ждёт своих вариантов размеров. */
+export type VariantJob = {
+  readonly path: MediaPath;
+  readonly hash: string;
+  /** Сколько раз задание брали, вместе с этим. */
+  readonly attempts: number;
+};
+
+/** Очередь вариантов в базе: задание переживает падение процесса и перезапуск. */
+export type VariantQueue = {
+  /** Поставить оригинал в очередь; новая версия файла заменяет задание прежней. */
+  readonly add: (path: MediaPath, hash: string) => void;
+  /** Самое старое задание; попытка засчитывается сразу, так что падение посреди задания — тоже попытка. */
+  readonly take: () => VariantJob | null;
+  /** Убрать задание этой версии; задание новой версии остаётся. */
+  readonly done: (path: MediaPath, hash: string) => void;
+  readonly size: () => number;
+};
+
+/**
+ * Уменьшенные копии картинки в WebP — по варианту на элемент `variants`. `source` — размер, по которому
+ * составлен план: картинка другого размера — отказ, а не искажённые копии.
+ */
+export type ImageResizer = (
+  data: Uint8Array,
+  source: ImageSize,
+  variants: readonly Variant[]
+) => Promise<readonly Uint8Array[]>;
 
 /**
  * Кэш медиатеки: файлы из базы на диске, чтобы отдавать их без копии в памяти. Источник — база;

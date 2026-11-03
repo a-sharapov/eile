@@ -22,6 +22,7 @@ import HttpsSettings from './HttpsSettings.svelte';
 import NotifySettings from './NotifySettings.svelte';
 import PageCacheSettings from './PageCacheSettings.svelte';
 import RedirectsSettings from './RedirectsSettings.svelte';
+import StatsSettings from './StatsSettings.svelte';
 import UpkeepSettings from './UpkeepSettings.svelte';
 
 let settings = $state<Settings | null>(null);
@@ -455,6 +456,10 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
   <UpkeepSettings />
 {/snippet}
 
+{#snippet statsTab()}
+  <StatsSettings />
+{/snippet}
+
 {#snippet aiTab()}
   <section class="form-section">
     <header>
@@ -777,6 +782,7 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
     { id: 'notify', label: t('settings.tabNotify'), content: notifyTab },
     { id: 'upkeep', label: t('settings.tabUpkeep'), content: upkeepTab },
     { id: 'redirects', label: t('settings.tabRedirects'), content: redirectsTab },
+    { id: 'stats', label: t('settings.tabStats'), content: statsTab },
   ]}
 />
 </LoadState>

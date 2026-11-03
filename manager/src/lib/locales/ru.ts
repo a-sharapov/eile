@@ -20,6 +20,7 @@ export var messages = {
   'help.chapterText': 'Текст страницы',
   'help.chapterMedia': 'Медиатека',
   'help.chapterForms': 'Формы и заявки',
+  'help.chapterStats': 'Статистика',
   'help.chapterSpeed': 'Быстрая работа',
   'help.chapterKeys': 'Клавиши',
   'help.chapterAccount': 'Учётная запись',
@@ -734,7 +735,7 @@ export var messages = {
   'media.copied': 'Адрес скопирован',
   'media.remove': 'Удалить файл',
   'media.variants':
-    'Для изображений создаются варианты 480, 960 и 1920 px в webp.',
+    'Для JPEG, PNG и WebP сервер сделает варианты 480, 960 и 1920 px в webp — не шире оригинала.',
   'media.empty': 'В медиатеке пока пусто.',
   'plugins.title': 'Плагины',
   'plugins.new': 'Новый плагин',
@@ -1115,6 +1116,79 @@ export var messages = {
   'upkeep.notChecked': 'Ещё не проверяли.',
   'upkeep.checkedAt': 'Проверено',
   'upkeep.checkNow': 'Проверить сейчас',
+  'offsite.title': 'Копии вне сервера',
+  'offsite.hint':
+    'Сервер отправляет копию сайта в хранилище S3: DigitalOcean Spaces, Backblaze B2, Hetzner, MinIO, AWS. Копия шифруется здесь, до отправки: хранилище получает только зашифрованный файл.',
+  'offsite.enabled': 'Отправлять копии в хранилище',
+  'offsite.enabledHint':
+    'После каждой автокопии и после «Сделать копию сейчас».',
+  'offsite.noSchedule':
+    'Автокопии выключены: в хранилище копия уходит только кнопкой «Сделать копию сейчас».',
+  'offsite.endpoint': 'Адрес хранилища',
+  'offsite.endpointHint':
+    'Например, https://fra1.digitaloceanspaces.com. Пусто — AWS S3 по региону.',
+  'offsite.region': 'Регион',
+  'offsite.regionHint': 'fra1, eu-central-003, fsn1; пусто — us-east-1.',
+  'offsite.bucket': 'Бакет',
+  'offsite.prefix': 'Папка в бакете',
+  'offsite.prefixHint':
+    'Если в бакете копии нескольких сайтов, у каждого своя папка.',
+  'offsite.accessKey': 'Ключ доступа',
+  'offsite.secret': 'Секрет ключа',
+  'offsite.secretSaved': 'Сохранён',
+  'offsite.secretHint':
+    'Пустое поле — прежний секрет. Он хранится только на этом сервере: менеджер его не показывает, в копию сайта он не входит.',
+  'offsite.virtualHosted': 'Бакет в имени хоста',
+  'offsite.virtualHostedHint':
+    'bucket.host вместо host/bucket — если хранилище этого требует.',
+  'offsite.keep': 'Хранить в хранилище',
+  'offsite.keepHint':
+    'Последние копии этого сайта; старые удаляются, другие файлы в папке не трогаются.',
+  'offsite.save': 'Сохранить хранилище',
+  'offsite.saved': 'Настройки хранилища сохранены',
+  'offsite.check': 'Проверить связь',
+  'offsite.checking': 'Проверяю…',
+  'offsite.checkOk': 'Хранилище отвечает: список, запись и удаление проходят.',
+  'offsite.last': 'Последняя отправка',
+  'offsite.never': 'Ещё не было',
+  'offsite.failed': 'Последняя отправка не удалась',
+  'offsite.key': 'Ключ копий',
+  'offsite.keyNone': 'Создастся при включении',
+  'offsite.keyCreated': 'создан {when}',
+  'offsite.rotate': 'Новый ключ',
+  'offsite.rotateTitle': 'Создать новый ключ копий?',
+  'offsite.rotateBody':
+    'Новые копии запечатаются новым ключом. Копии, что уже лежат в хранилище, открывает только прежний ключ восстановления: храните его, пока новые копии не вытеснят старые.',
+  'offsite.rotateConfirm': 'Создать ключ',
+  'offsite.recoveryTitle': 'Сохраните ключ восстановления',
+  'offsite.recoveryBody':
+    'Им открываются копии из хранилища, если этого сервера больше нет. Менеджер показывает его только сейчас: сохраните его в менеджере паролей или распечатайте. Без него копии в хранилище не откроет никто.',
+  'offsite.recoveryUse':
+    'На новом сервере: cms restore --remote latest — команда спросит этот ключ.',
+  'offsite.recoveryCopy': 'Скопировать ключ',
+  'offsite.recoveryCopied': 'Ключ восстановления скопирован',
+  'offsite.recoveryDone': 'Ключ сохранён',
+  'database.title': 'Файл базы',
+  'database.hint':
+    'Удалённые записи и файлы оставляют в базе свободные страницы, и файл сам не уменьшается. Сервер сжимает базу ночью, если свободно больше пятой части. Можно и сейчас: сайт на это время задумается на доли секунды.',
+  'database.size': 'Размер',
+  'database.free': 'Свободно',
+  'database.freeValue': '{size} ({share} %)',
+  'database.compacted': 'Последнее сжатие',
+  'database.compactedValue': '{when}: {before} → {after}',
+  'database.never': 'Ещё не было',
+  'database.compact': 'Сжать сейчас',
+  'database.compacting': 'Сжимаю…',
+  'database.done': 'База сжата: {before} → {after}',
+  'database.nothing': 'Свободных страниц нет — сжимать нечего.',
+  'backup.remoteTitle': 'Копии в хранилище',
+  'backup.remoteIntro':
+    'Копии, которые сервер отправил в хранилище S3, новые первыми. Здесь восстанавливается копия с ключом этого сервера; копию с другим ключом восстанавливает cms restore --remote с её ключом восстановления.',
+  'backup.remoteOff': 'Хранилище копий не настроено.',
+  'backup.remoteSetup': 'Настроить хранилище',
+  'backup.remoteEmpty': 'В хранилище пока нет копий.',
+  'backup.remoteRestore': 'Восстановить',
+  'backup.remoteRestoreTitle': 'Восстановить сайт из копии в хранилище?',
   'settings.keyHint':
     'Латиница, цифры и _, начинается с буквы: phone, footerText.',
   'settings.replaceTitle': 'Такой ключ уже есть. Заменить значение?',
@@ -1584,6 +1658,110 @@ export var messages = {
   'elements.cheatFieldsCode': '{page.fields.имя}',
   'elements.cheatCustomCode': '{site.custom.ключ}',
   'elements.cheatI18nCode': '{site.i18n.ключ}',
+  'nav.stats': 'Статистика',
+  'stats.title': 'Статистика',
+  'stats.period': 'Период',
+  'stats.days7': '7 дней',
+  'stats.days30': '30 дней',
+  'stats.days90': '90 дней',
+  'stats.custom': 'Свои даты',
+  'stats.from': 'С',
+  'stats.to': 'По',
+  'stats.show': 'Показать',
+  'stats.refresh': 'Обновить',
+  'stats.settings': 'Настройки статистики',
+  'stats.offTitle': 'Статистика выключена',
+  'stats.offText':
+    'Eile считает посетителей на самом сервере: без cookie, без хранения адресов и без баннера согласия. Включите счёт в настройках и напишите о нём в политике конфиденциальности сайта.',
+  'stats.offEditor': 'Включить счёт может администратор сайта.',
+  'stats.offWithData':
+    'Счёт выключен: новые просмотры не считаются, прежние данные — ниже.',
+  'stats.emptyTitle': 'Посетителей пока не было',
+  'stats.emptyText':
+    'Счёт включён. Первый просмотр появится здесь сразу: откройте сайт в другом браузере, не входя в менеджер. Вошедших в менеджер, ботов и предзагрузку статистика не считает.',
+  'stats.firstDay':
+    'Счёт идёт с сегодняшнего дня: сравнение с прошлым периодом появится позже.',
+  'stats.since': 'Данные — с {date}.',
+  'stats.visitors': 'Посетители',
+  'stats.views': 'Просмотры',
+  'stats.visitorsCount': '{n} посетитель|{n} посетителя|{n} посетителей',
+  'stats.viewsCount': '{n} просмотр|{n} просмотра|{n} просмотров',
+  'stats.perVisitor': 'Просмотров на посетителя',
+  'stats.conversions': 'Достигли цели',
+  'stats.rate': 'Конверсия',
+  'stats.delta': '{delta} к прошлому периоду',
+  'stats.visitorsHint':
+    'Посетитель уникален в пределах дня: кто заходил три дня, посчитан трижды.',
+  'stats.chartTitle': 'По дням',
+  'stats.chartLabel': 'Посетители и просмотры по дням с {from} по {to}',
+  'stats.chartKeys': 'Стрелки влево и вправо — по дням',
+  'stats.table': 'Таблица по дням',
+  'stats.day': 'День',
+  'stats.pages': 'Страницы',
+  'stats.page': 'Страница',
+  'stats.sources': 'Источники',
+  'stats.source': 'Источник',
+  'stats.direct': 'Прямой заход',
+  'stats.allSources': 'Все',
+  'stats.referrers': 'Сайты',
+  'stats.mediums': 'Каналы',
+  'stats.campaigns': 'Кампании',
+  'stats.sourcesHint':
+    'Источник — метка utm_source, иначе сайт, с которого пришли; известные сервисы сведены под одно имя (google.de и utm_source=google — это Google). Во вкладке «Сайты» — хосты как есть; каналы и кампании — метки utm_medium и utm_campaign.',
+  'stats.entries': 'Страницы входа',
+  'stats.entriesHint': 'Первая страница посетителя за день.',
+  'stats.devices': 'Устройства',
+  'stats.deviceDesktop': 'Компьютер',
+  'stats.deviceMobile': 'Телефон',
+  'stats.deviceTablet': 'Планшет',
+  'stats.languages': 'Языки',
+  'stats.pageLanguages': 'Язык страницы',
+  'stats.browserLanguages': 'Язык браузера',
+  'stats.none': 'За этот период — ничего.',
+  'stats.more': 'Показать все ({n})',
+  'stats.less': 'Свернуть',
+  'stats.goals': 'Цели',
+  'stats.goalsHint':
+    'Цель — принятая заявка формы (кроме спама) или переход по ссылке-цели. Конверсия — доля посетителей дня, которые её достигли.',
+  'stats.goalsEmpty':
+    'Целей за период нет. Заявки форм считаются сами, переходы по ссылкам — когда в настройках включён маячок.',
+  'stats.goalForm': 'Форма',
+  'stats.goalLink': 'Ссылка',
+  'stats.events': 'Всего раз',
+  'stats.bySource': 'По источникам',
+  'stats.byEntry': 'По страницам входа',
+  'stats.reached': 'Достигли',
+  'stats.base': 'Посетителей',
+  'settings.tabStats': 'Статистика',
+  'statsSettings.title': 'Статистика посещений',
+  'statsSettings.intro':
+    'Счёт на сервере, без cookie, localStorage и отпечатков браузера. Адрес посетителя вместе с браузером превращается в короткий хэш с солью дня; соль живёт только в памяти сервера и исчезает в полночь вместе с посетителями дня.',
+  'statsSettings.enabled': 'Считать посетителей',
+  'statsSettings.enabledHint':
+    'На устройстве посетителя ничего не хранится и не читается. О счёте нужно сказать в политике конфиденциальности сайта: образец — ниже.',
+  'statsSettings.timeZone': 'Часовой пояс суток',
+  'statsSettings.timeZoneHint':
+    'Сутки статистики начинаются в полночь этого пояса. Пусто — пояс сервера.',
+  'statsSettings.retention': 'Хранить сводки',
+  'statsSettings.retentionForever': 'Всегда',
+  'statsSettings.retentionDays': '{n} день|{n} дня|{n} дней',
+  'statsSettings.retentionHint':
+    'Сводки по дням — числа без данных о людях; они входят в копию сайта.',
+  'statsSettings.goalsTitle': 'Цели',
+  'statsSettings.goalsIntro':
+    'Принятые заявки всех форм — цели сами по себе. Переход по ссылке сервер не видит: его сообщает маячок, скрипт меньше килобайта без cookie.',
+  'statsSettings.beacon': 'Маячок ссылок-целей',
+  'statsSettings.beaconHint':
+    'Eile добавляет его в конец каждой страницы сама, шаблоны менять не нужно. Скрипт ничего не читает с устройства, но сам посылает запрос — его правовая оценка спорнее, чем у счёта на сервере, поэтому он выключен, пока вы его не включите.',
+  'statsSettings.links': 'Ссылки-цели',
+  'statsSettings.linksHint':
+    'По одной в строке — начало адреса: https://app.example.com/signup, /kontakt, tel: или mailto:.',
+  'statsSettings.save': 'Сохранить настройки статистики',
+  'statsSettings.saved': 'Настройки статистики сохранены',
+  'statsSettings.privacyTitle': 'Политика конфиденциальности',
+  'statsSettings.privacyIntro':
+    'Образец абзаца о счёте Eile на немецком и английском. Он описывает только статистику — проверьте политику целиком вместе с юристом.',
+  'statsSettings.view': 'Открыть статистику',
 } as const;
 
 // Коды DomainError сервера → понятные сообщения. Нет кода — показываем текст сервера как есть.
@@ -1605,6 +1783,32 @@ export var errors = {
   'upkeep.backup_failed': 'Копия не сделалась: {detail}',
   'upkeep.releases_unavailable':
     'Страница релизов не ответила — попробуйте позже.',
+  'upkeep.invalid_endpoint':
+    'Адрес хранилища — https://хост, например https://fra1.digitaloceanspaces.com.',
+  'upkeep.invalid_prefix':
+    'Папка в бакете — латиница, цифры, точка, дефис, подчёркивание и /.',
+  'upkeep.invalid_region': 'Регион — имя вроде fra1 или eu-central-1.',
+  'upkeep.invalid_bucket':
+    'Имя бакета — от 3 до 63 букв, цифр, точек и дефисов.',
+  'upkeep.invalid_access_key': 'Ключ доступа — одно слово без пробелов.',
+  'upkeep.offsite_incomplete': 'Нужны бакет и ключ доступа.',
+  'upkeep.offsite_no_secret': 'Нужен секрет ключа доступа.',
+  'upkeep.offsite_not_configured': 'Хранилище копий не настроено.',
+  'upkeep.offsite_denied':
+    'Хранилище не пустило: проверьте ключ доступа и секрет. {detail}',
+  'upkeep.offsite_no_bucket': 'В хранилище нет такого бакета.',
+  'upkeep.offsite_unreachable':
+    'Хранилище не отвечает: проверьте адрес. {detail}',
+  'upkeep.offsite_timeout': 'Хранилище не ответило вовремя — попробуйте позже.',
+  'upkeep.offsite_failed':
+    'Копия на сервере сделана, но не дошла до хранилища: {detail}',
+  'upkeep.offsite_other_key':
+    'Копия запечатана другим ключом: восстановите её командой cms restore --remote с её ключом восстановления.',
+  'upkeep.offsite_not_found': 'Такой копии в хранилище нет.',
+  'upkeep.no_disk_space':
+    'На диске мало места для сжатия: нужно вдвое больше, чем занимают данные базы.',
+  'seal.damaged':
+    'Копия повреждена или изменена: проверка не прошла, сайт не тронут.',
   'identity.token_name': 'Назовите ключ: для чего он.',
   'identity.too_many_tokens': 'Ключей уже 20 — отзовите ненужные.',
   'identity.token_not_found': 'Такого ключа нет — возможно, его уже отозвали.',
@@ -1802,4 +2006,10 @@ export var errors = {
     'Цвет — в виде #rrggbb, схема — системная, светлая или тёмная.',
   'design.element_not_found': 'Такого элемента нет.',
   'media.file_not_found': 'Такого файла нет.',
+  'stats.invalid_link':
+    'Ссылка-цель — начало адреса без пробелов: https://…, /путь, tel: или mailto:.',
+  'stats.too_many_links': 'Ссылок-целей — не больше 20.',
+  'stats.invalid_retention': 'Хранить — всегда или от 30 до 3650 дней.',
+  'stats.invalid_time_zone': 'Часовой пояс — вроде Europe/Berlin.',
+  'stats.invalid_period': 'Период — до 366 дней, начало не позже конца.',
 } as const;

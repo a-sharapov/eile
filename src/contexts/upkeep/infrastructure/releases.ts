@@ -12,13 +12,20 @@ type GithubRelease = {
   }[];
 };
 
-/** Адрес API релизов GitHub; тесты подставляют свой сервер. */
+/** HTTP-клиент: глобальный `fetch` или подставленный тестом. */
+export type Fetch = (url: string, init: RequestInit) => Promise<Response>;
+
+/** Адрес API релизов GitHub; `CMS_RELEASES_URL` и тесты подставляют свой. */
 export var GITHUB_API = 'https://api.github.com';
 
+// Заметки о выпуске менеджер показывает ссылкой: с чужой ленты в href попадает только http(s).
+const _notes = (url: unknown): string =>
+  typeof url === 'string' && /^https?:\/\//i.test(url) ? url : '';
+
 const _release = (_: GithubRelease): Release => ({
-  version: _.tag_name.replace(/^v/, ''),
-  url: _.html_url,
-  draft: _.draft,
+  version: String(_.tag_name).replace(/^v/, ''),
+  url: _notes(_.html_url),
+  draft: _.draft === true,
   assets: (_.assets ?? []).map((asset) => ({
     name: asset.name,
     url: asset.browser_download_url,
@@ -27,20 +34,23 @@ const _release = (_: GithubRelease): Release => ({
 
 /**
  * Список выпусков со страницы релизов. Уходит только обычный GET: адрес репозитория и User-Agent с
- * версией программы (без него GitHub отвечает 403) — ни адреса сайта, ни чего-то о нём.
+ * версией программы (без него GitHub отвечает 403) — ни адреса сайта, ни чего-то о нём. `base` — уже
+ * проверенный адрес (`parseReleasesUrl`).
  */
 export var defineReleases =
   ({
     base = GITHUB_API,
     repository,
     version,
+    fetch: get = fetch,
   }: {
     base?: string;
     repository: string;
     version: string;
+    fetch?: Fetch;
   }): ReleaseSource =>
   () =>
-    fetch(`${base}/repos/${repository}/releases?per_page=30`, {
+    get(`${base}/repos/${repository}/releases?per_page=30`, {
       headers: {
         accept: 'application/vnd.github+json',
         'user-agent': `Eile/${version}`,

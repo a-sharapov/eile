@@ -129,6 +129,12 @@ export type FormsPorts = {
   readonly report: Report;
   /** Очередь вебхуков пополнилась: отправить сейчас, не дожидаясь расписания. */
   readonly kick: () => void;
+  /** Принятая заявка, не спам: статистика считает её целью посетителя. */
+  readonly accepted?: (submission: {
+    readonly form: string;
+    readonly ip: string;
+    readonly userAgent: string;
+  }) => void;
 };
 
 /** Флеш после отправки без JS: значения и ошибки возвращаются в форму на странице. */
@@ -248,6 +254,7 @@ export var defineFormsService = ({
   secret,
   report,
   kick,
+  accepted,
 }: FormsPorts) => {
   // Поля формы — по ревизии: HTML разбирается раз на правку, а не на каждый показ.
   const parsed = new Map<string, { revision: number; fields: FieldSpec[] }>();
@@ -494,7 +501,12 @@ export var defineFormsService = ({
         `submission:${id}`
       ),
       confirm(form, fields, final, id),
-      queueWebhook(form, id))
+      queueWebhook(form, id),
+      accepted?.({
+        form: form.name,
+        ip: input.ip,
+        userAgent: input.userAgent,
+      }))
     );
     count(`${input.ip}|${form.name}`);
     return sent(form, back);

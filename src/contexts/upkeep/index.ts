@@ -1,17 +1,40 @@
 import type { Database } from '../../platform/database.ts';
 import type { Report } from '../../shared/kernel/report.ts';
 import { defineUpkeepService } from './application/upkeep-service.ts';
+import type { Remote } from './domain/ports.ts';
 import type { BackupSchedule } from './domain/schedule.ts';
 import { startUpkeep } from './infrastructure/background.ts';
+import { defineCompactor } from './infrastructure/compactor.ts';
 import { databaseName, defineCopier } from './infrastructure/copier.ts';
 import { defineReleases } from './infrastructure/releases.ts';
-import { defineUpkeepRepository } from './infrastructure/sqlite-upkeep.ts';
+import { backupKeys, s3Remote } from './infrastructure/s3-store.ts';
+import {
+  defineOffsiteRepository,
+  defineUpkeepRepository,
+} from './infrastructure/sqlite-upkeep.ts';
 
 export type {
   BackupStatus,
+  DatabaseStatus,
+  OffsiteChange,
+  OffsiteStatus,
   UpdateStatus,
+  UpkeepApplied,
+  UpkeepServerSettings,
   UpkeepService,
 } from './application/upkeep-service.ts';
+export type { CompactRun, DatabaseSpace } from './domain/compaction.ts';
+export {
+  latestCopy,
+  type OffsiteSettings,
+  parseOffsite,
+  type RemoteCopy,
+} from './domain/offsite.ts';
+export type { RemoteStore, RemoteTarget } from './domain/ports.ts';
+export {
+  parseReleasesUrl,
+  safeDownload,
+} from './domain/releases-url.ts';
 export type {
   BackupFailure,
   BackupRun,
@@ -26,10 +49,18 @@ export {
   updateProgram,
 } from './infrastructure/installer.ts';
 export { upkeepMigrations } from './infrastructure/migrations.ts';
-export { defineReleases, GITHUB_API } from './infrastructure/releases.ts';
+export {
+  defineReleases,
+  type Fetch,
+  GITHUB_API,
+} from './infrastructure/releases.ts';
+export { s3Remote } from './infrastructure/s3-store.ts';
 
-/** Таблица контекста: настройки сервера, в копию сайта не попадают. */
-export var UPKEEP_SERVER_TABLES: readonly string[] = ['upkeep_settings'];
+/** Таблицы контекста: настройки сервера, хранилище копий и его ключ — в копию сайта не попадают. */
+export var UPKEEP_SERVER_TABLES: readonly string[] = [
+  'upkeep_settings',
+  'upkeep_offsite',
+];
 
 /** Контекст upkeep: автокопии сайта по расписанию и проверка обновлений программы. */
 export var defineUpkeep = ({
@@ -43,6 +74,7 @@ export var defineUpkeep = ({
   releasesUrl,
   updateCheck,
   tidy,
+  remote = s3Remote,
 }: {
   db: Database;
   /** Файл базы; `:memory:` — автокопий нет. */
@@ -54,15 +86,22 @@ export var defineUpkeep = ({
   version: string;
   /** Репозиторий релизов: owner/name. */
   repository: string;
+  /** Проверенный адрес API релизов вместо GitHub (`parseReleasesUrl`). */
   releasesUrl?: string;
   updateCheck: boolean;
   /** Уборка раз в сутки: файлы, которые больше не нужны (кэш медиатеки). */
   tidy: () => unknown;
+  /** Хранилище копий; по умолчанию S3 через `Bun.S3Client`. */
+  remote?: Remote;
 }) => {
   let reschedule: (schedule: BackupSchedule) => void = () => undefined;
   const service = defineUpkeepService({
     repository: defineUpkeepRepository(db),
+    offsite: defineOffsiteRepository(db),
     copier: defineCopier({ db, path, without }),
+    remote,
+    keys: backupKeys,
+    compactor: defineCompactor({ db, path }),
     clock,
     report,
     nextRun: (cron, after) => Bun.cron.parse(cron, after),
@@ -87,7 +126,13 @@ export var defineUpkeep = ({
             service.updates.enabled()
               ? service.updates.check()
               : Promise.resolve(),
-          tidy: () => Promise.resolve().then(tidy),
+          // Сначала кэш, потом база: сжатие — самое долгое, и оно же может не понадобиться.
+          tidy: () =>
+            Promise.resolve()
+              .then(tidy)
+              .then(
+                () => void (path !== ':memory:' && service.database.tidy())
+              ),
         })
       ),
   };

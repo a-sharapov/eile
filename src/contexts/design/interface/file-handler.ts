@@ -3,18 +3,24 @@ import {
   type Encoding,
   negotiate,
 } from '../../../platform/compression.ts';
-import type { ScriptFile } from '../infrastructure/site-scripts.ts';
 
-type Scripts = { readonly file: (path: string) => ScriptFile | null };
+/** Файл по адресу с хэшем: скрипт или стили сайта. */
+export type HashedFile = {
+  readonly name: string;
+  readonly hash: string;
+  readonly source: string;
+  /** Спросили прежний хэш, а отдана текущая версия: такой ответ браузер навсегда не кэширует. */
+  readonly stale?: boolean;
+};
 
-// Адрес с хэшем не меняется никогда. nosniff: браузер не примет файл ни за что, кроме скрипта, — и не
-// нарисует его как HTML с адреса сайта.
+// Адрес с хэшем не меняется никогда. nosniff: браузер не примет файл ни за что, кроме объявленного типа,
+// — и не нарисует его как HTML с адреса сайта.
 const _HEADERS = {
-  'content-type': 'text/javascript; charset=utf-8',
   'x-content-type-options': 'nosniff',
-  'cache-control': 'public, max-age=31536000, immutable',
   vary: 'accept-encoding',
 };
+
+const _FOREVER = 'public, max-age=31536000, immutable';
 
 const _METHODS = new Set(['GET', 'HEAD']);
 
@@ -28,15 +34,21 @@ const _methodNotAllowed = (): Response =>
     headers: { allow: 'GET, HEAD' },
   });
 
-/** `/_cms/scripts/<имя>.<хэш>.js`: скрипт сайта с ETag, сжатый br или gzip, если браузер умеет. */
-export var defineScriptsHandler = (scripts: Scripts) => {
-  // Сжатая копия — только текущей версии: по одной на скрипт и способ сжатия, прежняя вытесняется.
+/**
+ * `/_cms/scripts/<имя>.<хэш>.js`, `/_cms/styles/<имя>.<хэш>.css`: файл с ETag, сжатый br или gzip, если
+ * браузер умеет.
+ */
+export var defineFileHandler = (
+  contentType: string,
+  lookup: (path: string) => HashedFile | null
+) => {
+  // Сжатая копия — только текущей версии: по одной на файл и способ сжатия, прежняя вытесняется.
   const packed = new Map<
     string,
     { readonly hash: string; readonly body: Uint8Array }
   >();
 
-  const bodyOf = (file: ScriptFile, encoding: Encoding | null): Uint8Array =>
+  const bodyOf = (file: HashedFile, encoding: Encoding | null): Uint8Array =>
     encoding === null
       ? _encoder.encode(file.source)
       : ((key) =>
@@ -46,12 +58,14 @@ export var defineScriptsHandler = (scripts: Scripts) => {
                 compressStored(encoding, file.source)
               ))(`${encoding} ${file.name}`);
 
-  const answer = (request: Request, file: ScriptFile): Response => {
+  const answer = (request: Request, file: HashedFile): Response => {
     const encoding = negotiate(request.headers.get('accept-encoding'));
-    // У сжатой копии свой ETag: это другие байты того же скрипта.
+    // У сжатой копии свой ETag: это другие байты того же файла.
     const etag = `"${file.hash}${encoding ? `-${encoding}` : ''}"`;
     const headers = {
+      'content-type': contentType,
       ..._HEADERS,
+      'cache-control': file.stale ? 'no-cache' : _FOREVER,
       etag,
       ...(encoding ? { 'content-encoding': encoding } : {}),
     };
@@ -66,7 +80,7 @@ export var defineScriptsHandler = (scripts: Scripts) => {
   return (request: Request): Response =>
     _METHODS.has(request.method)
       ? ((file) => (file ? answer(request, file) : _notFound()))(
-          scripts.file(new URL(request.url).pathname)
+          lookup(new URL(request.url).pathname)
         )
       : _methodNotAllowed();
 };

@@ -19,6 +19,7 @@ import type { Context } from '../src/cli/context.ts';
 import { definePaint } from '../src/cli/paint.ts';
 import {
   appliedMigrations,
+  expectsHealth,
   type Host,
   placeDatabase,
   putBackDatabase,
@@ -407,6 +408,8 @@ type Fake = {
     active: Set<string>;
     version: string;
     up: (version: string) => boolean;
+    /** Что поднявшаяся служба отвечает на /_cms/health. */
+    health: (version: string) => number;
     migrates: boolean;
     dbs: Map<string, readonly string[]>;
   };
@@ -423,6 +426,7 @@ const fake = (overrides: Partial<Host> = {}): Fake => {
     active: new Set<string>(),
     version: '0.2.0',
     up: (_: string) => true,
+    health: (_: string) => 200,
     migrates: false,
     dbs: new Map<string, readonly string[]>(),
   };
@@ -496,8 +500,14 @@ const fake = (overrides: Partial<Host> = {}): Fake => {
       )
     ),
     attach: (command) => (calls.push([...command]), Promise.resolve(0)),
-    answers: () =>
-      Promise.resolve(state.active.size > 0 && state.up(state.version)),
+    probe: (url) => (
+      calls.push(['probe', url]),
+      Promise.resolve(
+        state.active.size > 0 && state.up(state.version)
+          ? state.health(state.version)
+          : null
+      )
+    ),
     wait: (ms) => ((clock += ms), Promise.resolve()),
     now: () => clock,
     memory: () => ({ total: 4 * LOW_MEMORY, swap: 0 }),
@@ -717,6 +727,38 @@ describe('cms service install', () => {
     );
   });
 
+  it('ждёт 200 от /_cms/health на HTTP-порту службы', async () => {
+    const machine = fake();
+    await run(machine, ['install', '--domain', 'a.de']);
+    expect(machine.calls).toContainEqual([
+      'probe',
+      'http://127.0.0.1:80/_cms/health',
+    ]);
+    const proxied = fake();
+    await run(proxied, ['install', '--trust-proxy', '--port', '9000']);
+    expect(proxied.calls).toContainEqual([
+      'probe',
+      'http://127.0.0.1:9000/_cms/health',
+    ]);
+  });
+
+  it('служба отвечает, но не читает базу (503) — журнал и отказ', async () => {
+    const machine = fake();
+    machine.state.health = () => 503;
+    await expect(run(machine, ['install', '--trust-proxy'])).rejects.toThrow(
+      'не может прочитать базу: /_cms/health — 503'
+    );
+    expect(machine.out.join('\n')).toContain('error: something broke');
+  });
+
+  it('404 вместо проверки у этого же бинарника — отказ: на порту не он', async () => {
+    const machine = fake();
+    machine.state.health = () => 404;
+    await expect(
+      run(machine, ['install', '--trust-proxy'], 'en')
+    ).rejects.toThrow('answers /_cms/health with 404, not 200');
+  });
+
   it('сайт не ответил — строки журнала и отказ', async () => {
     const machine = fake();
     machine.state.up = () => false;
@@ -784,6 +826,37 @@ describe('cms service status, restart, logs, uninstall', () => {
     await expect(run(fake({ root: false }), ['restart'])).rejects.toThrow(
       `sudo ${BINARY} service restart`
     );
+  });
+
+  it('restart: юнит запускает другой файл старше /_cms/health — ему хватает любого ответа, кроме 503', async () => {
+    const machine = fake();
+    machine.files.set(
+      '/etc/systemd/system/cms.service',
+      renderUnit(planService(options(['--trust-proxy']), '/opt/old/cms'), 'ru')
+    );
+    machine.state.health = () => 404;
+    const older = (version: string): Host => ({
+      ...machine.host,
+      run: (command) =>
+        command[0] === '/opt/old/cms'
+          ? Promise.resolve({ code: 0, out: `Eile ${version}\n`, err: '' })
+          : machine.host.run(command),
+    });
+    await runService(
+      contextOf(machine, ['service', 'restart']),
+      older('0.1.0-alpha.8')
+    );
+    expect(machine.out.join('\n')).toContain('Служба cms перезапущена');
+    await expect(
+      runService(contextOf(machine, ['service', 'restart']), older('0.2.0'))
+    ).rejects.toThrow('кодом 404');
+    machine.state.health = () => 503;
+    await expect(
+      runService(
+        contextOf(machine, ['service', 'restart']),
+        older('0.1.0-alpha.8')
+      )
+    ).rejects.toThrow('не может прочитать базу');
   });
 
   it('logs: journalctl по юниту, -f — следить', async () => {
@@ -1030,6 +1103,53 @@ describe('cms update и служба', () => {
         { name: 'shop', running: 'Eile 0.1.0' },
       ],
     });
+  });
+
+  it('новая версия отвечает 503 — базу не читает: откат, и в итоге сказано почему', async () => {
+    const box = machine();
+    box.state.health = (version) => (version === '0.2.0' ? 503 : 200);
+    const result = await update(box);
+    expect(result).toMatchObject({
+      status: 'rolled_back',
+      failed: [
+        { name: 'cms', running: null, status: 503 },
+        { name: 'shop', running: null, status: 503 },
+      ],
+    });
+    expect(
+      restartReport(plain, 'ru', result, {
+        version: '0.2.0',
+        current: '0.1.0',
+      }).lines.join('\n')
+    ).toContain('cms: отвечает, но не может прочитать базу');
+  });
+
+  it('откат на версию до /_cms/health: ей хватает любого ответа, как раньше', async () => {
+    const box = machine();
+    box.state.up = (version) => version !== '0.2.0';
+    box.state.health = () => 404;
+    const host: Host = {
+      ...box.host,
+      restore: (binary, previous) =>
+        void (box.calls.push(['restore', binary, previous]),
+        (box.state.version = '0.1.0-alpha.8')),
+    };
+    const result = await restartServices({
+      host,
+      binary: BINARY,
+      previous: `${BINARY}.old`,
+      version: '0.2.0',
+      current: '0.1.0-alpha.8',
+    });
+    expect(result.status).toBe('rolled_back');
+  });
+
+  it('с какой версии ждём /_cms/health', () => {
+    expect(expectsHealth('0.1.0-alpha.8')).toBe(false);
+    expect(expectsHealth('0.1.0-alpha.9')).toBe(true);
+    expect(expectsHealth('Eile 0.2.0\n')).toBe(true);
+    expect(expectsHealth(null)).toBe(false);
+    expect(expectsHealth('garbage')).toBe(false);
   });
 
   it('и прежняя не поднялась — так и говорит', async () => {

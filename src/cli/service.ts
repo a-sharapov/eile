@@ -17,7 +17,8 @@ import {
 import { networkInterfaces } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { prepareSite } from '../app.ts';
-import { restorePrevious } from '../contexts/upkeep/index.ts';
+import { compareVersions, restorePrevious } from '../contexts/upkeep/index.ts';
+import { HEALTH_PATH } from '../health.ts';
 import { isSqlite } from '../platform/archive.ts';
 import { backupDatabase } from '../platform/database.ts';
 import { PRODUCT, REPOSITORY } from '../product.ts';
@@ -83,8 +84,8 @@ export type Host = {
   readonly run: (command: readonly string[]) => Promise<Ran>;
   /** Команда с выводом прямо в терминал; ответ — код выхода. */
   readonly attach: (command: readonly string[]) => Promise<number>;
-  /** Отвечает ли адрес по HTTP — любым ответом. */
-  readonly answers: (url: string) => Promise<boolean>;
+  /** Код ответа на GET без переадресаций; null — адрес не ответил за 2 с. */
+  readonly probe: (url: string) => Promise<number | null>;
   readonly wait: (ms: number) => Promise<void>;
   readonly now: () => number;
   readonly memory: () => HostFacts['memory'];
@@ -310,10 +311,10 @@ export var defineHost = (): Host => ({
   attach: (command) =>
     Bun.spawn([...command], { stdio: ['inherit', 'inherit', 'inherit'] })
       .exited,
-  answers: (url) =>
+  probe: (url) =>
     fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(2000) }).then(
-      (response) => (void response.body?.cancel(), true),
-      () => false
+      (response) => (void response.body?.cancel(), response.status),
+      () => null
     ),
   wait: (ms) => Bun.sleep(ms),
   now: () => Date.now(),
@@ -375,6 +376,10 @@ const _SAY = {
       `systemctl ${command} не удался: ${error.trim()}`,
     silent: (name: string, seconds: number) =>
       `Служба ${name} не ответила за ${seconds} с. Весь журнал — cms service logs`,
+    noDatabase: (name: string) =>
+      `Служба ${name} отвечает, но не может прочитать базу: ${HEALTH_PATH} — 503. Весь журнал — cms service logs`,
+    unhealthy: (name: string, status: number) =>
+      `Служба ${name} отвечает на ${HEALTH_PATH} кодом ${status}, а не 200: на порту другой сервер? Весь журнал — cms service logs`,
     journal: 'Журнал службы:',
     running: (name: string) => `Служба ${name} работает`,
     already: (name: string) => `Служба ${name} уже установлена и работает`,
@@ -423,6 +428,10 @@ const _SAY = {
       `Новая версия не поднялась, и после отката на ${current} службы тоже молчат.`,
     silentAfter: (name: string, seconds: number) =>
       `${name}: не ответила за ${seconds} с`,
+    noDatabaseAfter: (name: string) =>
+      `${name}: отвечает, но не может прочитать базу (${HEALTH_PATH} — 503)`,
+    unhealthyAfter: (name: string, status: number) =>
+      `${name}: ${HEALTH_PATH} отвечает ${status}, а не 200`,
     wrongVersion: (name: string, running: string) =>
       `${name}: работает ${running}`,
     updateFailed: (names: string) =>
@@ -470,6 +479,10 @@ const _SAY = {
       `systemctl ${command} failed: ${error.trim()}`,
     silent: (name: string, seconds: number) =>
       `The service ${name} did not answer in ${seconds} s. The whole log: cms service logs`,
+    noDatabase: (name: string) =>
+      `The service ${name} answers but cannot read its database: ${HEALTH_PATH} gives 503. The whole log: cms service logs`,
+    unhealthy: (name: string, status: number) =>
+      `The service ${name} answers ${HEALTH_PATH} with ${status}, not 200: another server on the port? The whole log: cms service logs`,
     journal: 'Service log:',
     running: (name: string) => `The service ${name} is running`,
     already: (name: string) =>
@@ -520,6 +533,10 @@ const _SAY = {
       `The new version did not come up, and after going back to ${current} the services are silent too.`,
     silentAfter: (name: string, seconds: number) =>
       `${name}: no answer in ${seconds} s`,
+    noDatabaseAfter: (name: string) =>
+      `${name}: answers but cannot read its database (${HEALTH_PATH} gives 503)`,
+    unhealthyAfter: (name: string, status: number) =>
+      `${name}: ${HEALTH_PATH} answers ${status}, not 200`,
     wrongVersion: (name: string, running: string) => `${name}: runs ${running}`,
     updateFailed: (names: string) =>
       `The update is undone. Log: cms service logs${names}`,
@@ -604,18 +621,50 @@ const _isActive = (host: Host, name: string): Promise<boolean> =>
 /** Сколько ждать ответа сайта после запуска: сервер встаёт за доли секунды, миграции большой базы — дольше. */
 export var HEALTH_SECONDS = 30;
 
-const _answering = (host: Host, url: string, until: number): Promise<boolean> =>
+/** С этой версии у сервера есть `/_cms/health`: от неё служба должна ответить на него 200. */
+export var HEALTH_SINCE = '0.1.0-alpha.9';
+
+/** Есть ли проверка здоровья у этой версии: строка `cms version` («Eile 0.2.0») или номер; null — неизвестно. */
+export var expectsHealth = (version: string | null): boolean =>
+  version !== null &&
+  compareVersions(version.trim().split(/\s+/).at(-1) ?? '', HEALTH_SINCE) >= 0;
+
+/** Итог проверки: последний код ответа `/_cms/health`, null — сервер молчал. */
+type _Health = { readonly ok: boolean; readonly status: number | null };
+
+// Строгая проверка — только 200. Версии до /_cms/health отвечают на него 404 (или 308 на HTTPS): им
+// хватает любого ответа, кроме 503, как раньше.
+const _fine = (status: number | null, strict: boolean): boolean =>
+  status === 200 || (!strict && status !== null && status !== 503);
+
+const _answering = (
+  host: Host,
+  url: string,
+  strict: boolean,
+  until: number
+): Promise<_Health> =>
   host
-    .answers(url)
-    .then(
-      (ok) =>
-        ok ||
-        (host.now() < until &&
-          host.wait(250).then(() => _answering(host, url, until)))
+    .probe(url)
+    .then((status) =>
+      _fine(status, strict)
+        ? { ok: true, status }
+        : host.now() < until
+          ? host.wait(250).then(() => _answering(host, url, strict, until))
+          : { ok: false, status }
     );
 
-const _healthy = (host: Host, url: string): Promise<boolean> =>
-  _answering(host, url, host.now() + HEALTH_SECONDS * 1000);
+// base — адрес службы с этой машины (localUrl): проверка идёт на её HTTP-порт.
+const _healthy = (
+  host: Host,
+  base: string,
+  strict: boolean
+): Promise<_Health> =>
+  _answering(
+    host,
+    `${base.replace(/\/$/, '')}${HEALTH_PATH}`,
+    strict,
+    host.now() + HEALTH_SECONDS * 1000
+  );
 
 const _show = (
   host: Host,
@@ -659,15 +708,23 @@ const _journal = (host: Host, name: string): Promise<string[]> =>
     ])
     .then((_) => _.out.split('\n').filter((line) => line.trim() !== ''));
 
+const _sick = (say: _Say, name: string, status: number | null): string =>
+  status === null
+    ? say.silent(name, HEALTH_SECONDS)
+    : status === 503
+      ? say.noDatabase(name)
+      : say.unhealthy(name, status);
+
 // Нет ответа — последние строки журнала прямо здесь: в них видно, почему.
 const _up = (
   ctx: Context,
   host: Host,
   name: string,
-  url: string
+  url: string,
+  strict: boolean
 ): Promise<void> =>
-  _healthy(host, url).then((ok) =>
-    ok
+  _healthy(host, url, strict).then((health) =>
+    health.ok
       ? undefined
       : _journal(host, name).then(
           (lines) => (
@@ -677,7 +734,7 @@ const _up = (
                 ...lines.map((_) => `  ${ctx.paint.dim(_)}`),
               ].join('\n')
             ),
-            _reject(_say(ctx).silent(name, HEALTH_SECONDS))
+            _reject(_sick(_say(ctx), name, health.status))
           )
         )
   );
@@ -920,16 +977,18 @@ const _installed = (
         (current) => _checked(ctx, host, plan, current),
         (current) => _moved(ctx, host, plan).then(() => current),
         (current) => _applied(ctx, host, plan, unit, current),
+        // Юнит запускает этот самый бинарник: /_cms/health у него есть.
         (current) =>
-          _up(ctx, host, plan.name, localUrl(_planOptions(plan))).then(() =>
-            Promise.all([
-              _running(host, plan.name),
-              _setupToken(host, plan.name),
-            ]).then(({ 0: version, 1: token }) =>
-              ctx.out(
-                named(PROGRAM)(_summary(ctx, plan, current, version, token))
+          _up(ctx, host, plan.name, localUrl(_planOptions(plan)), true).then(
+            () =>
+              Promise.all([
+                _running(host, plan.name),
+                _setupToken(host, plan.name),
+              ]).then(({ 0: version, 1: token }) =>
+                ctx.out(
+                  named(PROGRAM)(_summary(ctx, plan, current, version, token))
+                )
               )
-            )
           )
       )
     ))(renderUnit(plan, ctx.language), _say(ctx));
@@ -1069,6 +1128,14 @@ const _logs = (ctx: Context, host: Host): Promise<void> =>
     )
     .then((code) => (code === 0 ? undefined : _reject(_say(ctx).noLogs)));
 
+// Юнит запускает этот бинарник — /_cms/health есть; другой файл — смотря какой он версии.
+const _strict = (host: Host, unit: UnitFacts): Promise<boolean> =>
+  unit.binary === null
+    ? Promise.resolve(false)
+    : host.real(unit.binary) === host.binary
+      ? Promise.resolve(true)
+      : _versionOf(host, unit.binary).then(expectsHealth);
+
 const _restart = (ctx: Context, host: Host): Promise<void> =>
   ((say, name) =>
     _first(_rootChecks(host, say, _sudo(host, 'restart', name)))
@@ -1076,13 +1143,19 @@ const _restart = (ctx: Context, host: Host): Promise<void> =>
       .then(
         pipe(
           (props: Readonly<Record<string, string>>) =>
-            unitOptions(_unitOf(host, props.FragmentPath)),
-          (options) =>
+            ((unit) =>
+              _strict(host, unit).then((strict) => ({
+                options: unitOptions(unit),
+                strict,
+              })))(_unitOf(host, props.FragmentPath)),
+          ({ options, strict }) =>
             host
               .run(['systemctl', 'reset-failed', unitName(name)])
               .then(() => _systemctl(host, say, 'restart', unitName(name)))
               .then(() =>
-                options ? _up(ctx, host, name, localUrl(options)) : undefined
+                options
+                  ? _up(ctx, host, name, localUrl(options), strict)
+                  : undefined
               ),
           () => _running(host, name),
           (version) =>
@@ -1177,10 +1250,12 @@ export var runService = (
 
 // --- после cms update -------------------------------------------------------------
 
-/** Служба, которая не поднялась на нужной версии: молчит (null) или работает на другой. */
+/** Служба, которая не поднялась на нужной версии: молчит или нездорова (running null) или работает на другой. */
 export type ServiceFailure = {
   readonly name: string;
   readonly running: string | null;
+  /** Последний ответ `/_cms/health`; null — сервер молчал. */
+  readonly status: number | null;
 };
 
 /** База службы, возвращённая к снимку перед обновлением: новая версия успела перевести её на свою схему. */
@@ -1317,6 +1392,7 @@ const _guard = (
     { guarded: [], failure: null }
   );
 
+// Здоровье ждём от той версии, на которой служба должна подняться: новой при обновлении, прежней при откате.
 const _restartOne = (
   host: Host,
   service: _Service,
@@ -1325,17 +1401,23 @@ const _restartOne = (
   host
     .run(['systemctl', 'reset-failed', unitName(service.name)])
     .then(() => host.run(['systemctl', 'restart', unitName(service.name)]))
-    .then((restart) =>
-      restart.code === 0 ? _healthy(host, service.url) : false
+    .then((restart): _Health | Promise<_Health> =>
+      restart.code === 0
+        ? _healthy(host, service.url, expectsHealth(expected))
+        : { ok: false, status: null }
     )
-    .then((ok) =>
-      ok
+    .then((health) =>
+      health.ok
         ? _running(host, service.name).then((running) =>
             running === `${PRODUCT} ${expected}`
               ? null
-              : { name: service.name, running: running ?? '?' }
+              : {
+                  name: service.name,
+                  running: running ?? '?',
+                  status: health.status,
+                }
           )
-        : { name: service.name, running: null }
+        : { name: service.name, running: null, status: health.status }
     );
 
 const _restartAll = (
@@ -1468,7 +1550,15 @@ const _failedLines = (
 ): string[] => [
   ...restart.failed.map(
     (_) =>
-      `    ${paint.dim(_.running === null ? say.silentAfter(_.name, HEALTH_SECONDS) : say.wrongVersion(_.name, _.running))}`
+      `    ${paint.dim(
+        _.running !== null
+          ? say.wrongVersion(_.name, _.running)
+          : _.status === null
+            ? say.silentAfter(_.name, HEALTH_SECONDS)
+            : _.status === 503
+              ? say.noDatabaseAfter(_.name)
+              : say.unhealthyAfter(_.name, _.status)
+      )}`
   ),
   ...restart.restored.map((_) =>
     _.error === null

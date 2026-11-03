@@ -12,7 +12,7 @@ import {
 } from '../../../shared/kernel/report.ts';
 import type { Discovered, Discovery } from '../application/discovery.ts';
 import type { Delivery, PageDelivery } from '../application/page-delivery.ts';
-import type { EditBar, RequestInfo } from '../application/ports.ts';
+import type { EditBar, PageViews, RequestInfo } from '../application/ports.ts';
 import { isHtml, responseType } from '../domain/content-type.ts';
 import { prefersMarkdown } from '../domain/discovery.ts';
 
@@ -74,8 +74,6 @@ const _withSearch = (location: string, search: string): string =>
 
 const _etag = (html: string): string => `"${Bun.hash(html).toString(36)}"`;
 
-const _ETAGS_LIMIT = 8192;
-
 // Полоса — перед последним </body>; нет его — в конец документа.
 const _withBar = (html: string, bar: string): string =>
   ((at) => (at < 0 ? html + bar : html.slice(0, at) + bar + html.slice(at)))(
@@ -83,6 +81,8 @@ const _withBar = (html: string, bar: string): string =>
   );
 
 const _NO_BAR: EditBar = () => null;
+
+const _NO_VIEWS: PageViews = () => undefined;
 
 // 500 посетителю — и сообщение владельцу: одинаковые ошибки склеиваются, а не адреса.
 const _serverError =
@@ -162,22 +162,9 @@ export var defineSiteHandler = (
   compression: CompressionCache,
   discovery: Discovery,
   report: Report = NO_REPORT,
-  editBar: EditBar = _NO_BAR
+  editBar: EditBar = _NO_BAR,
+  views: PageViews = _NO_VIEWS
 ) => {
-  // У страницы из кэша HTML — одна и та же строка: её хэш для ETag считаем один раз, а не на каждый запрос.
-  const etags = new Map<string, string>();
-
-  const etagOf = (page: Page): string =>
-    page.cache !== 'hit'
-      ? _etag(page.html)
-      : (etags.get(page.html) ??
-        ((etag) => (
-          etags.size >= _ETAGS_LIMIT &&
-            etags.delete(etags.keys().next().value!),
-          etags.set(page.html, etag),
-          etag
-        ))(_etag(page.html)));
-
   // Страница с полосой правки — только тому, кто вошёл в менеджер: без ETag, общего кэша и сжатия впрок.
   const personalResponse = (
     request: Request,
@@ -212,14 +199,29 @@ export var defineSiteHandler = (
       ? editBar(request, { id: page.pageId, status: page.status })
       : null;
 
-  const pageResponse = (request: Request, page: Page): Response =>
+  // Просмотр — HTML-страница 200 на GET тому, у кого нет полосы правки: вошедшие в менеджер — не посетители.
+  const pageResponse = (
+    request: Request,
+    page: Page,
+    path: string,
+    client: string
+  ): Response =>
     ((bar) =>
       bar === null
-        ? sharedResponse(request, page)
+        ? (void (
+            request.method === 'GET' &&
+            page.status === 200 &&
+            page.pageId !== null &&
+            isHtml(page.contentType) &&
+            views(request, client, { path, language: page.language })
+          ),
+          sharedResponse(request, page))
         : personalResponse(request, page, bar))(barOf(request, page));
 
   const sharedResponse = (request: Request, page: Page): Response => {
-    const etag = etagOf(page);
+    // Хэш считается на каждый запрос: 150 КБ — несколько микросекунд. Запоминать его по строке HTML нельзя:
+    // у страницы с формой каждый ответ новый, и такой словарь держал бы тысячи документов целиком.
+    const etag = _etag(page.html);
     const encoding = negotiate(request.headers.get('accept-encoding'));
     const headers = {
       'content-type': responseType(page.contentType),
@@ -242,7 +244,9 @@ export var defineSiteHandler = (
           request.method === 'HEAD'
             ? null
             : encoding
-              ? compression.compress(etag, encoding, page.html)
+              ? page.shared
+                ? compression.compress(etag, encoding, page.html)
+                : compressBody(encoding, page.html)
               : page.html,
           { status: page.status, headers }
         );
@@ -260,13 +264,14 @@ export var defineSiteHandler = (
     });
 
   const respond =
-    (request: Request, url: URL) =>
+    (request: Request, url: URL, client: string, path: string) =>
     (result: Delivery): Response =>
       result.kind === 'page'
-        ? pageResponse(request, result)
+        ? pageResponse(request, result, path, client)
         : redirectResponse(result, url.search);
 
-  return (request: Request): Promise<Response> => {
+  /** `client` — адрес посетителя из сервера: для статистики. */
+  return (request: Request, client = ''): Promise<Response> => {
     const url = new URL(request.url);
     return request.headers.get('service-worker') === 'script'
       ? Promise.resolve(_workerRefused())
@@ -288,10 +293,14 @@ export var defineSiteHandler = (
                               ? _negotiated(request, _)
                               : delivery
                                   .deliver(info)
-                                  .then(respond(request, url))
+                                  .then(respond(request, url, client, path))
                           ) ??
-                        delivery.deliver(info).then(respond(request, url)))
-                      : delivery.deliver(info).then(respond(request, url)))
+                        delivery
+                          .deliver(info)
+                          .then(respond(request, url, client, path)))
+                      : delivery
+                          .deliver(info)
+                          .then(respond(request, url, client, path)))
                   ).then(undefined, _serverError(report, path)))(
                   _requestInfo(request, url, path)
                 ),

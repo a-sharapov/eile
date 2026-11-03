@@ -233,7 +233,7 @@ describe('кэш медиатеки на диске', () => {
     app.close();
   });
 
-  it('замена и удаление файла убирают с диска его версии; варианты — так же', async () => {
+  it('замена и удаление файла убирают с диска его версии; замена оригинала — и его вариантов', async () => {
     const dir = fresh();
     const app = createApp({ mediaCache: dir });
     const fetchOf = (path: string) =>
@@ -258,6 +258,9 @@ describe('кэш медиатеки на диске', () => {
       data: bytes('new'),
     });
     expect(versions(dir, 'img/sea.jpg')).toEqual([]);
+    // Варианты прежнего оригинала устарели: они уходят из базы вместе со своими файлами кэша.
+    expect(versions(dir, 'img/sea@960.webp')).toEqual([]);
+    expect(app.media.files.read('img/sea@960.webp')).toBeNull();
     expect(await fetchOf('img/sea.jpg')).toBe('new');
     expect(versions(dir, 'img/sea.jpg')).toEqual([next.hash]);
     // Описание — то же содержимое: файл кэша остаётся.
@@ -265,9 +268,7 @@ describe('кэш медиатеки на диске', () => {
     expect(versions(dir, 'img/sea.jpg')).toEqual([next.hash]);
 
     app.media.files.remove('img/sea.jpg');
-    app.media.files.remove('img/sea@960.webp');
     expect(versions(dir, 'img/sea.jpg')).toEqual([]);
-    expect(versions(dir, 'img/sea@960.webp')).toEqual([]);
     app.close();
   });
 

@@ -28,6 +28,7 @@ const _CHAPTERS: readonly Chapter[] = [
   { id: 'text', title: 'help.chapterText' },
   { id: 'media', title: 'help.chapterMedia' },
   { id: 'forms', title: 'help.chapterForms' },
+  { id: 'stats', title: 'help.chapterStats' },
   { id: 'speed', title: 'help.chapterSpeed' },
   { id: 'keys', title: 'help.chapterKeys' },
   { id: 'account', title: 'help.chapterAccount' },

@@ -83,6 +83,17 @@ describe('полоса правки на сайте', () => {
     expect(await (await get('/')).text()).not.toContain('eile-bar');
   });
 
+  it('страница с полосой — с теми же файлами стилей, что у посетителя', async () => {
+    const links = (html: string) =>
+      html.match(/<link rel="stylesheet" href="\/_cms\/styles\/[^"]+">/g);
+    const visitor = await (await get('/')).text();
+    const editor = await (await get('/', { cookie })).text();
+    expect(editor).toContain('eile-bar');
+    expect(links(visitor)?.length).toBeGreaterThan(0);
+    expect(links(editor)).toEqual(links(visitor));
+    expect(editor).not.toContain('<style id="svelte-');
+  });
+
   it('элемент с id полосы в тексте страницы её настройки не подменит', async () => {
     const page = app.content.pages.create({
       title: 'Подмена',

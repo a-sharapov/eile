@@ -23,6 +23,9 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { type App, createApp } from '../src/app.ts';
+import { parseInvocation } from '../src/cli/args.ts';
+import { type Context, explain, RUN } from '../src/cli/commands.ts';
+import { definePaint } from '../src/cli/paint.ts';
 import { VERSION } from '../src/cli/version.ts';
 import { parseSchedule } from '../src/contexts/upkeep/domain/schedule.ts';
 import { defineReleases, updateProgram } from '../src/contexts/upkeep/index.ts';
@@ -431,5 +434,199 @@ describe('обновления', () => {
       locked: true,
     });
     locked.close();
+  });
+});
+
+describe('CMS_RELEASES_URL', () => {
+  // Лента и файлы выпуска — без сети: подставленный fetch отвечает как зеркало GitHub.
+  const archive = Bun.gzipSync(_script('0.2.0'));
+  const sums = `${new Bun.CryptoHasher('sha256').update(archive).digest('hex')}  cms-linux-x64.gz\n`;
+  const mirror = (files: string, notes = 'https://mirror.example/notes') => {
+    const asked: { url: string; agent: string | null }[] = [];
+    const fetch = (url: string, init: RequestInit) => (
+      asked.push({
+        url,
+        agent: new Headers(init.headers).get('user-agent'),
+      }),
+      Promise.resolve(
+        url.endsWith('/releases?per_page=30')
+          ? Response.json([
+              {
+                tag_name: 'v0.2.0',
+                html_url: notes,
+                draft: false,
+                assets: ['cms-linux-x64.gz', 'SHA256SUMS'].map((name) => ({
+                  name,
+                  browser_download_url: `${files}/${name}`,
+                })),
+              },
+            ])
+          : url.endsWith('/cms-linux-x64.gz')
+            ? new Response(archive)
+            : url.endsWith('/SHA256SUMS')
+              ? new Response(sums)
+              : new Response('Not Found', { status: 404 })
+      )
+    );
+    return { asked, fetch };
+  };
+
+  const installed = () => {
+    const path = join(mkdtempSync(join(dir, 'mirror-')), 'cms');
+    writeFileSync(path, 'old');
+    chmodSync(path, 0o755);
+    return path;
+  };
+
+  it('лента — со своего адреса: путь зеркала, репозиторий и User-Agent', async () => {
+    const { asked, fetch } = mirror('https://mirror.example/files');
+    const list = await defineReleases({
+      base: 'https://mirror.example/api',
+      repository: 'owner/eile',
+      version: '0.1.0',
+      fetch,
+    })();
+    expect(asked).toEqual([
+      {
+        url: 'https://mirror.example/api/repos/owner/eile/releases?per_page=30',
+        agent: 'Eile/0.1.0',
+      },
+    ]);
+    expect(list[0]).toMatchObject({
+      version: '0.2.0',
+      url: 'https://mirror.example/notes',
+    });
+  });
+
+  it('ссылка на заметки — только http(s): менеджер ставит её в href', async () => {
+    const list = await defineReleases({
+      base: 'https://mirror.example',
+      repository: 'owner/eile',
+      version: '0.1.0',
+      fetch: mirror('https://mirror.example', 'javascript:alert(1)').fetch,
+    })();
+    expect(list[0]?.url).toBe('');
+  });
+
+  it('обновление с зеркала по https: файлы оттуда же, сумма сверена', async () => {
+    const { asked, fetch } = mirror('https://mirror.example/files');
+    const binary = installed();
+    const result = await updateProgram({
+      releases: defineReleases({
+        base: 'https://mirror.example/api',
+        repository: 'owner/eile',
+        version: '0.1.0',
+        fetch,
+      }),
+      current: '0.1.0',
+      binary,
+      standalone: true,
+      target: 'linux-x64',
+      fetch,
+    });
+    expect(result.status).toBe('updated');
+    expect(readFileSync(binary, 'utf8')).toContain('Eile 0.2.0');
+    expect(asked.map((_) => _.url)).toContain(
+      'https://mirror.example/files/cms-linux-x64.gz'
+    );
+  });
+
+  it('файл выпуска по http с чужой машины — отказ до скачивания; с CMS_RELEASES_INSECURE — можно', async () => {
+    const { asked, fetch } = mirror('http://mirror.lan/files');
+    const releases = defineReleases({
+      base: 'https://mirror.example/api',
+      repository: 'owner/eile',
+      version: '0.1.0',
+      fetch,
+    });
+    const binary = installed();
+    expect(
+      await codeOf(
+        updateProgram({
+          releases,
+          current: '0.1.0',
+          binary,
+          standalone: true,
+          target: 'linux-x64',
+          fetch,
+        })
+      )
+    ).toBe('upkeep.insecure_download');
+    expect(asked.some((_) => _.url.startsWith('http://mirror.lan'))).toBe(
+      false
+    );
+    expect(readFileSync(binary, 'utf8')).toBe('old');
+    const allowed = await updateProgram({
+      releases,
+      current: '0.1.0',
+      binary,
+      standalone: true,
+      target: 'linux-x64',
+      fetch,
+      insecure: true,
+    });
+    expect(allowed.status).toBe('updated');
+  });
+});
+
+describe('CMS_RELEASES_URL в cms update', () => {
+  const run = (env: Record<string, string>, argv: readonly string[]) => {
+    const out: string[] = [];
+    const parsed = parseInvocation(['update', ...argv], env);
+    const ctx: Context = {
+      args: 'options' in parsed ? parsed.args : [],
+      options: 'options' in parsed ? parsed.options : (undefined as never),
+      paint: definePaint(false),
+      language: 'ru',
+      tty: false,
+      out: (_) => void out.push(_),
+    };
+    return RUN.update!(ctx).then(
+      () => out.join('\n'),
+      (error) => Promise.reject(new Error(explain(error, 'ru')))
+    );
+  };
+
+  it('переменные окружения попадают в параметры как есть', () => {
+    const parsed = parseInvocation(['update'], {
+      CMS_RELEASES_URL: 'https://mirror.example/api',
+      CMS_RELEASES_INSECURE: '1',
+    });
+    expect('options' in parsed && parsed.options).toMatchObject({
+      releasesUrl: 'https://mirror.example/api',
+      releasesInsecure: true,
+    });
+  });
+
+  it('негодный адрес — понятный отказ до любого запроса', async () => {
+    await expect(
+      run({ CMS_RELEASES_URL: 'http://mirror.lan' }, ['--check'])
+    ).rejects.toThrow('CMS_RELEASES_INSECURE=1');
+    await expect(
+      run({ CMS_RELEASES_URL: 'ftp://mirror.example' }, ['--check'])
+    ).rejects.toThrow('https://mirror.example/api');
+  });
+
+  it('проверка на своей ленте на этой машине — без пересборки бинарника', async () => {
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch: (request) =>
+        new URL(request.url).pathname.endsWith('/releases')
+          ? Response.json([
+              {
+                tag_name: 'v99.0.0-alpha.1',
+                html_url: 'http://127.0.0.1/notes',
+                draft: false,
+                assets: [],
+              },
+            ])
+          : new Response('Not Found', { status: 404 }),
+    });
+    const base = `http://127.0.0.1:${server.port}`;
+    const text = await run({ CMS_RELEASES_URL: `${base}/` }, ['--check']);
+    server.stop(true);
+    expect(text).toContain(`Релизы: ${base}`);
+    expect(text).toContain('Доступна Eile 99.0.0-alpha.1');
   });
 });

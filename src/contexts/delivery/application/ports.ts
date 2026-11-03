@@ -1,6 +1,6 @@
-import type { Rendered } from '../domain/document.ts';
+import type { Rendered, RenderedStyle } from '../domain/document.ts';
 
-export type { Rendered };
+export type { Rendered, RenderedStyle };
 
 /** Скомпилированный элемент; что внутри, знает только рендерер. */
 export type View = unknown;
@@ -18,6 +18,11 @@ export type TemplateViews = {
   readonly island: (name: string) => Promise<string>;
   /** URL модуля с `hydrate` рантайма Svelte. */
   readonly hydrator: () => Promise<string>;
+  /**
+   * Теги `<head>` для стилей, которые нарисовал рендер: ссылки на файлы стилей сайта и `<style>` для того,
+   * что в файл не попало. Стилей нет — пусто.
+   */
+  readonly styles: (styles: readonly RenderedStyle[]) => readonly string[];
 };
 
 export type ViewRenderer = {
@@ -53,6 +58,8 @@ export type CachedPage = {
   readonly contentType: string;
   /** Чья это страница: полоса правки на сайте открывает её в менеджере. */
   readonly pageId: number;
+  /** Язык страницы: статистика считает просмотры по языкам. */
+  readonly language: string;
   readonly tags: ReadonlySet<string>;
 };
 
@@ -111,6 +118,16 @@ export type EditBar = (
   request: Request,
   page: { readonly id: number; readonly status: number }
 ) => string | null;
+
+/**
+ * Просмотр страницы посетителем — для статистики: GET с HTML-страницей 200 (и 304 на неё же), кроме тех,
+ * кто вошёл в менеджер. Что считать просмотром дальше (боты, предзагрузка), решает получатель.
+ */
+export type PageViews = (
+  request: Request,
+  client: string,
+  page: { readonly path: string; readonly language: string }
+) => void;
 
 /** Запрос посетителя глазами компонентов. */
 export type RequestInfo = {

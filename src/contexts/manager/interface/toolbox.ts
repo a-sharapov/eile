@@ -52,6 +52,8 @@ export var fullGuide = (): string =>
     GUIDE.fields,
     '## Plugins',
     GUIDE.plugin,
+    '## Statistics',
+    GUIDE.stats,
   ].join('\n\n');
 
 // Памятка — тоже инструмент: модель читает правила, когда собирается писать код, а не держит их в промпте.
@@ -59,7 +61,7 @@ const _READ_GUIDE: AgentTool = {
   name: 'read_guide',
   title: 'How the site is built',
   description:
-    'Rules for templates, components, site scripts, $core, page text, forms, fields and plugins. Read the topic before writing that kind of thing.',
+    'Rules for templates, components, site scripts, $core, page text, forms, fields and plugins, and how visitor statistics are counted. Read the topic before writing that kind of thing or reading get_stats.',
   access: 'user',
   input: {
     type: 'object',
@@ -154,7 +156,7 @@ const _resultOf =
             ok: true,
           }))
         : response.json().then((body) => ({
-            text: `${tool.untrusted ? _UNTRUSTED : ''}${JSON.stringify(tool.result ? tool.result(body) : body)}`,
+            text: `${tool.untrusted ? _UNTRUSTED : ''}${JSON.stringify(tool.result ? tool.result(body, args) : body)}`,
             ok: true,
           }));
 

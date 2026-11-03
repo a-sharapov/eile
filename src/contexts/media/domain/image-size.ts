@@ -327,3 +327,101 @@ const _READERS: readonly Reader[] = [_png, _jpeg, _webp, _gif, _heif, _svg];
 /** Размеры картинки PNG, JPEG, WebP, GIF, AVIF/HEIF или SVG; null — формат не узнан или размера нет. */
 export var imageSize = (data: Uint8Array): ImageSize | null =>
   _READERS.reduce<ImageSize | null>((found, read) => found ?? read(data), null);
+
+/** Что видно по заголовку картинки: формат по подписи, анимация, прогрессивный JPEG. */
+export type ImageTraits = {
+  readonly format: 'jpeg' | 'png' | 'webp' | 'gif' | null;
+  readonly animated: boolean;
+  readonly progressive: boolean;
+  /** Отсчётов на пиксель: у JPEG — по субдискретизации (3 при 4:4:4, 1,5 при 4:2:0, 1 у серого), у прочих 4. */
+  readonly samples: number;
+};
+
+// Блоков до первого IDAT в настоящих файлах единицы; предел — от глубокой рекурсии на подделке.
+const _MAX_CHUNKS = 1000;
+
+// APNG: блок acTL стоит до первого IDAT.
+const _apng = (data: Uint8Array, at: number, left: number): boolean =>
+  ((type) =>
+    type === 'acTL' ||
+    (left > 0 &&
+      type !== 'IDAT' &&
+      type !== 'IEND' &&
+      at + 12 <= data.length &&
+      _apng(data, at + 12 + _u32be(data, at), left - 1)))(
+    _ascii(data, at + 4, 4)
+  );
+
+type FrameStep = (data: Uint8Array, at: number) => number | null;
+
+// Где начинается кадр JPEG (SOFn): тот же обход сегментов, что у размеров.
+const _FRAME: Readonly<Record<string, FrameStep>> = {
+  fill: (data, at) => _frame(data, at + 1),
+  frame: (_data, at) => at,
+  bare: (data, at) => _frame(data, at + 2),
+  end: () => null,
+  segment: (data, at) => _frame(data, at + 2 + _u16be(data, at + 2)),
+};
+
+const _frame: FrameStep = (data, at) =>
+  _at(data, at) === 0xff
+    ? _FRAME[_jpegKind(_at(data, at + 1))]!(data, at)
+    : null;
+
+// SOF2, SOF6, SOF10 и SOF14 — прогрессивные кадры: декодеру нужны коэффициенты всего кадра сразу.
+const _PROGRESSIVE = new Set([0xc2, 0xc6, 0xca, 0xce]);
+
+// Компоненты кадра: число за размерами, у каждого — байт «по горизонтали × по вертикали». Битый
+// заголовок — как худший случай, 4:4:4.
+const _samples = (data: Uint8Array, at: number): number =>
+  ((factors) =>
+    ((h, v) =>
+      factors.reduce(
+        (sum, _, k) =>
+          sum + (h[k]! * v[k]!) / (Math.max(...h) * Math.max(...v)),
+        0
+      ) || 3)(
+      factors.map((_) => _ >> 4),
+      factors.map((_) => _ & 0x0f)
+    ))(
+    Array.from({ length: Math.min(_at(data, at + 9), 4) || 0 }, (_, k) =>
+      _at(data, at + 11 + k * 3)
+    )
+  );
+
+const _format = (data: Uint8Array): ImageTraits['format'] =>
+  _starts(data, _PNG)
+    ? 'png'
+    : _starts(data, [0xff, 0xd8])
+      ? 'jpeg'
+      : _ascii(data, 0, 4) === 'RIFF' && _ascii(data, 8, 4) === 'WEBP'
+        ? 'webp'
+        : /^GIF8[79]a$/.test(_ascii(data, 0, 6))
+          ? 'gif'
+          : null;
+
+const _STILL = { animated: false, progressive: false, samples: 4 };
+
+// У WebP флаг анимации — второй бит первого байта флагов VP8X.
+const _TRAITS: Readonly<
+  Record<string, (data: Uint8Array) => Omit<ImageTraits, 'format'>>
+> = {
+  png: (data) => ({ ..._STILL, animated: _apng(data, 8, _MAX_CHUNKS) }),
+  jpeg: (data) =>
+    ((at) => ({
+      animated: false,
+      progressive: at !== null && _PROGRESSIVE.has(_at(data, at + 1)),
+      samples: at === null ? 3 : _samples(data, at),
+    }))(_frame(data, 2)),
+  webp: (data) => ({
+    ..._STILL,
+    animated: _ascii(data, 12, 4) === 'VP8X' && (_at(data, 20) & 0x02) !== 0,
+  }),
+  gif: () => _STILL,
+};
+
+export var imageTraits = (data: Uint8Array): ImageTraits =>
+  ((format) => ({
+    format,
+    ...(format === null ? _STILL : _TRAITS[format]!(data)),
+  }))(_format(data));

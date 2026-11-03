@@ -16,6 +16,7 @@ import { defineLinks } from './application/links.ts';
 import {
   definePageDelivery,
   type PageDelivery,
+  STYLES_TAG,
 } from './application/page-delivery.ts';
 import type {
   Dictionary,
@@ -24,6 +25,7 @@ import type {
   Modules,
   PageCache,
   PageCacheStats,
+  PageViews,
   RedirectRules,
   RequestInfo,
   TemplateViews,
@@ -49,6 +51,7 @@ export {
 export type {
   EditBar,
   PageCacheStats,
+  PageViews,
   RedirectRules,
   SearchHit,
   SiteSearch,
@@ -106,9 +109,13 @@ const _page = (event: DomainEvent): readonly string[] => {
   ];
 };
 
+// Стиль любого шаблона и компонента может сменить хэш общего файла стилей — у всех страниц с ним.
 const _element = (event: DomainEvent): readonly string[] => {
   const { kind, name } = event as DesignEvent;
-  return [`element:${kind}/${name}`];
+  return [
+    `element:${kind}/${name}`,
+    ...(kind === 'script' ? [] : [STYLES_TAG]),
+  ];
 };
 
 // null — сбросить всё: настройки и описания полей видны на любой странице.
@@ -138,6 +145,8 @@ const _TAGS: Readonly<
   'forms.submission_received': () => [],
   'forms.submission_changed': () => [],
   'forms.submission_removed': () => [],
+  // Маячок целей стоит в каждой странице: сменились настройки статистики — собрать все заново.
+  'stats.settings_changed': () => null,
   _: () => null,
 };
 
@@ -163,6 +172,8 @@ export var defineDelivery = ({
   modules,
   redirects,
   editBar,
+  pageViews,
+  beacon,
 }: {
   content: PublishedContent;
   settings: () => SiteSettings;
@@ -179,6 +190,10 @@ export var defineDelivery = ({
   redirects?: RedirectRules;
   /** Полоса правки на сайте для вошедших в менеджер. */
   editBar?: EditBar;
+  /** Просмотры страниц — статистике. */
+  pageViews?: PageViews;
+  /** Маячок целей статистики перед `</body>`. */
+  beacon?: () => string;
 }) => {
   const cache = defineMemoryPageCache(
     () => settings().pageCacheMb * 1024 * 1024
@@ -197,6 +212,7 @@ export var defineDelivery = ({
     report,
     modules,
     redirects,
+    beacon,
   });
   // Успешные ответы страниц по кэшу — с запуска или с ручного сброса: видно, работает ли кэш. 404 от
   // ботов, перебирающих адреса, долю не портят.
@@ -241,7 +257,8 @@ export var defineDelivery = ({
       defineCompressionCache(),
       discovery,
       report,
-      editBar
+      editBar,
+      pageViews
     ),
     /** Кэш страниц в настройках: заполненность и ручной сброс — с ним и карта сайта. */
     cache: {

@@ -7,6 +7,7 @@ import blocks from 'lucide-static/icons/blocks.svg?raw';
 import bold from 'lucide-static/icons/bold.svg?raw';
 import calendar from 'lucide-static/icons/calendar.svg?raw';
 import calendarClock from 'lucide-static/icons/calendar-clock.svg?raw';
+import chartColumn from 'lucide-static/icons/chart-column.svg?raw';
 import check from 'lucide-static/icons/check.svg?raw';
 import chevronDown from 'lucide-static/icons/chevron-down.svg?raw';
 import chevronLeft from 'lucide-static/icons/chevron-left.svg?raw';
@@ -114,6 +115,7 @@ export var icons = {
   bold: _icon(bold),
   calendar: _icon(calendar),
   calendarClock: _icon(calendarClock),
+  chart: _icon(chartColumn),
   check: _icon(check),
   checks: _icon(listChecks),
   chevron: _icon(chevronRight),

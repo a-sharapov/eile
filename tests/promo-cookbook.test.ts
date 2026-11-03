@@ -12,10 +12,22 @@ let app: App;
 
 afterEach(() => app.close());
 
+const get = (path: string) => app.fetch(new Request(`http://localhost${path}`));
+
+// Страница, как её получает браузер: HTML и файлы стилей по ссылкам из head (ADR 0047).
 const html = (path: string) =>
-  app
-    .fetch(new Request(`http://localhost${path}`))
-    .then((_) => _.text().then((text) => ({ status: _.status, text })));
+  get(path).then((_) =>
+    _.text().then((page) =>
+      Promise.all(
+        [...page.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)].map(
+          (link) => get(link[1]!).then((css) => css.text())
+        )
+      ).then((styles) => ({
+        status: _.status,
+        text: [page, ...styles].join('\n'),
+      }))
+    )
+  );
 
 const walk = (chapters: readonly Chapter[], scaffold: Scaffold) => {
   app = createApp({ scaffold });

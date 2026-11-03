@@ -47,6 +47,28 @@ export type Options = {
   readonly follow?: boolean;
   /** `cms update --no-restart`: не перезапускать службу systemd. */
   readonly noRestart?: boolean;
+  /** `CMS_RELEASES_URL`: свой адрес API релизов вместо GitHub, как есть, без проверки. */
+  readonly releasesUrl?: string;
+  /** `CMS_RELEASES_INSECURE=1`: ленте и файлам релиза можно и по http не на этой машине. */
+  readonly releasesInsecure?: boolean;
+  /** `cms diagnose redirects --base <адрес>`: проверять живой сайт по сети, а не базу. */
+  readonly base?: string;
+  /** `cms backup|restore --server`: файл настроек сервера, а не копия сайта. */
+  readonly server?: boolean;
+  /** `cms backup|restore --remote`: копия в хранилище S3. */
+  readonly remote?: boolean;
+  /** Хранилище для `--remote`: флаг или S3_ENDPOINT, S3_REGION, S3_BUCKET, CMS_S3_PREFIX, S3_ACCESS_KEY_ID. */
+  readonly endpoint?: string;
+  readonly region?: string;
+  readonly bucket?: string;
+  readonly prefix?: string;
+  readonly accessKey?: string;
+  /** Секрет ключа доступа — только из окружения S3_SECRET_ACCESS_KEY: флаг остался бы в истории команд. */
+  readonly secretKey?: string;
+  /** Пароль файла настроек — из CMS_SETTINGS_PASSPHRASE, для скриптов. */
+  readonly passphrase?: string;
+  /** Ключ восстановления копий — из CMS_RECOVERY_KEY, для скриптов. */
+  readonly recoveryKey?: string;
 };
 
 /** Разобранная строка вызова: команда, её аргументы и параметры; или ошибка для человека. */
@@ -84,6 +106,14 @@ const _OPTIONS = {
   force: { type: 'boolean' },
   follow: { type: 'boolean', short: 'f' },
   'no-restart': { type: 'boolean' },
+  base: { type: 'string' },
+  server: { type: 'boolean' },
+  remote: { type: 'boolean' },
+  endpoint: { type: 'string' },
+  region: { type: 'string' },
+  bucket: { type: 'string' },
+  prefix: { type: 'string' },
+  'access-key': { type: 'string' },
 } as const;
 
 // parseArgs говорит длинно: «Unknown option '--prot'…» — самое частое говорим коротко и на языке CLI.
@@ -107,6 +137,28 @@ const _message = (error: unknown, language: Language): string =>
           ? _SAY[language].missing(text.match(/'(-[^']+)'/)?.[1] ?? '')
           : text)(text.match(/Unknown option '([^']+)'/)))(
     error instanceof Error ? error.message : String(error)
+  );
+
+// Хранилище и секреты для --remote и --server: флаг сильнее окружения, секреты — только из окружения.
+const _storage = (
+  values: Readonly<Record<string, unknown>>,
+  env: Env
+): Partial<Options> =>
+  Object.fromEntries(
+    (
+      [
+        ['endpoint', values.endpoint, env.S3_ENDPOINT],
+        ['region', values.region, env.S3_REGION],
+        ['bucket', values.bucket, env.S3_BUCKET],
+        ['prefix', values.prefix, env.CMS_S3_PREFIX],
+        ['accessKey', values['access-key'], env.S3_ACCESS_KEY_ID],
+        ['secretKey', undefined, env.S3_SECRET_ACCESS_KEY],
+        ['passphrase', undefined, env.CMS_SETTINGS_PASSPHRASE],
+        ['recoveryKey', undefined, env.CMS_RECOVERY_KEY],
+      ] as const
+    )
+      .map(({ 0: key, 1: flag, 2: fromEnv }) => [key, flag ?? fromEnv] as const)
+      .filter(({ 1: value }) => typeof value === 'string' && value !== '')
   );
 
 const _parse = (argv: readonly string[]) =>
@@ -152,6 +204,16 @@ export var parseInvocation = (argv: readonly string[], env: Env): Invocation =>
             ...(parsed.values.force ? { force: true } : {}),
             ...(parsed.values.follow ? { follow: true } : {}),
             ...(parsed.values['no-restart'] ? { noRestart: true } : {}),
+            ...(parsed.values.base ? { base: parsed.values.base } : {}),
+            ...(env.CMS_RELEASES_URL
+              ? { releasesUrl: env.CMS_RELEASES_URL }
+              : {}),
+            ...(env.CMS_RELEASES_INSECURE === '1'
+              ? { releasesInsecure: true }
+              : {}),
+            ...(parsed.values.server ? { server: true } : {}),
+            ...(parsed.values.remote ? { remote: true } : {}),
+            ..._storage(parsed.values, env),
             ...(env.CMS_ACME_DIRECTORY
               ? { acmeDirectory: env.CMS_ACME_DIRECTORY }
               : {}),

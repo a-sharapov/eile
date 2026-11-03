@@ -205,8 +205,9 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
     <h3>Upload files</h3>
     <p>
       Drag files anywhere onto the <a href={resolve('/(app)/media')}>media library</a> or click the upload strip. The folder is next
-      to the strip, and the manager remembers it. Images automatically get smaller size variants (480, 960 and 1920 pixels): the site serves
-      each screen the one that fits. If a file with that name already exists, the manager asks whether to replace it.
+      to the strip, and the manager remembers it. The server makes smaller copies of JPEG, PNG and WebP images by itself (480, 960 and 1920
+      pixels, never wider than the original), a few seconds after the upload: the site serves each screen the one that fits. Uploads from
+      agents and the API get them too. If a file with that name already exists, the manager asks whether to replace it.
     </p>
   </section>
   <section id="media-card" data-topic hidden={!shown('media-card')}>
@@ -288,6 +289,31 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
       </p>
     </section>
   {/if}
+
+  <!-- Статистика -->
+  <h2 id="stats" hidden={!chapterShown('stats')}>Statistics</h2>
+  <section id="stats-read" data-topic hidden={!shown('stats-read')}>
+    <h3>Reading the statistics</h3>
+    <p>
+      <a href={resolve('/(app)/stats')}>Statistics</a> in the top menu shows visitors and page views for 7, 30 or 90 days or your own
+      dates, plus pages, sources, entry pages, devices and languages. The server counts by itself, without cookies: signed-in
+      managers, bots and prefetching are not counted. A visitor is unique within a day: someone who came on three days counts
+      three times. The source is the utm_source tag, otherwise the website the visitor came from; empty means a direct visit.
+    </p>
+  </section>
+  <section id="stats-goals" data-topic hidden={!shown('stats-goals')}>
+    <h3>Goals and conversion rate</h3>
+    <p>
+      A goal is an accepted submission of any form (spam excluded) or a click on a goal link. The conversion rate is the share of
+      the day’s visitors with that source or entry page who reached the goal.
+    </p>
+    {#if admin}
+      <p>
+        Turn counting on and set goal links and the beacon in <a href={`${resolve('/(app)/settings')}?tab=stats`}>Settings → Statistics</a>;
+        a sample paragraph for the site’s privacy policy is there too.
+      </p>
+    {/if}
+  </section>
 
   <!-- Быстрая работа -->
   <h2 id="speed" hidden={!chapterShown('speed')}>Working faster</h2>
@@ -506,6 +532,18 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         are deleted automatically. If a backup fails, you’ll get a failure notification.
       </p>
       <p>
+        <strong>Backups off the server</strong> are set up there too: the S3 storage address (DigitalOcean Spaces, Backblaze B2,
+        Hetzner, MinIO, AWS), the bucket and the access key. Every backup is encrypted on the server and sent to the storage, which keeps
+        the latest ones. When you first turn it on, the manager shows a <strong>recovery key</strong> once: save it. It opens a backup
+        from storage on a new server (<code>cms restore --remote latest</code>) when this one is gone. A backup sealed with this
+        server’s key can also be restored under “Backups”.
+      </p>
+      <p>
+        The mail password, the Telegram bot, the mail gateway, the storage and the AI key belong to the server, not the site: they are
+        not in a backup. A passphrase-protected settings file moves them to a new server: <code>cms backup --server</code> here and
+        <code>cms restore --server</code> there. “Database file” on the same tab shows how much of the database is free and compacts it.
+      </p>
+      <p>
         There’s also an <strong>update check</strong>: once a day the server asks the releases page whether there’s a new version, and
         it shows up in the profile menu. To update, run <code>cms update</code> on the server and restart it.
       </p>
@@ -516,7 +554,9 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
       <ul>
         <li><code>cms help</code> — all commands with examples;</li>
         <li><code>cms backup</code> — a backup of the whole site in one file, <code>cms backup site.json</code> — as records in JSON;</li>
-        <li><code>cms restore file</code> — restore the site from a backup;</li>
+        <li><code>cms restore file</code> — restore the site from a backup, <code>cms restore --remote latest</code> — from S3 storage;</li>
+        <li><code>cms backup --server</code> and <code>cms restore --server file</code> — move the server settings to a new machine;</li>
+        <li><code>cms compact</code> — compact the database and give its free pages back to the disk;</li>
         <li><code>cms update</code> — update the program to a new version, <code>--check</code> — only check for one;</li>
         <li><code>cms elements pull folder</code> — templates, components, scripts, plugins, forms and fields as files, with an AGENTS.md guide for AI agents; <code>cms elements push folder</code> — back to the site;</li>
         <li><code>cms mcp</code> — an MCP server for an agent on this server, <code>cms diagnose</code> — the site diagnostics in the terminal;</li>

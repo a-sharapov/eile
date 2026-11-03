@@ -50,6 +50,38 @@ it('сервер видит то, что записал в базу другой
   }
 });
 
+it('стиль, записанный другим процессом (cms elements push), — новый файл стилей без перезапуска', async () => {
+  const path = join(dir, 'styles.db');
+  const server = createApp({ databasePath: path, scaffold: DEMO });
+  const cli = createApp({ databasePath: path });
+  const sheet = (html: string) =>
+    /<link rel="stylesheet" href="(\/_cms\/styles\/site\.[a-z0-9]+\.css)">/.exec(
+      html
+    )![1]!;
+  try {
+    const before = sheet(
+      await server.fetch(new Request('http://localhost/')).then(html)
+    );
+    const header = cli.design.elements.get('component', 'Header')!.source;
+    cli.design.components.save(
+      'Header',
+      header.replace('padding: 1rem;', 'padding: 1rem; color: teal;')
+    );
+    const after = sheet(
+      await server.fetch(new Request('http://localhost/')).then(html)
+    );
+    expect(after).not.toBe(before);
+    expect(
+      await server
+        .fetch(new Request(`http://localhost${after}`))
+        .then((_) => _.text())
+    ).toContain('color:teal');
+  } finally {
+    cli.close();
+    server.close();
+  }
+});
+
 it('пока нет пользователей, ссылка настройки из журнала сервера переживает чужую запись', () => {
   const path = join(dir, 'fresh.db');
   const server = createApp({ databasePath: path, scaffold: WELCOME });

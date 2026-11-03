@@ -6,8 +6,15 @@ import { defineLoad } from '#lib/loading.svelte.ts';
 import { fileSize } from '#lib/media.ts';
 import { failed, notify } from '#lib/notices.svelte.ts';
 import { session } from '#lib/session.svelte.ts';
-import type { BackupSchedule, UpdateStatus, UpkeepStatus } from '#lib/types.ts';
+import type {
+  BackupSchedule,
+  DatabaseStatus,
+  OffsiteStatus,
+  UpdateStatus,
+  UpkeepStatus,
+} from '#lib/types.ts';
 import LoadState from '#lib/ui/LoadState.svelte';
+import OffsiteSettings from './OffsiteSettings.svelte';
 
 let status = $state<UpkeepStatus | null>(null);
 let schedule = $state<BackupSchedule>({
@@ -20,6 +27,7 @@ let schedule = $state<BackupSchedule>({
 let busy = $state(false);
 let running = $state(false);
 let checking = $state(false);
+let compacting = $state(false);
 
 const accept = (next: UpkeepStatus): void => {
   status = next;
@@ -64,14 +72,45 @@ const save = (event: SubmitEvent) => (
       .finally(() => (busy = false)))
 );
 
+// После копии — весь статус заново: отправка в хранилище и размер базы тоже поменялись.
 const runNow = () =>
   running ||
   ((running = true),
   api
     .send<UpkeepStatus['backups']>('POST', '/upkeep/backups/run')
     .then((_) => (acceptBackups(_), notify(t('upkeep.done'))))
-    .then(undefined, (error) => loading.retry().then(() => failed(error)))
+    .then(
+      () => loading.retry(),
+      (error) => loading.retry().then(() => failed(error))
+    )
     .finally(() => (running = false)));
+
+const acceptOffsite = (offsite: OffsiteStatus): void =>
+  void (status && (status = { ...status, offsite }));
+
+const _share = (database: DatabaseStatus): number =>
+  database.size === 0 ? 0 : Math.round((database.free / database.size) * 100);
+
+const compactNow = () =>
+  compacting ||
+  ((compacting = true),
+  api
+    .send<DatabaseStatus>('POST', '/upkeep/compact')
+    .then(
+      (database) => (
+        status && (status = { ...status, database }),
+        notify(
+          database.compacted
+            ? t('database.done', {
+                before: _size(database.compacted.before),
+                after: _size(database.compacted.after),
+              })
+            : t('database.nothing')
+        )
+      )
+    )
+    .then(undefined, failed)
+    .finally(() => (compacting = false)));
 
 const toggleUpdates = (enabled: boolean) =>
   api
@@ -159,6 +198,36 @@ const checkNow = () =>
       </div>
     </section>
   </form>
+
+  <OffsiteSettings status={status.offsite} scheduled={status.backups.schedule.enabled} onstatus={acceptOffsite} />
+
+  <section class="form-section">
+    <header>
+      <h2>{t('database.title')}</h2>
+      <p>{t('database.hint')}</p>
+    </header>
+    <div class="fields">
+      <dl class="facts">
+        <dt>{t('database.size')}</dt>
+        <dd>{_size(status.database.size)}</dd>
+        <dt>{t('database.free')}</dt>
+        <dd>{t('database.freeValue', { size: _size(status.database.free), share: String(_share(status.database)) })}</dd>
+        <dt>{t('database.compacted')}</dt>
+        <dd>
+          {#if status.database.compacted}
+            {t('database.compactedValue', { when: ago(status.database.compacted.at), before: _size(status.database.compacted.before), after: _size(status.database.compacted.after) })}
+          {:else}
+            <span class="muted">{t('database.never')}</span>
+          {/if}
+        </dd>
+      </dl>
+      {#if status.database.free > 0}
+        <div class="row">
+          <button type="button" class="button" aria-disabled={compacting} onclick={compactNow}>{t(compacting ? 'database.compacting' : 'database.compact')}</button>
+        </div>
+      {/if}
+    </div>
+  </section>
 
   <section class="form-section">
     <header>

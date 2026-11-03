@@ -425,3 +425,17 @@ export var defineSecret = (db: Database): (() => string) => {
       ),
       get.get()!.value));
 };
+
+/** Секрет печатей для файла настроек сервера: прочитать сохранённый и заменить на привезённый. */
+export var defineSecretStore = (db: Database) => {
+  const get = db.query<{ value: string }, []>(
+    'SELECT value FROM forms_secret WHERE id = 1'
+  );
+  const put = db.query(
+    'INSERT INTO forms_secret (id, value) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET value = excluded.value'
+  );
+  return {
+    read: (): string | null => get.get()?.value ?? null,
+    write: (value: string): void => void put.run(value),
+  };
+};

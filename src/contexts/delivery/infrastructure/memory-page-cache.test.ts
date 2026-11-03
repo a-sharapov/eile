@@ -7,6 +7,7 @@ const page = (tag: string): CachedPage => ({
   content: { html: 'x'.repeat(100) },
   contentType: 'text/html',
   pageId: 1,
+  language: 'ru',
   tags: new Set([tag]),
 });
 

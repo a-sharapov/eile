@@ -24,6 +24,14 @@ const get = (path: string) => app.fetch(new Request(`http://localhost${path}`));
 const islandOf = (html: string) =>
   /<cms-island data-module="([^"]+)" data-props="([^"]+)"/.exec(html);
 
+// Стили страницы — в файлах по ссылкам из head (ADR 0047).
+const stylesOf = (html: string): Promise<string> =>
+  Promise.all(
+    [...html.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)].map((_) =>
+      get(_[1]!).then((response) => response.text())
+    )
+  ).then((_) => _.join('\n'));
+
 describe('острова', () => {
   it('страница несёт серверный HTML острова, props и один загрузчик', async () => {
     const html = await (await get('/kontakty')).text();
@@ -34,7 +42,31 @@ describe('острова', () => {
       /<!--\[-->\s*<button class="counter svelte-[a-z0-9]+">2<\/button>/
     );
     expect(html.match(/<script type="module">/g)?.length).toBe(1);
-    expect(html).toContain('.counter.svelte-');
+    expect(html).not.toContain('<style');
+    expect(await stylesOf(html)).toContain('.counter.svelte-');
+  });
+
+  it('гидрация стилей не вставляет: модуль без CSS, класс области тот же, что в HTML', async () => {
+    const html = await (await get('/kontakty')).text();
+    const scope = /<button class="counter (svelte-[a-z0-9]+)">/.exec(html)![1]!;
+    const code = await (await get(islandOf(html)![1]!)).text();
+    expect(code).toContain(scope);
+    expect(code).not.toContain('append_styles');
+    expect(code).not.toContain('color: red');
+  });
+
+  it('остров с css="injected": стиль остаётся в странице, браузер второй раз его не вставит', async () => {
+    app.design.components.save(
+      'Counter',
+      `<svelte:options css="injected" />${COUNTER}`
+    );
+    const html = await (await get('/kontakty')).text();
+    const scope = /<button class="counter (svelte-[a-z0-9]+)">/.exec(html)![1]!;
+    expect(html).toContain(`<style id="${scope}">`);
+    // В браузере Svelte вставляет стиль, только если `#${scope}` в head ещё нет.
+    const code = await (await get(islandOf(html)![1]!)).text();
+    expect(code).toContain('append_styles');
+    expect(code).toContain(`'${scope}'`);
   });
 
   it('модуль острова ссылается на рантайм, оба кэшируются навсегда', async () => {
@@ -158,6 +190,41 @@ describe('остров в некэшируемом регионе', () => {
     expect(first.replace(fragment, '')).toBe(second.replace(fragment, ''));
   });
 
+  it('страница с регионом из кэша сжимается на каждый запрос заново: ответы разные, каждый читается', async () => {
+    const compressed = (cookie: string) =>
+      app.fetch(
+        new Request('http://localhost/kontakty', {
+          headers: { cookie, 'accept-encoding': 'br' },
+        })
+      );
+    await compressed('partner=warmup');
+    const answers = await Promise.all(
+      ['partner=kuechenly', 'partner=other', 'partner=kuechenly'].map(
+        compressed
+      )
+    );
+    for (const _ of answers) {
+      expect(_.headers.get('x-cache')).toBe('hit');
+      expect(_.headers.get('content-encoding')).toBe('br');
+    }
+    const bodies = await Promise.all(
+      answers.map((_) =>
+        _.arrayBuffer().then((bytes) =>
+          brotliDecompressSync(new Uint8Array(bytes)).toString()
+        )
+      )
+    );
+    expect(bodies[0]).toContain('90 kuechenly');
+    expect(bodies[1]).not.toContain('kuechenly');
+    expect(bodies[2]).toContain('90 kuechenly');
+    expect(answers[0]!.headers.get('etag')).toBe(
+      answers[2]!.headers.get('etag')
+    );
+    expect(answers[0]!.headers.get('etag')).not.toBe(
+      answers[1]!.headers.get('etag')
+    );
+  });
+
   it('в кэш попадает только место региона: страница из кэша без props прошлого запроса', async () => {
     await visit('partner=kuechenly');
     const cached = await visit();
@@ -177,7 +244,7 @@ describe('остров в некэшируемом регионе', () => {
     expect(html).toMatch(
       /<cms-island [^>]+><!--\[-->\s*<p class="price svelte-[a-z0-9]+">/
     );
-    expect(html).toContain('.price.svelte-');
+    expect(await stylesOf(html)).toContain('.price.svelte-');
     expect(html.match(/<script type="module">/g)?.length).toBe(1);
     expect((await get(island[1]!)).status).toBe(200);
   });

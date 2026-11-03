@@ -1,4 +1,5 @@
-import type { Archive } from '../../../platform/archive.ts';
+import { rmSync } from 'node:fs';
+import { type Archive, tempPath } from '../../../platform/archive.ts';
 import {
   type BodyBytes,
   bytesOf,
@@ -69,6 +70,7 @@ import {
 } from '../../notify/index.ts';
 import type { RedirectsService } from '../../redirects/index.ts';
 import type { SiteService, SiteSettings } from '../../site/index.ts';
+import type { StatsService } from '../../stats/index.ts';
 import type { UpkeepService } from '../../upkeep/index.ts';
 import type { ActivityLog, PageAction } from '../domain/activity.ts';
 import {
@@ -86,6 +88,11 @@ export type SiteBackup = {
   readonly database: () => Promise<Uint8Array>;
   readonly archive: () => Archive;
   readonly restore: (bytes: Uint8Array) => Promise<{
+    readonly pages: number;
+    readonly savedTo: string | null;
+  }>;
+  /** Восстановить из временного файла .db; файл после удаляется. */
+  readonly restoreFile: (path: string) => Promise<{
     readonly pages: number;
     readonly savedTo: string | null;
   }>;
@@ -117,11 +124,16 @@ export type ManagerServices = {
     readonly clear: () => PageCacheStats;
   };
   /** Автокопии по расписанию и проверка обновлений. */
-  readonly upkeep: Pick<UpkeepService, 'backups' | 'updates'>;
+  readonly upkeep: Pick<
+    UpkeepService,
+    'backups' | 'updates' | 'offsite' | 'database'
+  >;
   /** Сертификат HTTPS, если его выпускает сам сервер; null — HTTPS не его забота. */
   readonly https: () => HttpsStatus | null;
   /** Правила переадресации сайта. */
   readonly redirects: RedirectsService;
+  /** Статистика посещений: отчёт и настройки счёта. */
+  readonly stats: Pick<StatsService, 'report' | 'settings'>;
   /** Диагностика сайта на языке менеджера; `again` — посчитать заново. */
   readonly diagnostics: {
     readonly report: (
@@ -223,6 +235,16 @@ const _STATUS: Readonly<Record<string, number>> = {
   // Обслуживание: копия уже делается — конфликт; страница релизов не ответила — шлюз.
   backup_running: 409,
   releases_unavailable: 502,
+  // Хранилище копий: не настроено или ключ не тот — конфликт; хранилище отказало — шлюз.
+  offsite_not_configured: 409,
+  offsite_other_key: 409,
+  offsite_denied: 502,
+  offsite_no_bucket: 502,
+  offsite_unreachable: 502,
+  offsite_failed: 502,
+  offsite_timeout: 504,
+  offsite_not_found: 404,
+  no_disk_space: 507,
   _: 422,
 };
 
@@ -442,6 +464,10 @@ const _SESSION_ONLY: ReadonlySet<string> = new Set([
   'DELETE /users/:id',
   'GET /backup',
   'POST /backup',
+  // Секрет хранилища, ключ восстановления и восстановление сайта из хранилища — как копия сайта.
+  'PUT /upkeep/offsite',
+  'POST /upkeep/offsite/key',
+  'POST /upkeep/offsite/restore',
 ]);
 
 export var sessionToken = (request: Request): string | null =>
@@ -543,6 +569,7 @@ const _routes = (
     https,
     redirects,
     diagnostics,
+    stats,
     version,
   }: ApiServices,
   toolbox: Toolbox
@@ -1719,7 +1746,61 @@ const _routes = (
         _json(200, {
           backups: upkeep.backups.status(),
           updates: upkeep.updates.status(),
+          offsite: upkeep.offsite.status(),
+          database: upkeep.database.status(),
         }),
+    ],
+    [
+      'PUT',
+      '/upkeep/offsite',
+      'site.edit',
+      ({ body }) =>
+        body().then((_) => _json(200, upkeep.offsite.configure(_ ?? {}))),
+    ],
+    [
+      'POST',
+      '/upkeep/offsite/check',
+      'site.edit',
+      ({ body }) =>
+        body()
+          .then((_) => upkeep.offsite.check(_ ?? {}))
+          .then(() => _json(200, { ok: true })),
+    ],
+    [
+      'POST',
+      '/upkeep/offsite/key',
+      'site.edit',
+      () => _json(200, upkeep.offsite.rotate()),
+    ],
+    [
+      'GET',
+      '/upkeep/offsite/copies',
+      'site.edit',
+      () => upkeep.offsite.copies().then((_) => _json(200, { copies: _ })),
+    ],
+    [
+      'POST',
+      '/upkeep/offsite/restore',
+      'site.edit',
+      ({ body }) =>
+        body().then((_) =>
+          ((temp) =>
+            upkeep.offsite
+              .fetch(String(_?.name ?? ''), temp)
+              .then(
+                () => backup.restoreFile(temp),
+                (error) => (
+                  rmSync(temp, { force: true }), Promise.reject(error)
+                )
+              )
+              .then((report) => _json(200, report)))(tempPath())
+        ),
+    ],
+    [
+      'POST',
+      '/upkeep/compact',
+      'site.edit',
+      () => (upkeep.database.compact(), _json(200, upkeep.database.status())),
     ],
     [
       'PUT',
@@ -1753,6 +1834,36 @@ const _routes = (
       () => upkeep.updates.check().then((_) => _json(200, _)),
     ],
     ['GET', '/cache', 'site.edit', () => _json(200, pageCache.stats())],
+    // Отчёт статистики: последние дни (days) или свои даты (from, to), строк в разрезе — limit.
+    [
+      'GET',
+      '/stats',
+      'stats.read',
+      ({ request }) =>
+        ((params) =>
+          _json(
+            200,
+            stats.report({
+              days: params.get('days') ?? undefined,
+              from: params.get('from') ?? undefined,
+              to: params.get('to') ?? undefined,
+              limit: params.get('limit') ?? undefined,
+            })
+          ))(searchOf(request)),
+    ],
+    [
+      'GET',
+      '/stats/settings',
+      'site.edit',
+      () => _json(200, stats.settings.get()),
+    ],
+    [
+      'PUT',
+      '/stats/settings',
+      'site.edit',
+      ({ body }) =>
+        body().then((_) => _json(200, stats.settings.save(_ ?? {}))),
+    ],
     [
       'GET',
       '/diagnostics',
