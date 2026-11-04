@@ -112,7 +112,9 @@ describe('посещение', () => {
       'google.de'
     );
     expect(
-      referrerHost('https://kuechenly.de/ratgeber', ['www.kuechenly.de'])
+      referrerHost('https://muehlenhof.example/ratgeber', [
+        'www.muehlenhof.example',
+      ])
     ).toBe('');
     expect(referrerHost('android-app://com.google.android.gm/', [])).toBe(
       'com.google.android.gm'
@@ -158,7 +160,7 @@ describe('посещение', () => {
   it('известные сервисы — под одним именем, хост реферера остаётся как есть', () => {
     const from = (referer: string, query = '') =>
       visitOf(browser({ referer }), new URLSearchParams(query), '/', [
-        'kuechenly.de',
+        'muehlenhof.example',
       ]);
     expect(from('https://www.google.de/').source).toBe('Google');
     expect(from('https://www.google.com/search?q=k').source).toBe('Google');
@@ -180,7 +182,9 @@ describe('посещение', () => {
   it('источник — utm_source, иначе реферер; пусто — прямой заход', () => {
     const header = browser({ referer: 'https://www.instagram.com/' });
     expect(
-      visitOf(header, new URLSearchParams(), '/kuechenplaner', ['kuechenly.de'])
+      visitOf(header, new URLSearchParams(), '/kuechenplaner', [
+        'muehlenhof.example',
+      ])
     ).toEqual({
       entry: '/kuechenplaner',
       source: 'Instagram',

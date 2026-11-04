@@ -1,6 +1,8 @@
 import breadcrumbs from './Breadcrumbs.svelte' with { type: 'text' };
 import { KIT_DE } from './de.ts';
 import { KIT_EN } from './en.ts';
+import figure from './Figure.svelte' with { type: 'text' };
+import gallery from './Gallery.svelte' with { type: 'text' };
 import menu from './Menu.svelte' with { type: 'text' };
 import menuKeys from './MenuKeys.svelte' with { type: 'text' };
 import modal from './Modal.svelte' with { type: 'text' };
@@ -12,6 +14,7 @@ import postMeta from './PostMeta.svelte' with { type: 'text' };
 import searchForm from './SearchForm.svelte' with { type: 'text' };
 import searchResults from './SearchResults.svelte' with { type: 'text' };
 import { russian, translated } from './translated.ts';
+import video from './Video.svelte' with { type: 'text' };
 
 /** Компонент набора: исходник и что ставится вместе с ним. */
 export type KitEntry = {
@@ -41,6 +44,9 @@ export var KIT: readonly KitEntry[] = [
   { name: 'ModalLinks', source: _text(modalLinks), requires: [] },
   { name: 'Modal', source: _text(modal), requires: ['ModalLinks'] },
   { name: 'ModalButton', source: _text(modalButton), requires: ['ModalLinks'] },
+  { name: 'Figure', source: _text(figure), requires: [] },
+  { name: 'Gallery', source: _text(gallery), requires: [] },
+  { name: 'Video', source: _text(video), requires: [] },
 ];
 
 /** Набор по-английски: исходники с переводом подписей, описаний и комментариев. */

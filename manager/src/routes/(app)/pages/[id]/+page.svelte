@@ -43,6 +43,7 @@ import EdgeState from '#lib/ui/EdgeState.svelte';
 import LoadState from '#lib/ui/LoadState.svelte';
 import MediaField from '#lib/ui/MediaField.svelte';
 import PageHeader from '#lib/ui/PageHeader.svelte';
+import ShareLinksDialog from '#lib/ui/ShareLinksDialog.svelte';
 import Tabs from '#lib/ui/Tabs.svelte';
 import TextBlock from '#lib/ui/TextBlock.svelte';
 import { firstInvalid } from '#lib/validity.ts';
@@ -543,6 +544,8 @@ const publish = () =>
     : act('publish');
 
 let moreActions = $state<HTMLDetailsElement>();
+// Ссылка предпросмотра черновика для клиента без входа в менеджер (ADR 0054).
+let shareOpen = $state(false);
 const closeMore = () => void (moreActions && (moreActions.open = false));
 
 // Меню «…» ведёт себя как меню: Escape и щелчок мимо закрывают его, фокус — на кнопку «…».
@@ -774,6 +777,9 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
 {#snippet headerActions()}
   {#if !creating}
     <a class="button icon tool" href={api.previewUrl(id)} target="_blank" rel="noopener" aria-label={dirty ? t('page.previewSaved') : t('page.preview')} title={dirty ? t('page.previewSaved') : t('page.preview')}>{@html icons.eye}</a>
+    {#if !trashed && details && !details.page.published}
+      <button type="button" class="icon share secondary tool" aria-label={t('shareLinks.open')} title={t('shareLinks.open')} onclick={() => (shareOpen = true)}>{@html icons.share}</button>
+    {/if}
   {/if}
   {#if trashedSection}
     <a class="button" href={resolve('/(app)/pages/[id]', { id: String(trashedSection.id) })}>{@html icons.restore}{t('page.toSection')}</a>
@@ -791,6 +797,9 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
         <summary class="button icon tool" aria-label={t('page.moreActions')} title={t('page.moreActions')}>{@html icons.more}</summary>
         <div class="more-menu" role="group" aria-label={t('page.moreActions')}>
           <a href={`${resolve('/(app)/pages/[id]', { id: 'new' })}?parent=${pageId}`} onclick={closeMore}>{@html icons.filePlus}{t('pages.newChild')}</a>
+          {#if details && !details.page.published}
+            <button type="button" onclick={() => (closeMore(), (shareOpen = true))}>{@html icons.share}{t('shareLinks.open')}</button>
+          {/if}
           <button type="button" disabled={busy || dirty} title={dirty ? t('page.duplicateSaveFirst') : undefined} onclick={() => (closeMore(), node && duplicatePage(node))}>{@html icons.copy}{t('tree.duplicate')}</button>
           <button type="button" class="danger" disabled={busy} onclick={() => (closeMore(), trash())}>{@html icons.trash}{t('page.toTrash')}</button>
         </div>
@@ -1216,6 +1225,9 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
       />
     </div>
   </form>
+  {#if !creating && details && !details.page.published}
+    <ShareLinksDialog bind:open={shareOpen} page={pageId} title={details.page.title} />
+  {/if}
 {:else}
   <p class="muted">{t('common.loading')}</p>
 {/if}
@@ -1820,7 +1832,7 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
     }
 
     /* Вложенную страницу, копию и корзину на телефоне делают из меню дерева: в строке остаётся главное. */
-    form :global(.page-bar .actions :is(.child, .duplicate, [data-act='trash'])) {
+    form :global(.page-bar .actions :is(.child, .duplicate, .share, [data-act='trash'])) {
       display: none;
     }
 

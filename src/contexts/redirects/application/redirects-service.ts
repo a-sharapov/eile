@@ -4,8 +4,10 @@ import { pipe } from '../../../shared/kernel/pipe.ts';
 import { parseCsv, rulesToCsv } from '../domain/csv.ts';
 import type { RuleRepository, SitePages } from '../domain/ports.ts';
 import {
+  growingIndex,
   indexRules,
   isExternal,
+  matchQuery,
   matchRule,
   pageTarget,
   parseRule,
@@ -38,6 +40,16 @@ export type ImportReport = {
   }[];
 };
 
+/** Итог пачки новых правил: сколько создано и какие пропущены — с адресом и причиной. */
+export type BatchReport = {
+  readonly created: number;
+  readonly skipped: {
+    readonly from: string;
+    readonly code: string;
+    readonly message: string;
+  }[];
+};
+
 export type Clock = () => Date;
 
 const _changed: RedirectsEvent = { type: 'redirects.rules_changed' };
@@ -58,29 +70,33 @@ export var defineRedirectsService = ({
   const now = (): string => clock().toISOString();
 
   // Цель — страница сайта: её нет или она в корзине — правило вело бы в 404.
-  const refuseMissingPage = (draft: RuleDraft): RuleDraft =>
-    ((id) =>
-      id === null
-        ? draft
-        : ((page) =>
-            page && !page.trashed
-              ? draft
-              : fail(
-                  'redirects.page_not_found',
-                  `No page ${id} for ${draft.to}`
-                ))(pages.page(id)))(pageTarget(draft.to));
+  const refuseMissingPage =
+    (site: SitePages) =>
+    (draft: RuleDraft): RuleDraft =>
+      ((id) =>
+        id === null
+          ? draft
+          : ((page) =>
+              page && !page.trashed
+                ? draft
+                : fail(
+                    'redirects.page_not_found',
+                    `No page ${id} for ${draft.to}`
+                  ))(site.page(id)))(pageTarget(draft.to));
 
   // Старый адрес страницы уже ведёт на её новый адрес: цель через него — ещё одна переадресация.
-  const refuseOldAddress = (draft: RuleDraft): RuleDraft =>
-    !isExternal(draft.to) &&
-    pageTarget(draft.to) === null &&
-    !draft.to.endsWith('*') &&
-    pages.movedFrom(draft.to.replace(/[?#].*$/, '')) !== null
-      ? fail(
-          'redirects.chain',
-          `${draft.to} is an old page address: point to the page itself`
-        )
-      : draft;
+  const refuseOldAddress =
+    (site: SitePages) =>
+    (draft: RuleDraft): RuleDraft =>
+      !isExternal(draft.to) &&
+      pageTarget(draft.to) === null &&
+      !draft.to.endsWith('*') &&
+      site.movedFrom(draft.to.replace(/[?#].*$/, '')) !== null
+        ? fail(
+            'redirects.chain',
+            `${draft.to} is an old page address: point to the page itself`
+          )
+        : draft;
 
   const refuseTaken = (draft: RuleDraft, id: number | null): RuleDraft =>
     ((taken) =>
@@ -91,12 +107,12 @@ export var defineRedirectsService = ({
           )
         : draft)(rules.byFrom(draft.from));
 
-  const warningsOf = (draft: RuleDraft): RuleWarning[] => {
+  const warningsOf = (draft: RuleDraft, site: SitePages): RuleWarning[] => {
     const base = prefixOf(draft.from);
-    const shadow = base === null ? pages.at(draft.from) : null;
-    const under = base === null ? 0 : pages.under(base);
+    const shadow = base === null ? site.at(draft.from) : null;
+    const under = base === null ? 0 : site.under(base);
     const target = pageTarget(draft.to);
-    const page = target === null ? null : pages.page(target);
+    const page = target === null ? null : site.page(target);
     const internal =
       target === null && !isExternal(draft.to) && !draft.to.endsWith('*');
     return [
@@ -109,28 +125,36 @@ export var defineRedirectsService = ({
         : []),
       ...(internal &&
       draft.to !== '/' &&
-      pages.at(draft.to.replace(/[?#].*$/, '')) === null
+      site.at(draft.to.replace(/[?#].*$/, '')) === null
         ? [{ code: 'redirects.target_missing', detail: draft.to }]
         : []),
     ];
   };
 
-  // Проверка и запись без события: импорт шлёт одно событие на весь файл.
-  const write = (input: RuleInput, id: number | null): SavedRule =>
+  // Проверка и запись без события: импорт шлёт одно событие на весь файл. `others` — остальные правила,
+  // `site` — страницы: у пачки правил они читаются один раз.
+  const write = (
+    input: RuleInput,
+    id: number | null,
+    batch: {
+      readonly others: readonly RedirectRule[];
+      readonly index?: RuleIndex;
+      readonly site: SitePages;
+    } = { others: rules.all().filter((_) => _.id !== id), site: pages }
+  ): SavedRule =>
     pipe(
       parseRule,
       (draft: RuleDraft) => refuseTaken(draft, id),
       (draft: RuleDraft) => (
-        refuseChains(
-          draft,
-          rules.all().filter((_) => _.id !== id)
-        ),
-        draft
+        refuseChains(draft, batch.others, batch.index), draft
       ),
-      refuseMissingPage,
-      refuseOldAddress,
+      refuseMissingPage(batch.site),
+      refuseOldAddress(batch.site),
       (draft: RuleDraft) =>
-        ((saved) => ({ rule: rules.get(saved)!, warnings: warningsOf(draft) }))(
+        ((saved) => ({
+          rule: rules.get(saved)!,
+          warnings: warningsOf(draft, batch.site),
+        }))(
           id === null
             ? rules.insert(draft, now())
             : (rules.update(id, draft, now()), id)
@@ -154,6 +178,44 @@ export var defineRedirectsService = ({
       list: (): RedirectRule[] => rules.all(),
       create: (input: RuleInput): SavedRule =>
         ((saved) => (changed(), saved))(write(input, null)),
+      /**
+       * Много новых правил одной транзакцией и одним событием — для переноса сайта. Те же проверки, что у
+       * `create`; правило с ошибкой пропускается с причиной, существующие не трогаются.
+       */
+      createMany: (inputs: readonly RuleInput[]): BatchReport => {
+        const site = pages.snapshot();
+        const others = rules.all();
+        const growing = growingIndex(others);
+        const report = rules.transaction(() =>
+          inputs.reduce<BatchReport>(
+            (done, input) =>
+              attempt(
+                () =>
+                  ((saved) => (
+                    others.push(saved.rule),
+                    growing.add(saved.rule),
+                    { ...done, created: done.created + 1 }
+                  ))(
+                    write(input, null, { others, index: growing.index(), site })
+                  ),
+                (error) =>
+                  isDomainError(error)
+                    ? (done.skipped.push({
+                        from: String(input.from ?? ''),
+                        code: error.code,
+                        message: error.message,
+                      }),
+                      done)
+                    : (() => {
+                        throw error;
+                      })()
+              ),
+            { created: 0, skipped: [] }
+          )
+        );
+        void (report.created > 0 && changed());
+        return report;
+      },
       edit: (id: number, input: RuleInput): SavedRule =>
         ((saved) => (changed(), saved))(write(input, load(id).id)),
       remove: (id: number): void => (rules.remove(load(id).id), changed()),
@@ -201,6 +263,11 @@ export var defineRedirectsService = ({
     },
     /** Правило для адреса посетителя; null — правил для него нет. */
     match: (path: string): RuleMatch | null => matchRule(indexed(), path),
+    /** Правило с query (`/?p=12`) для адреса и query посетителя; null — такого нет. */
+    matchQuery: (
+      path: string,
+      query: Readonly<Record<string, string>>
+    ): RuleMatch | null => matchQuery(indexed(), path, query),
     /** Переадресация сработала: счётчик и время — видно, живо ли правило. */
     hit: (id: number): void => rules.hit(id, now()),
   };

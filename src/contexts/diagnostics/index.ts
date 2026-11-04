@@ -15,6 +15,13 @@ import { CHECK_TEXTS } from './domain/texts.ts';
 
 export type { DiagnosticsService } from './application/diagnostics-service.ts';
 export {
+  type Blind,
+  checkDomain,
+  type DnsResolver,
+  type DomainReport,
+  type ZoneResolver,
+} from './application/domain-check.ts';
+export {
   checkRedirects,
   MAX_HOPS,
   type Probe,
@@ -31,6 +38,32 @@ export type {
 } from './domain/diagnostics.ts';
 export { finding } from './domain/diagnostics.ts';
 export {
+  bareAddress,
+  type DnsAnswer,
+  isPublicAddress,
+  parseDomainName,
+  type RecordChange,
+  type RecordType,
+  zoneLine,
+} from './domain/dns.ts';
+export {
+  ACME_ISSUER,
+  localTarget,
+  planOf,
+} from './domain/domain-check.ts';
+export {
+  type Addresses,
+  DKIM_SELECTORS,
+  type DkimKey,
+  type DomainFacts,
+  type DomainFinding,
+  type DomainFindingId,
+  type DomainStatus,
+  type DomainWhen,
+  SWITCH_TTL,
+  type TtlEntry,
+} from './domain/domain-facts.ts';
+export {
   type Hop,
   OUTCOMES,
   type Outcome,
@@ -46,6 +79,13 @@ export type {
   FactPage,
   SiteFacts,
 } from './domain/site-checks.ts';
+export { SPF_LOOKUP_LIMIT, spfLookups } from './domain/spf.ts';
+export {
+  DOH_PROVIDERS,
+  defineDohResolver,
+  type Fetch,
+} from './infrastructure/doh-resolver.ts';
+export { defineSystemResolver } from './infrastructure/system-resolver.ts';
 export { type Load, readUrlSource } from './infrastructure/url-source.ts';
 
 /**

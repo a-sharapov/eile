@@ -99,6 +99,15 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
     </p>
     <p>The eye {@html icons.eye} in the page bar is the preview: it shows the page as it looks on the site, even if it isn’t published yet. The preview shows the saved version.</p>
   </section>
+  <section id="pages-share" data-topic hidden={!shown('pages-share')}>
+    <h3>Show a draft to a client</h3>
+    <p>
+      An unpublished page has {@html icons.share} “Link for a client” in the row above it. Create a link — say who it is for and how
+      long it lives (7 days by default) — and send it: it opens the page without signing in to the manager, exactly as it will look
+      on the site, with a “not published” badge. Forms are not sent in the preview, search engines do not index it, and the link
+      opens no other page and not the manager. The link is shown in full once; the list of links with revoke is in the same window.
+    </p>
+  </section>
   <section id="pages-menu" data-topic hidden={!shown('pages-menu')}>
     <h3>Site menu</h3>
     <p>
@@ -272,6 +281,20 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         and downloaded from its card.
       </p>
     </section>
+    <section id="forms-spam" data-topic hidden={!shown('forms-spam')}>
+      <h3>Spam protection without a captcha</h3>
+      <p>
+        Every form has an invisible bot trap, a one-time stamp, a minimum fill-in time and a limit on submissions from one address.
+        One more step is the <strong>browser check</strong>: while the visitor fills in the form, their browser quietly solves a small
+        puzzle, usually in a fraction of a second, and the line “Spam protection confirmed” appears under the button. There is no
+        captcha, no cookie and no third-party service. Choose the level on the form’s “Protection and storage” tab: new forms use
+        “Standard”, while forms created before this version keep the check off until you turn it on.
+      </p>
+      <p>
+        A submission from a browser without JavaScript is not lost: the visitor sees the thank-you text, and the submission goes to
+        Spam, marked “Sent without JavaScript”, without a notification. Look there now and then and move a real one to New.
+      </p>
+    </section>
     <section id="forms-notify" data-topic hidden={!shown('forms-notify')}>
       <h3>Notifications in Telegram and by email</h3>
       <p>
@@ -279,6 +302,12 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         from @BotFather, then “Find chats”) and email (an SMTP server). Reports of site failures arrive there too, above a severity
         threshold you choose; repeats within 15 minutes are merged. A form can have its own channels and email subject.
         The notification language is set there too; by default it is the site language.
+      </p>
+      <p>
+        If your host blocks SMTP ports (new DigitalOcean and Hetzner servers often do), set “Send through” to a mail service
+        with an HTTP API — Brevo, Postmark, Mailgun, Resend or Amazon SES — and paste its key: emails then go out over HTTPS,
+        through port 443. Verify the sender’s domain with the service using SPF and DKIM records in DNS, or it will not send.
+        The key stays on the server; the manager shows only its last four characters. “Send a test” sends an email the chosen way.
       </p>
       <p>
         An <strong>email to the sender</strong>, on the form’s Notifications tab, confirms a submission to the address from its email
@@ -416,6 +445,22 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
       manage users or download a copy of the site.
     </p>
   </section>
+  <section id="account-review" data-topic hidden={!shown('account-review')}>
+    <h3>Review of agent changes</h3>
+    <p>
+      An agent working through MCP changes the site at once. To look first, turn review on: for all agents — the administrator in
+      <a href={resolve('/(app)/proposals')}>“Proposals”</a>, for your own token — “Changes wait for review” in “API tokens”. Then
+      changes of pages, templates, components and scripts do not go live but collect in a change set, like a pull request. Forms,
+      fields and settings are not changed by an agent in this mode at all.
+    </p>
+    <p>
+      In “Proposals” each change set has the agent’s description and the difference for each change: text and source line by line,
+      fields “now → proposed”, a move in the tree. {@html icons.eye} “Preview” shows the page with the changes, “Link for a client”
+      shows the same without signing in. Accept all, the selected ones, or reject: accepted changes take the normal path, appear in
+      the page history on behalf of the agent and are undone by restoring a version. If the page was changed after the proposal, the
+      set marks a conflict: accept it anyway or reject it.
+    </p>
+  </section>
 
   <!-- Для администратора -->
   {#if admin}
@@ -539,7 +584,7 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         server’s key can also be restored under “Backups”.
       </p>
       <p>
-        The mail password, the Telegram bot, the mail gateway, the storage and the AI key belong to the server, not the site: they are
+        The mail password or API key, the Telegram bot, the mail gateway, the storage and the AI key belong to the server, not the site: they are
         not in a backup. A passphrase-protected settings file moves them to a new server: <code>cms backup --server</code> here and
         <code>cms restore --server</code> there. “Database file” on the same tab shows how much of the database is free and compacts it.
       </p>

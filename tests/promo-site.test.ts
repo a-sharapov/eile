@@ -30,6 +30,12 @@ const get = (path: string) =>
 // Нет ключа перевода или своей настройки — на странице остаётся сам тег.
 const _MISSING = /\{i18n\.\w+\}|\[@\w+\]|@\{/;
 
+// id на странице одни: рамка (меню, подвал) и текст главы не должны выдать один и тот же id дважды.
+const _duplicateIds = (html: string): string[] =>
+  [...html.matchAll(/\sid="([^"]+)"/g)]
+    .map((_) => _[1]!)
+    .filter((id, index, all) => all.indexOf(id) !== index);
+
 // Корневые классы компонентов разделов: компонент, который не загрузился, исчез бы молча.
 const _BLOCKS = [
   'pains',
@@ -38,6 +44,8 @@ const _BLOCKS = [
   'tour',
   'code',
   'inside',
+  'server',
+  'vs',
   'ai',
   'steps',
   'closing',
@@ -53,6 +61,7 @@ describe('промо-сайт', () => {
     expect(html).toContain(`<html lang="${lang}"`);
     expect(html).toContain(title);
     expect(html).not.toMatch(_MISSING);
+    expect(_duplicateIds(html)).toEqual([]);
     _BLOCKS.forEach(
       (_) =>
         void expect([_, new RegExp(`class="${_} `).test(html)]).toEqual([
@@ -98,6 +107,10 @@ describe('промо-сайт', () => {
           expect([chapters[index], status]).toEqual([chapters[index], 200]);
           expect(html).not.toMatch(_MISSING);
           expect(html).not.toMatch(/\[\[|\[~|\[#Form/);
+          expect([chapters[index], _duplicateIds(html)]).toEqual([
+            chapters[index],
+            [],
+          ]);
         });
         expect(pages[4]!.html).toContain('<span class="k">import</span>');
         expect(pages[4]!.html).toContain('rel="next"');
@@ -110,6 +123,22 @@ describe('промо-сайт', () => {
     const chapter = await get(`/en/cookbook/${CHAPTERS_EN[1]!.alias}`);
     expect(chapter.html).toContain(`/cookbook/${CHAPTERS_RU[1]!.alias}`);
   });
+
+  it.each(['install.sh', 'install.ps1'])(
+    '/%s — ссылка на скрипт последнего релиза, не в меню и не в sitemap',
+    async (name) => {
+      const answer = await app.fetch(new Request(`http://localhost/${name}`));
+      expect(answer.status).toBe(301);
+      expect(answer.headers.get('location')).toBe(
+        `https://github.com/a-sharapov/eile/releases/latest/download/${name}`
+      );
+      const sitemap = await get('/sitemap.xml');
+      expect(sitemap.html).not.toContain(name);
+      const home = (await get('/')).html;
+      expect(home).toContain(`https://eile.site/${name}`);
+      expect(home).not.toContain(`href="/${name}"`);
+    }
+  );
 
   it('у каждого перевода есть текст на обоих языках', () => {
     Object.entries(TEXTS).forEach(

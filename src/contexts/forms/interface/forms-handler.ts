@@ -13,7 +13,12 @@ import {
 } from '../application/forms-service.ts';
 import type { UploadedFile } from '../domain/ports.ts';
 import type { Posted } from '../domain/schema.ts';
-import { ENHANCE_SCRIPT, ENHANCE_URL } from '../infrastructure/enhance.ts';
+import {
+  ENHANCE_SCRIPT,
+  ENHANCE_URL,
+  PROOF_WORKER_SCRIPT,
+  PROOF_WORKER_URL,
+} from '../infrastructure/enhance.ts';
 
 /** Приём форм и их скрипт: `/_cms/forms/<имя>`. */
 export var FORMS_PREFIX = '/_cms/forms/';
@@ -173,7 +178,12 @@ const _json = (result: SubmitResult): Response =>
       : result.kind === 'invalid'
         ? { ok: false, message: result.message, errors: result.errors }
         : result.kind === 'stale'
-          ? { ok: false, message: result.message, stamp: result.stamp }
+          ? {
+              ok: false,
+              message: result.message,
+              stamp: result.stamp,
+              ...(result.proof === null ? {} : { proof: result.proof }),
+            }
           : result.kind === 'wait'
             ? { ok: false, message: result.message }
             : { ok: false, message: 'Form not found' },
@@ -223,8 +233,8 @@ const _redirect = (
         },
       });
 
-const _script = (): Response =>
-  new Response(ENHANCE_SCRIPT, {
+const _script = (text: string): Response =>
+  new Response(text, {
     headers: {
       'content-type': 'text/javascript; charset=utf-8',
       'cache-control': 'public, max-age=31536000, immutable',
@@ -294,14 +304,21 @@ const _REJECTED: Readonly<Record<number, string>> = {
   503: 'Busy, try again in a few seconds',
 };
 
+// Скрипты по адресам с хэшем: скрипт улучшения и воркер решателя задачи защиты.
+const _SCRIPTS: ReadonlyMap<string, string> = new Map([
+  [ENHANCE_URL, ENHANCE_SCRIPT],
+  [PROOF_WORKER_URL, PROOF_WORKER_SCRIPT],
+]);
+
 /** HTTP-вход форм: приём заявки, скрипт улучшения. `client` — адрес посетителя для лимита. */
 export var defineFormsHandler =
   (service: FormsService, siteUrl: () => string, report: Report) =>
   (request: Request, client: string): Promise<Response> => {
     const url = new URL(request.url);
     const name = url.pathname.slice(FORMS_PREFIX.length);
-    return url.pathname === ENHANCE_URL
-      ? Promise.resolve(_script())
+    const script = _SCRIPTS.get(url.pathname);
+    return script !== undefined
+      ? Promise.resolve(_script(script))
       : request.method !== 'POST'
         ? Promise.resolve(
             new Response('Method Not Allowed', {

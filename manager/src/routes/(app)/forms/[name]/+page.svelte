@@ -25,6 +25,7 @@ import type {
   ChannelKind,
   FieldKind,
   FormDetail,
+  ProofLevel,
   SourceChoice,
 } from '#lib/types.ts';
 import LoadState from '#lib/ui/LoadState.svelte';
@@ -38,6 +39,14 @@ import FieldEditor from './FieldEditor.svelte';
 
 const name = $derived(page.params.name ?? '');
 
+// Уровни защиты: время — в среднем на телефоне средней мощности (замеры в ADR 0053).
+const _PROOF_LEVELS: readonly { id: ProofLevel; label: MessageKey }[] = [
+  { id: 'off', label: 'formEditor.proofOff' },
+  { id: 'light', label: 'formEditor.proofLight' },
+  { id: 'standard', label: 'formEditor.proofStandard' },
+  { id: 'strong', label: 'formEditor.proofStrong' },
+];
+
 type Settings = Pick<
   FormDetail,
   | 'title'
@@ -49,6 +58,7 @@ type Settings = Pick<
   | 'retentionDays'
   | 'minSeconds'
   | 'allowLinks'
+  | 'proof'
   | 'goal'
   | 'confirmation'
   | 'webhook'
@@ -604,6 +614,13 @@ crumbs={[{ label: t('nav.forms'), href: resolve('/(app)/forms') }]}
     <section class="form-section">
       <header><h2>{t('formEditor.protectTitle')}</h2><p>{t('formEditor.protectHint')}</p></header>
       <div class="fields">
+        <label>
+          {t('formEditor.proof')}
+          <select bind:value={settings.proof}>
+            {#each _PROOF_LEVELS as level (level.id)}<option value={level.id}>{t(level.label)}</option>{/each}
+          </select>
+          <small class={settings.proof === 'off' ? 'warning' : undefined}>{settings.proof === 'off' ? t('formEditor.proofOffHint') : t('formEditor.proofHint')}</small>
+        </label>
         <label>
           {t('formEditor.minSeconds')}
           <input type="number" min="0" max="60" bind:value={settings.minSeconds} />

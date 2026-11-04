@@ -1,3 +1,4 @@
+import type { Fetch } from '../contexts/upkeep/index.ts';
 import type { Options } from './args.ts';
 import type { Language } from './language.ts';
 import type { Paint } from './paint.ts';
@@ -10,6 +11,8 @@ export type Context = {
   /** stdin и stdout — терминал: можно спросить пароль скрыто. */
   readonly tty: boolean;
   readonly out: (text: string) => void;
+  /** HTTP-клиент для пакетов из сети; по умолчанию — глобальный fetch, тесты подставляют свой. */
+  readonly fetch?: Fetch;
 };
 
 /** Ошибка для человека: печатается как есть, процесс выходит с кодом 1. */

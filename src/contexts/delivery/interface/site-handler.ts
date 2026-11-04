@@ -72,6 +72,15 @@ const _withSearch = (location: string, search: string): string =>
           hash < 0 ? '' : location.slice(hash)
         ))(location.indexOf('#'));
 
+// Параметры, которые узнало правило с query, остаются на старом адресе; остальные (utm) идут дальше.
+const _without = (search: string, names: readonly string[]): string =>
+  names.length === 0
+    ? search
+    : ((params) => (
+        names.forEach((_) => void params.delete(_)),
+        params.size === 0 ? '' : `?${params}`
+      ))(new URLSearchParams(search));
+
 const _etag = (html: string): string => `"${Bun.hash(html).toString(36)}"`;
 
 // Полоса — перед последним </body>; нет его — в конец документа.
@@ -258,7 +267,7 @@ export var defineSiteHandler = (
       headers: {
         location: _withSearch(
           redirect.external ? redirect.location : encodeURI(redirect.location),
-          redirect.query ? search : ''
+          redirect.query ? _without(search, redirect.consumed ?? []) : ''
         ),
       },
     });

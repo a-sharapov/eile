@@ -189,12 +189,12 @@ describe('отправка', () => {
       {
         ..._LETTER,
         to: [{ address: 'a@example.org', name: 'A' }, 'b@example.org'],
-        from: { name: 'Kuechenly', address: '' },
+        from: { name: 'Muehlenhof', address: '' },
       },
       { token }
     );
     expect(mails[0]).toMatchObject({
-      from: { address: 'site@example.com', name: 'Kuechenly' },
+      from: { address: 'site@example.com', name: 'Muehlenhof' },
       to: ['a@example.org', 'b@example.org'],
     });
   });

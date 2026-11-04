@@ -347,4 +347,70 @@ in the text; closes with the close button, Esc or a click outside.`,
       '/** Style: primary=Primary, secondary=Secondary, link=Link */',
     ],
   ],
+  Figure: [
+    [
+      `Картинка из медиатеки в тексте страницы, с подписью и ссылкой. Уменьшенные копии для srcset сервер делает
+сам; файла в медиатеке нет — блок пуст.`,
+      `A picture from the media library in the page text, with a caption and a link. The server makes the smaller
+copies for srcset itself; if the file is not in the media library, the block is empty.`,
+    ],
+    [
+      '/** Картинка: путь в медиатеке, например uploads/2024/05/kitchen.jpg */',
+      '/** Picture: a path in the media library, like uploads/2024/05/kitchen.jpg */',
+    ],
+    [
+      '/** Описание для читалок; пусто — описание из медиатеки */',
+      '/** Description for screen readers; empty means the one from the media library */',
+    ],
+    ['/** Подпись под картинкой */', '/** Caption under the picture */'],
+    [
+      '/** Ссылка: id страницы или адрес */',
+      '/** Link: a page id or an address */',
+    ],
+    [
+      '/** Ширина: text=По колонке текста, small=Небольшая, wide=Шире текста */',
+      '/** Width: text=Text column, small=Small, wide=Wider than the text */',
+    ],
+    [
+      '// id страницы — её текущий адрес, куда бы её ни перенесли.',
+      '// A page id becomes its current address, wherever the page has moved.',
+    ],
+  ],
+  Gallery: [
+    [
+      `Галерея из медиатеки: картинки плиткой, у каждой — уменьшенные копии для srcset. Файлов, которых в
+медиатеке нет, галерея не показывает.`,
+      `A gallery from the media library: pictures in a grid, each with smaller copies for srcset. Files that are
+not in the media library are not shown.`,
+    ],
+    [
+      '/** Картинки: пути в медиатеке через запятую */',
+      '/** Pictures: media library paths separated by commas */',
+    ],
+    [
+      '/** Колонок на широком экране, от 2 до 4 */',
+      '/** Columns on a wide screen, from 2 to 4 */',
+    ],
+    ['/** Подпись под галереей */', '/** Caption under the gallery */'],
+  ],
+  Video: [
+    [
+      `Видео YouTube или Vimeo в тексте страницы: плеер по ссылке на ролик. YouTube — с youtube-nocookie.com, без
+cookie до запуска. Другая ссылка остаётся ссылкой.`,
+      `A YouTube or Vimeo video in the page text: a player from the link to the video. YouTube plays from
+youtube-nocookie.com, without cookies until it starts. Any other link stays a link.`,
+    ],
+    [
+      '/** Ссылка на ролик: youtube.com, youtu.be или vimeo.com */',
+      '/** Link to the video: youtube.com, youtu.be or vimeo.com */',
+    ],
+    [
+      '/** Название ролика для читалок */',
+      '/** Video title for screen readers */',
+    ],
+    [
+      '// Адрес плеера по ссылке на ролик; null — это не YouTube и не Vimeo.',
+      '// Player address from the video link; null means it is neither YouTube nor Vimeo.',
+    ],
+  ],
 };

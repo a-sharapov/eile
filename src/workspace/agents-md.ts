@@ -98,7 +98,7 @@ export var agentsGuide = (
       '- `components/Name.svelte`: a component, imported as `$components/Name` or put into page text as `[[Name]]`.',
       "- `scripts/name.js`: a site script, a browser ES module with its dependencies bundled in; a template includes it with `script('name')`. `check` prints its syntax errors as `file:line:column`.",
       '- `plugins/Name.ts`: a server plugin.',
-      '- `forms/name.html` and `forms/name.json`: form markup and its settings (title, submitLabel, successText, successPage, subject, channels, retentionDays, minSeconds, allowLinks, goal, confirmation, webhook; the webhook secret stays on the site).',
+      '- `forms/name.html` and `forms/name.json`: form markup and its settings (title, submitLabel, successText, successPage, subject, channels, retentionDays, minSeconds, allowLinks, proof, goal, confirmation, webhook; the webhook secret stays on the site).',
       '- `fields.json`: page fields.',
       '',
       '## Templates',

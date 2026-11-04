@@ -1,0 +1,3 @@
+# Переводы строк — LF на любой системе: Biome проверяет LF, а git на Windows с core.autocrlf (так настроены и
+# раннеры GitHub) выдал бы CRLF, и тесты сравнивали бы другой HTML (ADR 0049). Двоичные файлы git узнаёт сам.
+* text=auto eol=lf

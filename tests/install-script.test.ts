@@ -10,6 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { $ } from 'bun';
+import { WINDOWS } from './fixtures/platform.ts';
 
 // install.sh на поддельном релизе из file://: ставит cms и рядом второе имя eile.
 
@@ -59,7 +60,8 @@ const install = (lang = 'ru_RU.UTF-8') =>
     .quiet()
     .nothrow();
 
-describe('установщик', () => {
+// install.sh — для Linux и macOS; install.ps1 проверяет workflow релиза на раннере Windows.
+describe.skipIf(WINDOWS)('установщик', () => {
   it('ставит cms и рядом ссылку eile на него', async () => {
     const result = await install();
     expect(result.exitCode).toBe(0);

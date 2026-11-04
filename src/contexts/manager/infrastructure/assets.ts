@@ -6,6 +6,7 @@ import {
   type Encoding,
   negotiate,
 } from '../../../platform/compression.ts';
+import { posixPath } from '../../../platform/paths.ts';
 
 export type ManagerAssets = {
   /** Файл SPA по пути внутри `/manager`; неизвестный путь — index.html, маршрутизирует сама SPA. */
@@ -132,7 +133,7 @@ export var directoryTable = (directory: string): Record<string, string> =>
   existsSync(directory)
     ? Object.fromEntries(
         Array.from(new Glob('**/*').scanSync(directory)).map((_) => [
-          `/${_}`,
+          `/${posixPath(_)}`,
           join(directory, _),
         ])
       )

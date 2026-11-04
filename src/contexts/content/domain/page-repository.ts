@@ -4,6 +4,10 @@ import type { Moment, Page, PageId } from './page.ts';
 export type PageRepository = {
   /** Id не переиспользуются: старая ссылка не укажет на чужую страницу. */
   readonly nextId: () => PageId;
+  /** Занимает id впрок: следующая страница получит другой, а этот ждёт `create` с ним (ADR 0054). */
+  readonly reserve: () => PageId;
+  /** Последний выданный или занятый id; 0 — страниц ещё не было. */
+  readonly lastId: () => number;
   readonly get: (id: PageId) => Page | null;
   /** Только среди страниц вне корзины. */
   readonly findSibling: (parentId: PageId | null, alias: Alias) => Page | null;

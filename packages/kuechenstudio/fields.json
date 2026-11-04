@@ -1,0 +1,86 @@
+[
+  {
+    "name": "heroImage",
+    "label": "Foto oben (Ausstellung oder Küche, quer; links ist Platz für den Text)",
+    "type": "image",
+    "templates": ["Home"]
+  },
+  {
+    "name": "heroFocus",
+    "label": "Foto oben: wichtigster Bildteil",
+    "type": "select",
+    "options": ["mitte", "oben", "unten", "links", "rechts"],
+    "templates": ["Home"]
+  },
+  {
+    "name": "aboutImage",
+    "label": "Foto im Abschnitt „Unser Studio“",
+    "type": "image",
+    "templates": ["Home"]
+  },
+  {
+    "name": "aboutFocus",
+    "label": "Foto „Unser Studio“: wichtigster Bildteil",
+    "type": "select",
+    "options": ["mitte", "oben", "unten", "links", "rechts"],
+    "templates": ["Home"]
+  },
+  {
+    "name": "photo",
+    "label": "Foto",
+    "type": "image",
+    "templates": ["Page", "Kitchen", "Contact"]
+  },
+  {
+    "name": "photoFocus",
+    "label": "Foto: wichtigster Bildteil",
+    "type": "select",
+    "options": ["mitte", "oben", "unten", "links", "rechts"],
+    "templates": ["Page", "Kitchen", "Contact"]
+  },
+  {
+    "name": "photo2",
+    "label": "Foto 2",
+    "type": "image",
+    "templates": ["Kitchen"]
+  },
+  {
+    "name": "photo3",
+    "label": "Foto 3",
+    "type": "image",
+    "templates": ["Kitchen"]
+  },
+  {
+    "name": "sketch",
+    "label": "Zeichnung, solange kein Foto da ist",
+    "type": "select",
+    "options": [
+      "zeile",
+      "grifflos",
+      "landhaus",
+      "insel",
+      "kompakt",
+      "laden",
+      "luecke"
+    ],
+    "templates": ["Page", "Kitchen"]
+  },
+  {
+    "name": "front",
+    "label": "Front",
+    "type": "text",
+    "templates": ["Kitchen"]
+  },
+  {
+    "name": "worktop",
+    "label": "Arbeitsplatte",
+    "type": "text",
+    "templates": ["Kitchen"]
+  },
+  {
+    "name": "visitBand",
+    "label": "Am Ende: Einladung in die Ausstellung",
+    "type": "boolean",
+    "templates": ["Page"]
+  }
+]

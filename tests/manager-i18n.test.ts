@@ -84,9 +84,12 @@ const _code = (source: string): string =>
     .replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
 
 it('в коде менеджера нет строк интерфейса мимо словарей', async () => {
-  const files = await Array.fromAsync(
-    new Bun.Glob('manager/src/**/*.{ts,svelte}').scan('.')
-  );
+  // Glob на Windows отдаёт пути через «\»; список исключений — через «/».
+  const files = (
+    await Array.fromAsync(
+      new Bun.Glob('manager/src/**/*.{ts,svelte}').scan('.')
+    )
+  ).map((_) => _.replaceAll('\\', '/'));
   const found = (
     await Promise.all(
       files

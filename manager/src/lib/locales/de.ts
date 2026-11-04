@@ -489,6 +489,9 @@ export var messages: Dictionary['messages'] = {
   'inbox.page': 'Seite',
   'inbox.referrer': 'Kam von',
   'inbox.browser': 'Browser',
+  'inbox.proof': 'Spamschutz',
+  'inbox.proofMissing':
+    'Ohne JavaScript gesendet und nicht geprüft, deshalb liegt die Anfrage im Spam.',
   'inbox.deliveries': 'Benachrichtigungen',
   'inbox.deliverySent': 'zugestellt',
   'inbox.deliveryFailed': 'nicht zugestellt',
@@ -667,6 +670,15 @@ export var messages: Dictionary['messages'] = {
   'formEditor.allowLinks': 'Links in Feldern sind kein Spam',
   'formEditor.allowLinksHint':
     'Für Formulare, über die Links zu einem Portfolio oder einer Website geschickt werden.',
+  'formEditor.proof': 'Prüfung im Browser',
+  'formEditor.proofHint':
+    'Der Browser löst unbemerkt eine kleine Rechenaufgabe, während das Formular ausgefüllt wird – ohne Captcha, Cookies oder fremden Dienst. Die Zeiten sind Mittelwerte auf einem Mittelklasse-Smartphone, ein Computer ist um ein Vielfaches schneller. Eine Anfrage aus einem Browser ohne JavaScript landet markiert im Spam.',
+  'formEditor.proofOff': 'Aus',
+  'formEditor.proofLight': 'Leicht – etwa 0,05 s auf dem Smartphone',
+  'formEditor.proofStandard': 'Standard – etwa 0,2 s auf dem Smartphone',
+  'formEditor.proofStrong': 'Stark – etwa 0,4 s auf dem Smartphone',
+  'formEditor.proofOffHint':
+    'Aus – Bot-Falle, Einmal-Token und Mindestzeit bleiben. Einen Bot, der das Formular ohne Browser absendet, erkennen sie nicht immer.',
   'formEditor.storeTitle': 'Aufbewahrung der Anfragen',
   'formEditor.storeHint':
     'Anfragen mit personenbezogenen Daten werden nach Ablauf der Frist gelöscht – so verlangt es die DSGVO.',
@@ -807,7 +819,7 @@ export var messages: Dictionary['messages'] = {
   'settings.tabUpkeep': 'Wartung',
   'settings.tabRedirects': 'Weiterleitungen',
   'redirects.intro':
-    'Weiterleitung von einer Adresse ohne Seite auf die richtige. /old und /old/ sind dieselbe Adresse. Ein Sternchen am Ende steht für den ganzen Bereich: /blog/* → /news/* überträgt auch den Rest der Adresse. Eine Seite der Website hat Vorrang vor einer Regel, eine Regel vor früheren Seitenadressen.',
+    'Weiterleitung von einer Adresse ohne Seite auf die richtige. /old und /old/ sind dieselbe Adresse. Ein Sternchen am Ende steht für den ganzen Bereich: /blog/* → /news/* überträgt auch den Rest der Adresse. Eine Adresse mit Query wie /?p=12 (alte WordPress-Links) ist eine eigene Regel: Sie greift nur, wenn die Adresse diese Parameter enthält, und noch vor der Seite, denn eine Seite sieht die Query nicht. Eine Seite der Website hat Vorrang vor einer Regel, eine Regel vor früheren Seitenadressen.',
   'redirects.from': 'Von',
   'redirects.to': 'Nach',
   'redirects.toHint':
@@ -917,9 +929,10 @@ export var messages: Dictionary['messages'] = {
     'Anfragen und Störungen kommen hier nicht mehr an. Token oder Passwort löscht der Server.',
   'notify.email': 'E-Mail',
   'notify.emailHint':
-    'E-Mails gehen über Ihren Mailserver (SMTP): GMX, WEB.DE, Google mit App-Passwort oder einen eigenen.',
+    'E-Mails gehen über Ihren Mailserver (SMTP) – GMX, WEB.DE, Google mit App-Passwort oder einen eigenen – oder über einen Maildienst mit HTTP-API: Brevo, Postmark, Mailgun, Resend, Amazon SES.',
   'notify.emailOn': 'Per E-Mail benachrichtigen',
-  'notify.emailOnHint': 'Erforderlich: SMTP-Server, Absender und Empfänger.',
+  'notify.emailOnHint':
+    'Erforderlich: SMTP-Server oder Maildienst, Absender und Empfänger.',
   'notify.host': 'SMTP-Server',
   'notify.security': 'Verschlüsselung',
   'notify.securityTls': 'TLS sofort (Port 465)',
@@ -935,6 +948,44 @@ export var messages: Dictionary['messages'] = {
   'notify.from': 'Absender',
   'notify.to': 'An',
   'notify.toHint': 'Bis zu zehn Adressen, durch Komma getrennt.',
+  'notify.transport': 'Versand über',
+  'notify.transportSmtp': 'Eigener Mailserver (SMTP)',
+  'notify.transportHint':
+    'Ihr Hoster sperrt die SMTP-Ports (bei neuen Servern von DigitalOcean und Hetzner üblich)? Wählen Sie einen Maildienst mit HTTP-API: Die E-Mails gehen per HTTPS raus, über Port 443 wie die Website selbst.',
+  'notify.keyBrevo': 'API-Schlüssel',
+  'notify.keyBrevoHint':
+    'In Brevo: SMTP & API → API-Schlüssel → „Neuen API-Schlüssel erstellen“. Nötig ist ein API-Schlüssel (xkeysib-…); ein SMTP-Schlüssel (xsmtpsib-…) funktioniert nicht.',
+  'notify.keyPostmark': 'Server-API-Token',
+  'notify.keyPostmarkHint':
+    'In Postmark: Ihr Server → Reiter API Tokens. Ein Server-Token, kein Konto-Token.',
+  'notify.keyMailgun': 'API-Schlüssel',
+  'notify.keyMailgunHint':
+    'In Mailgun: Sending → Domain settings → Sending API keys. Der API-Schlüssel des Kontos funktioniert auch.',
+  'notify.keyResend': 'API-Schlüssel',
+  'notify.keyResendHint':
+    'In Resend: API Keys → Create API Key; Sending access genügt. Der Schlüssel beginnt mit re_.',
+  'notify.keySes': 'Geheimer Zugriffsschlüssel',
+  'notify.keySesHint':
+    'Zugriffsschlüssel eines IAM-Benutzers mit Versandrecht (ses:SendEmail und ses:SendRawEmail). Temporäre Schlüssel (ASIA…) funktionieren nicht.',
+  'notify.keyKept':
+    'Schlüssel …{hint} ist gespeichert – geben Sie einen neuen ein, um ihn zu ersetzen',
+  'notify.keyId': 'Zugriffsschlüssel-ID',
+  'notify.awsRegion': 'AWS-Region',
+  'notify.awsRegionHint':
+    'Die Region, in der die Domain in SES verifiziert ist: eu-central-1 ist Frankfurt.',
+  'notify.mailgunRegion': 'Region',
+  'notify.mailgunRegionUs': 'USA (api.mailgun.net)',
+  'notify.mailgunRegionEu': 'EU (api.eu.mailgun.net)',
+  'notify.mailgunDomain': 'Versanddomain',
+  'notify.mailgunDomainHint':
+    'Die in Mailgun angelegte Domain: mg.example.com. Leer – die Domain des Absenders.',
+  'notify.stream': 'Message Stream',
+  'notify.streamHint': 'Leer – outbound, der Stream für Transaktions-E-Mails.',
+  'notify.verifyDomain':
+    'Verifizieren Sie die Absenderdomain beim Dienst: Er zeigt DNS-Einträge für SPF und DKIM (bei SES: DKIM und optional MAIL FROM). Tragen Sie sie beim Domain-Registrar ein. Bis die Domain verifiziert ist, versendet der Dienst nichts, und E-Mails ohne SPF und DKIM landen häufiger im Spam.',
+  'notify.viaSmtp': 'E-Mails gehen über den SMTP-Server {host}:{port}.',
+  'notify.viaApi':
+    'E-Mails gehen über {provider} (HTTP-API), Schlüssel …{hint}.',
   'notify.routes': 'Was wohin',
   'notify.routesHint':
     'Anfragen aus Formularen und Störungen der Website gehen an die gewählten Kanäle. Ein Formular kann eigene Kanäle festlegen.',
@@ -1314,6 +1365,8 @@ export var messages: Dictionary['messages'] = {
   'custom.newKey': 'Neuer Schlüssel',
   'custom.removed': 'Einstellung gelöscht',
   'custom.value': 'Wert',
+  'custom.note': 'Erläuterung',
+  'custom.notePlaceholder': 'Wozu und woher',
   'custom.add': 'Schlüssel hinzufügen',
   'custom.empty': 'Noch keine eigenen Einstellungen.',
   'custom.saved': 'Einstellung gespeichert',
@@ -1814,6 +1867,126 @@ export var messages: Dictionary['messages'] = {
   'statsSettings.privacyIntro':
     'Ein Musterabsatz zur Zählung von Eile, auf Deutsch und Englisch. Er beschreibt nur die Statistik: Lassen Sie die ganze Erklärung rechtlich prüfen.',
   'statsSettings.view': 'Statistik öffnen',
+  'nav.proposals': 'Vorschläge',
+  'proposals.title': 'Vorschläge von Agenten',
+  'proposals.intro':
+    'Ist die Prüfung an, gehen Änderungen von Agenten über MCP und API-Schlüssel nicht sofort live: Seiten, Templates, Komponenten und Skripte sammeln sich in Änderungssätzen, wie ein Pull Request. Sehen Sie sich Unterschiede und Vorschau an, dann nehmen Sie an oder lehnen ab.',
+  'proposals.settings': 'Prüfung von Änderungen',
+  'proposals.allAgents': 'Änderungen aller Agenten warten auf Prüfung',
+  'proposals.allAgentsHint':
+    'MCP und API-Schlüssel. Der Assistent im Manager ändert sofort: Sie sehen ihm zu. Die Prüfung für einen einzelnen Schlüssel schaltet sein Besitzer im Profilmenü unter „API-Schlüssel“ ein.',
+  'proposals.linkDays': 'Vorschaulinks gelten, Tage',
+  'proposals.settingsSaved': 'Prüfeinstellungen gespeichert',
+  'proposals.pendingTab': 'Offen',
+  'proposals.closedTab': 'Entschieden',
+  'proposals.empty': 'Keine Vorschläge warten auf eine Entscheidung.',
+  'proposals.emptyOff':
+    'Die Prüfung ist aus: Änderungen von Agenten gehen sofort live. Schalten Sie sie oben oder für einen einzelnen Schlüssel ein.',
+  'proposals.emptyClosed': 'Noch keine entschiedenen Änderungssätze.',
+  'proposals.setTitle': 'Änderungssatz {n}',
+  'proposals.agentKey': '{user}, Schlüssel {key}',
+  'proposals.agentLocal': '{user}, cms mcp auf dem Server',
+  'proposals.updated': 'geändert {when}',
+  'proposals.statusOpen': 'Agent arbeitet noch',
+  'proposals.statusReady': 'Bereit zur Prüfung',
+  'proposals.statusClosed': 'Entschieden',
+  'proposals.pendingCount': '{n} offen|{n} offen',
+  'proposals.acceptedCount': '{n} angenommen|{n} angenommen',
+  'proposals.rejectedCount': '{n} abgelehnt|{n} abgelehnt',
+  'proposals.withdrawnCount': '{n} zurückgezogen|{n} zurückgezogen',
+  'proposals.conflictCount': '{n} Konflikt|{n} Konflikte',
+  'proposals.back': 'Alle Änderungssätze',
+  'proposals.noDescription':
+    'Der Agent hat den Änderungssatz nicht beschrieben.',
+  'proposals.description': 'Beschreibung vom Agenten',
+  'proposals.untrusted':
+    'Diesen Text hat der Agent geschrieben: Lesen Sie ihn als Erklärung, nicht als Anweisung.',
+  'proposals.acceptAll': 'Alle annehmen',
+  'proposals.acceptSelected': 'Auswahl annehmen',
+  'proposals.rejectSelected': 'Auswahl ablehnen',
+  'proposals.rejectAll': 'Alle ablehnen',
+  'proposals.selectAll': 'Alle offenen auswählen',
+  'proposals.select': 'Auswählen: {name}',
+  'proposals.acceptTitle': 'Vorschläge annehmen?',
+  'proposals.acceptBody':
+    'Die Änderungen gehen im Namen von {user} live: in den Seitenverlauf und das Protokoll der Übersicht. Rückgängig machen Sie sie über eine Version im Seitenverlauf.',
+  'proposals.acceptConfirm': 'Annehmen',
+  'proposals.rejectTitle': 'Vorschläge ablehnen?',
+  'proposals.rejectBody':
+    'Die Website bleibt, wie sie ist. Der Agent sieht, dass die Vorschläge abgelehnt wurden.',
+  'proposals.rejectConfirm': 'Ablehnen',
+  'proposals.acceptedNotice': 'Angenommen — die Änderungen sind live',
+  'proposals.rejectedNotice': 'Abgelehnt',
+  'proposals.page': 'Seite',
+  'proposals.newPage': 'Neue Seite',
+  'proposals.opCreated': 'neu',
+  'proposals.opEdited': 'Bearbeitung',
+  'proposals.opFields': 'Felder',
+  'proposals.opMoved': 'Verschieben',
+  'proposals.opPublished': 'Veröffentlichen',
+  'proposals.opUnpublished': 'Zurückziehen',
+  'proposals.opTrashed': 'in den Papierkorb',
+  'proposals.opRestored': 'aus dem Papierkorb',
+  'proposals.opChanged': 'Codeänderung',
+  'proposals.statusPending': 'offen',
+  'proposals.statusAccepted': 'angenommen · {who}',
+  'proposals.statusRejected': 'abgelehnt · {who}',
+  'proposals.statusWithdrawn': 'vom Agenten zurückgezogen',
+  'proposals.conflict':
+    'Das wurde nach dem Vorschlag auf der Website geändert: {what}. Annehmen ersetzt den aktuellen Wert durch den vorgeschlagenen.',
+  'proposals.conflictMissing': 'die Seite gibt es nicht mehr',
+  'proposals.override': 'Trotzdem annehmen',
+  'proposals.failed': 'Nicht angewendet: {detail}',
+  'proposals.what': 'Was',
+  'proposals.now': 'Jetzt',
+  'proposals.proposed': 'Vorgeschlagen',
+  'proposals.was': 'der Agent sah: {value}',
+  'proposals.tree': 'Platz im Baum',
+  'proposals.topLevel': 'oberste Ebene',
+  'proposals.source': 'Quelltext',
+  'proposals.sameSource': 'Der Quelltext ist derselbe wie auf der Website.',
+  'proposals.published': 'Veröffentlicht',
+  'proposals.trashed': 'Im Papierkorb',
+  'proposals.preview': 'Vorschau',
+  'proposals.previewOn': 'Vorschau auf Seite',
+  'proposals.share': 'Link für Kunden',
+  'proposals.previewLimits':
+    'Die Vorschau zeigt die Seite mit den Änderungen des Satzes: Text und Felder, vorgeschlagene Templates und Komponenten. Menüs und Listen zeigen die Website wie jetzt; Skripte und Inseln sind die Live-Versionen.',
+  'proposals.elementTemplate': 'Template',
+  'proposals.elementComponent': 'Komponente',
+  'proposals.elementScript': 'Skript',
+  'proposals.diffNow': 'jetzt',
+  'proposals.diffProposed': 'vorgeschlagen',
+  'proposals.unchanged': 'unverändert',
+  'proposals.yes': 'ja',
+  'proposals.no': 'nein',
+  'shareLinks.title': 'Vorschaulinks',
+  'shareLinks.body':
+    'Ein Link zeigt den Entwurf ohne Anmeldung im Manager: nur diese Seite, mit dem Hinweis „nicht veröffentlicht“ und noindex für Suchmaschinen. Widerrufen Sie ihn, wenn er nicht mehr gebraucht wird.',
+  'shareLinks.bodySet':
+    'Der Link zeigt die Seite mit den noch nicht angenommenen Änderungen des Satzes. Der Code des Agenten läuft in der Vorschau in einer Sandbox.',
+  'shareLinks.label': 'Für wen',
+  'shareLinks.labelPlaceholder': 'Kunde: Küche nach Maß',
+  'shareLinks.days': 'Tage',
+  'shareLinks.create': 'Link erstellen',
+  'shareLinks.issued':
+    'Der Link ist erstellt. Kopieren Sie ihn jetzt: Er wird nicht noch einmal vollständig angezeigt.',
+  'shareLinks.copy': 'Link kopieren',
+  'shareLinks.copied': 'Link kopiert',
+  'shareLinks.empty': 'Noch keine Links.',
+  'shareLinks.expires': 'bis {when}',
+  'shareLinks.expired': 'abgelaufen {when}',
+  'shareLinks.uses': '{n}-mal geöffnet|{n}-mal geöffnet',
+  'shareLinks.unnamed': 'Ohne Bezeichnung',
+  'shareLinks.revoke': 'Widerrufen',
+  'shareLinks.revokeTitle': 'Link widerrufen?',
+  'shareLinks.revokeBody': 'Die Vorschau öffnet sich damit sofort nicht mehr.',
+  'shareLinks.revoked': 'Link widerrufen',
+  'shareLinks.open': 'Link für Kunden',
+  'tokens.review': 'Änderungen warten auf Prüfung',
+  'tokens.reviewHint':
+    'Seiten und Elemente über diesen Schlüssel werden zu Vorschlägen unter „Vorschläge“.',
+  'tokens.reviewAll': 'Die Prüfung ist für alle Agenten an.',
 };
 
 export var errors: Dictionary['errors'] = {
@@ -2063,10 +2236,29 @@ export var errors: Dictionary['errors'] = {
     'Höchstens 10 Tokens – widerrufen Sie einen, den Sie nicht brauchen.',
   'notify.gateway_token_not_found':
     'Diesen Token gibt es nicht – vielleicht wurde er schon widerrufen.',
+  'notify.invalid_transport':
+    'Wählen Sie den Versandweg: SMTP oder einen der Dienste.',
+  'notify.no_key': 'Der API-Schlüssel des Dienstes ist erforderlich.',
+  'notify.invalid_key':
+    'Das sieht nicht nach einem API-Schlüssel aus: Kopieren Sie ihn vollständig, ohne Leerzeichen.',
+  'notify.brevo_smtp_key':
+    'Das ist ein SMTP-Schlüssel von Brevo (xsmtpsib-…); nötig ist ein API-Schlüssel (xkeysib-…).',
+  'notify.resend_key': 'Ein API-Schlüssel von Resend beginnt mit re_.',
+  'notify.no_key_id': 'Die Zugriffsschlüssel-ID (AKIA…) ist erforderlich.',
+  'notify.invalid_key_id':
+    'Die Zugriffsschlüssel-ID sieht aus wie AKIAIOSFODNN7EXAMPLE.',
+  'notify.temporary_key':
+    'Temporäre AWS-Schlüssel (ASIA…) laufen ab – erstellen Sie einen Zugriffsschlüssel eines IAM-Benutzers (AKIA…).',
+  'notify.invalid_region':
+    'Die Region ist us oder eu bei Mailgun, ein Code wie eu-central-1 bei AWS.',
+  'notify.invalid_mail_domain':
+    'Die Versanddomain sieht aus wie mg.example.com.',
+  'notify.invalid_stream':
+    'Der Message Stream ist eine ID wie outbound: lateinische Buchstaben, Ziffern und Bindestriche.',
   'design.element_in_use':
     'Das Element wird verwendet – entfernen Sie es zuerst dort.',
   'redirects.invalid_from':
-    'Feld „Von“: eine Adresse der Website wie /old oder ein Bereich /old/*, ohne ?query.',
+    'Feld „Von“: eine Adresse der Website wie /old, ein Bereich /old/* oder eine Adresse mit Query wie /?p=12 (Paare Name=Wert, ohne # und Sternchen).',
   'redirects.reserved':
     'Diese Adresse ist vom Manager oder von Systemdateien belegt.',
   'redirects.invalid_to':
@@ -2101,4 +2293,20 @@ export var errors: Dictionary['errors'] = {
   'stats.invalid_time_zone': 'Eine Zeitzone sieht so aus: Europe/Berlin.',
   'stats.invalid_period':
     'Ein Zeitraum hat bis zu 366 Tage und beginnt vor seinem Ende.',
+  'review.not_reviewable': 'Das lässt sich im Prüfmodus nicht vorschlagen.',
+  'review.conflict':
+    'Das Ziel wurde nach dem Vorschlag geändert. Wählen Sie „Trotzdem annehmen“ oder lehnen Sie ab.',
+  'review.apply_failed':
+    'Ein Vorschlag ließ sich nicht anwenden, die Website ist unverändert: {detail}',
+  'review.page_published':
+    'Die Seite ist schon live — teilen Sie ihre Adresse.',
+  'review.page_not_in_set': 'Diese Seite ist nicht im Änderungssatz.',
+  'review.invalid_days': 'Ein Link gilt 1–90 Tage.',
+  'review.invalid_settings': 'Ein Link gilt 1–90 Tage.',
+  'review.agent_gone':
+    'Den Benutzer, für den der Agent gearbeitet hat, gibt es nicht mehr.',
+  'review.change_set_not_found': 'Diesen Änderungssatz gibt es nicht.',
+  'review.proposal_not_found':
+    'Der Vorschlag ist schon entschieden oder fehlt.',
+  'review.link_not_found': 'Diesen Link gibt es nicht.',
 };

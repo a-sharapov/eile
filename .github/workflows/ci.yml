@@ -1,4 +1,5 @@
-# Проверка на каждый push в main и на каждый pull request: Biome, типы, менеджер, тесты, установщик.
+# Проверка на каждый push в main и на каждый pull request: Biome, типы, менеджер, тесты, установщики; тесты —
+# ещё и на Windows.
 name: CI
 
 on:
@@ -27,3 +28,28 @@ jobs:
       - run: bun run check
       - name: Установщик
         run: shellcheck install.sh
+      # PowerShell 7 есть на раннерах Ubuntu: разбор install.ps1 без запуска; ставит его тест на Windows.
+      - name: Установщик Windows
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/install.ps1", [ref] $null, [ref] $errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Host $_ }; throw 'install.ps1 does not parse' }
+
+  # Тесты на Windows (ADR 0049): пути, переименование работающего .exe, CRLF, install.ps1. Biome, типы и
+  # менеджер от системы не зависят — их проверяет job выше.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run build:manager
+      # Отказ соединения с закрытым портом Windows сообщает не сразу, а через пару секунд повторов: запас
+      # тестам, которые его ждут.
+      - name: Тесты
+        run: bun test src tests --timeout 30000
+        env:
+          NODE_ENV: production

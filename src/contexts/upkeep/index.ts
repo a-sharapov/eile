@@ -44,6 +44,7 @@ export type { Release, UpdateInfo } from './domain/version.ts';
 export { compareVersions } from './domain/version.ts';
 export {
   buildTarget,
+  checksumOf,
   restorePrevious,
   type UpdateResult,
   updateProgram,

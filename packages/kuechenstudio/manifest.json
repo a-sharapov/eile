@@ -1,0 +1,337 @@
+{
+  "format": 1,
+  "name": "kuechenstudio",
+  "title": {
+    "ru": "Küchenstudio",
+    "en": "Küchenstudio"
+  },
+  "summary": {
+    "ru": "Website für ein Küchenstudio: Ausstellung, Küchen, Leistungen, Termin, Plätze für Online-Planer und Chat",
+    "en": "Website für ein Küchenstudio: Ausstellung, Küchen, Leistungen, Termin, Plätze für Online-Planer und Chat"
+  },
+  "language": "de",
+  "siteName": "Ihr Küchenstudio",
+  "description": "Küchenstudio mit Ausstellung: Beratung, Aufmaß, Planung, Lieferung und Montage aus einer Hand.",
+  "settings": {
+    "studioStreet": {
+      "value": "[Straße Hausnummer]",
+      "note": "Anschrift der Ausstellung: Straße und Hausnummer. Erscheint in Kopf- und Fußbereich, auf der Kontaktseite, im Impressum und für Suchmaschinen."
+    },
+    "studioZip": {
+      "value": "[PLZ]",
+      "note": "Postleitzahl der Ausstellung."
+    },
+    "studioCity": {
+      "value": "[Ort]",
+      "note": "Ort der Ausstellung; steht auch im Titel der Startseite."
+    },
+    "studioPhone": {
+      "value": "[Telefonnummer]",
+      "note": "Telefonnummer, wie sie auf der Website stehen soll, z. B. 030 1234567."
+    },
+    "studioEmail": {
+      "value": "[E-Mail-Adresse]",
+      "note": "E-Mail-Adresse für Kundenanfragen."
+    },
+    "studioHours": {
+      "value": "[Öffnungszeiten, z. B. Mo-Fr 10:00-18:30; Sa 10:00-14:00]",
+      "note": "Öffnungszeiten, Abschnitte mit Semikolon: Mo-Fr 10:00-18:30; Sa 10:00-14:00. Tage: Mo Di Mi Do Fr Sa So. Freier Text wie „Termine nach Vereinbarung“ geht auch."
+    },
+    "studioMap": {
+      "value": "",
+      "note": "Link für „Route planen“ (https). Leer: Google Maps mit Ihrer Anschrift."
+    },
+    "accentColor": {
+      "value": "#c49a55",
+      "note": "Akzentfarbe der Website als #RRGGBB: Knöpfe, Linien unter Überschriften, Hervorhebungen. Die Website passt Schrift und Kontrast für helle und dunkle Flächen selbst an."
+    },
+    "studioTimeZone": {
+      "value": "Europe/Berlin",
+      "note": "Zeitzone der Ausstellung für „Heute geöffnet bis …“, z. B. Europe/Berlin oder Europe/Vienna."
+    },
+    "studioLogo": {
+      "value": "",
+      "note": "Logo oben links: Pfad einer Datei in der Mediathek, z. B. logo/studio.svg (quer, wird etwa 40 Pixel hoch gezeigt). Leer: der Name der Website als Schrift."
+    },
+    "contactName": {
+      "value": "[Vorname Nachname]",
+      "note": "Ihr Ansprechpartner neben dem Terminformular: Name. Solange hier ein Platzhalter steht, sehen Besucher den Block nicht."
+    },
+    "contactRole": {
+      "value": "[Aufgabe, z. B. Inhaber und Küchenplaner]",
+      "note": "Ansprechpartner: Aufgabe im Studio."
+    },
+    "contactPhone": {
+      "value": "",
+      "note": "Ansprechpartner: direkte Durchwahl. Leer: die Telefonnummer des Studios."
+    },
+    "contactPhoto": {
+      "value": "",
+      "note": "Ansprechpartner: Pfad eines Fotos in der Mediathek, z. B. team/vorname.webp. Leer: ein neutrales Symbol."
+    },
+    "studioSince": {
+      "value": "[Jahr]",
+      "note": "Seit wann es Ihr Studio gibt, z. B. 1998. Erscheint im Abschnitt „Unser Studio“, sobald der Platzhalter ersetzt ist."
+    },
+    "studioCraft": {
+      "value": "[z. B. Meisterbetrieb im Tischlerhandwerk]",
+      "note": "Eine Angabe zu Ihrem Betrieb, die wirklich zutrifft (Meisterbetrieb, Innung …). Erscheint erst, wenn der Platzhalter ersetzt ist."
+    },
+    "reviewsLink": {
+      "value": "",
+      "note": "Link zu Ihren Bewertungen (https://…). Leer: kein Link."
+    },
+    "consultDuration": {
+      "value": "[z. B. etwa 90 Minuten]",
+      "note": "Wie lange eine Beratung dauert; steht beim Knopf „Beratungstermin anfragen“, sobald der Platzhalter ersetzt ist."
+    },
+    "consultTerms": {
+      "value": "[z. B. kostenlos und unverbindlich]",
+      "note": "Bedingungen der Beratung, nur was stimmt; steht beim Knopf, sobald der Platzhalter ersetzt ist."
+    },
+    "consultBring": {
+      "value": "[z. B. Grundriss, Maße, Fotos des Raums]",
+      "note": "Was Besucher zur Beratung mitbringen können; steht beim Formular, sobald der Platzhalter ersetzt ist."
+    },
+    "callbackTime": {
+      "value": "[z. B. innerhalb eines Werktags]",
+      "note": "Wann Sie nach einer Terminanfrage anrufen; steht unter dem Formular („Wir rufen Sie … an“), sobald der Platzhalter ersetzt ist."
+    },
+    "plannerScript": {
+      "value": "",
+      "note": "Online-Planer: Adresse des Skripts aus dem Kundenbereich Ihres Planer-Anbieters (https://…). Leer: kein Planer, die Website lädt kein fremdes Skript, „Online planen“ fehlt im Menü."
+    },
+    "plannerAttributes": {
+      "value": "",
+      "note": "Online-Planer: Attribute laut Einbauanleitung des Anbieters, z. B. data-id=\"123\" data-lang=\"de\" – Werte in Anführungszeichen, getrennt durch Leerzeichen. Sie können auch den ganzen Einbaucode einfügen: Übernommen werden src und alle data-…, alles andere wird übergangen."
+    },
+    "plannerEnabled": {
+      "value": "ja",
+      "note": "Online-Planer auf der Seite „Online planen“ – ja oder nein. Bei nein bleibt die Adresse gespeichert."
+    },
+    "plannerHeight": {
+      "value": "800",
+      "note": "Online-Planer: Höhe in Pixeln (320–2400), die beim Laden freigehalten wird – meist die Höhe aus dem Einbaucode."
+    },
+    "chatScript": {
+      "value": "",
+      "note": "Chat: Adresse des Skripts aus dem Kundenbereich Ihres Chat-Anbieters (https://…). Leer: kein Chat, die Website lädt kein fremdes Skript."
+    },
+    "chatAttributes": {
+      "value": "",
+      "note": "Chat: Attribute laut Einbauanleitung des Anbieters, z. B. data-id=\"123\" data-lang=\"de\" – Werte in Anführungszeichen, getrennt durch Leerzeichen. Sie können auch den ganzen Einbaucode einfügen: Übernommen werden src und alle data-…, alles andere wird übergangen."
+    },
+    "chatEnabled": {
+      "value": "ja",
+      "note": "Chat auf allen Seiten – ja oder nein. Bei nein bleibt die Adresse gespeichert."
+    },
+    "chatOnPlanner": {
+      "value": "nein",
+      "note": "Chat auch auf der Seite „Online planen“ – ja oder nein. Meist nein: Ein Knopf in der Ecke verdeckt oft den Planer."
+    },
+    "contactPage": {
+      "value": "@{kontakt}",
+      "note": "ID der Seite mit dem Formular „Termin“; auf sie führen die Knöpfe „Beratungstermin anfragen“ (auf der Startseite: das Formular unten auf der Seite)."
+    },
+    "plannerPage": {
+      "value": "@{online-planen}",
+      "note": "ID der Seite „Online planen“ mit dem Planer."
+    },
+    "kitchensPage": {
+      "value": "@{kuechen}",
+      "note": "ID der Seite „Küchen“."
+    },
+    "impressumPage": {
+      "value": "@{impressum}",
+      "note": "ID der Seite „Impressum“ für den Link im Fußbereich."
+    },
+    "privacyPage": {
+      "value": "@{datenschutz}",
+      "note": "ID der Seite „Datenschutz“ für den Link im Fußbereich."
+    }
+  },
+  "media": {
+    "beispiel/ausstellung-kueche.webp": {
+      "alt": "Beispielbild: Musterküche in der Ausstellung mit schiefergrauen grifflosen Fronten, Hochschränken aus Eiche, offenen Borden und warmem Licht"
+    },
+    "beispiel/ausstellung.webp": {
+      "alt": "Beispielbild: Ausstellung eines Küchenstudios mit blaugrüner Kochinsel, Landhausküche im Hintergrund, Beratungstisch und Regal mit Frontmustern"
+    },
+    "beispiel/kueche-grifflos.webp": {
+      "alt": "Beispielbild: Grifflose Küchenzeile mit blaugrünen Mattlackfronten, heller Steinplatte und Eichenbord in einer Altbauwohnung"
+    },
+    "beispiel/kueche-landhaus.webp": {
+      "alt": "Beispielbild: Landhausküche mit sandfarbenen Rahmenfronten, Keramikspüle, Eichenarbeitsplatte und blaugrünen Wandfliesen"
+    },
+    "beispiel/kueche-insel.webp": {
+      "alt": "Beispielbild: Offene Küche mit Kochinsel aus Eiche, hellen Hochschränken und Blick in den herbstlichen Garten"
+    },
+    "beispiel/kueche-klein.webp": {
+      "alt": "Beispielbild: Kleine Küchenzeile mit grifflosen weißen Fronten bis zur Decke, Eichenarbeitsplatte und weißen Wandfliesen"
+    },
+    "beispiel/beratung-muster.webp": {
+      "alt": "Beispielbild: Beratungstisch mit Frontmustern, Arbeitsplattenmustern, glasierten Fliesen, einem Griff und einem gezeichneten Grundriss"
+    },
+    "fonts/jost-latin.woff2": {}
+  },
+  "pages": [
+    {
+      "key": "start",
+      "title": "Start",
+      "longTitle": "Ihre Küche, Zentimeter für Zentimeter geplant",
+      "description": "Küchenstudio mit Ausstellung: Beratung, Aufmaß, Planung, Lieferung und Montage. Beratungstermin anfragen oder online planen.",
+      "introText": "Wir beraten Sie in unserer Ausstellung, messen bei Ihnen zu Hause nach und planen, liefern und montieren Ihre Küche aus einer Hand.",
+      "template": "Home",
+      "contentFile": "pages/start.html",
+      "fields": {
+        "heroImage": "beispiel/ausstellung-kueche.webp",
+        "aboutImage": "beispiel/ausstellung.webp"
+      }
+    },
+    {
+      "key": "kuechen",
+      "title": "Küchen",
+      "alias": "kuechen",
+      "longTitle": "Küchen und Stile",
+      "introText": "Von grifflos bis Landhaus: So verschieden können Küchen aussehen. Ihre eigene planen wir für Ihren Raum.",
+      "template": "Kitchens",
+      "contentFile": "pages/kuechen.html",
+      "children": [
+        {
+          "title": "Grifflose Küche",
+          "alias": "grifflos",
+          "introText": "Durchgehende Fronten ohne Griffe, geöffnet über eine Griffleiste oder per Druck. Ruhig, klar und leicht zu reinigen.",
+          "fields": {
+            "sketch": "grifflos",
+            "front": "[z. B. Lack matt, Farbe]",
+            "worktop": "[z. B. Keramik, Stärke]",
+            "photo": "beispiel/kueche-grifflos.webp"
+          },
+          "key": "grifflos",
+          "template": "Kitchen",
+          "contentFile": "pages/grifflos.html"
+        },
+        {
+          "title": "Landhausküche",
+          "alias": "landhaus",
+          "introText": "Rahmenfronten, Knöpfe und offene Borde: eine Küche mit Wärme, die gut zu Holzböden und Altbauten passt.",
+          "fields": {
+            "sketch": "landhaus",
+            "front": "[z. B. Rahmenfront, Farbe]",
+            "worktop": "[z. B. Eiche massiv]",
+            "photo": "beispiel/kueche-landhaus.webp"
+          },
+          "key": "landhaus",
+          "template": "Kitchen",
+          "contentFile": "pages/landhaus.html"
+        },
+        {
+          "title": "Küche mit Kochinsel",
+          "alias": "kochinsel",
+          "introText": "Die Insel macht die Küche zum Treffpunkt: Kochen mit Blick in den Raum und Platz für Gäste an der Theke.",
+          "fields": {
+            "sketch": "insel",
+            "front": "[z. B. Echtholzfurnier]",
+            "worktop": "[z. B. Quarzstein]",
+            "photo": "beispiel/kueche-insel.webp"
+          },
+          "key": "kochinsel",
+          "template": "Kitchen",
+          "contentFile": "pages/kochinsel.html"
+        },
+        {
+          "title": "Kleine Küche",
+          "alias": "kleine-kueche",
+          "introText": "Auf wenigen Metern passt mehr, als man denkt: mit hohen Schränken, Auszügen statt Türen und Geräten in Arbeitshöhe.",
+          "fields": {
+            "sketch": "kompakt",
+            "front": "[z. B. Mattlack hell]",
+            "worktop": "[z. B. Schichtstoff]",
+            "photo": "beispiel/kueche-klein.webp"
+          },
+          "key": "kleine-kueche",
+          "template": "Kitchen",
+          "contentFile": "pages/kleine-kueche.html"
+        }
+      ]
+    },
+    {
+      "key": "online-planen",
+      "title": "Online planen",
+      "alias": "online-planen",
+      "longTitle": "Küche online planen",
+      "introText": "Probieren Sie in Ruhe aus, wie Ihre Küche aussehen könnte. Den Rest besprechen wir gemeinsam in der Ausstellung.",
+      "template": "Planner",
+      "contentFile": "pages/online-planen.html"
+    },
+    {
+      "key": "leistungen",
+      "title": "Leistungen",
+      "alias": "leistungen",
+      "longTitle": "Was wir für Sie tun",
+      "introText": "Von der ersten Idee bis zum letzten Handgriff: Sie haben einen Ansprechpartner für die ganze Küche.",
+      "template": "Page",
+      "fields": {
+        "visitBand": true,
+        "photo": "beispiel/beratung-muster.webp"
+      },
+      "contentFile": "pages/leistungen.html"
+    },
+    {
+      "key": "ueber-uns",
+      "title": "Über uns",
+      "alias": "ueber-uns",
+      "description": "Lernen Sie unser Küchenstudio kennen: wer berät, plant und montiert, und was Sie in unserer Ausstellung sehen und ausprobieren können.",
+      "introText": "[Ein Satz über Ihr Studio: wer Sie sind und seit wann es Sie gibt.]",
+      "template": "Page",
+      "fields": {
+        "sketch": "laden",
+        "visitBand": true
+      },
+      "contentFile": "pages/ueber-uns.html"
+    },
+    {
+      "key": "kontakt",
+      "title": "Kontakt",
+      "alias": "kontakt",
+      "longTitle": "Beratungstermin anfragen",
+      "introText": "Für eine Beratung nehmen wir uns Zeit. Schreiben Sie uns, wann es Ihnen passt, oder rufen Sie an.",
+      "template": "Contact",
+      "contentFile": "pages/kontakt.html"
+    },
+    {
+      "key": "impressum",
+      "title": "Impressum",
+      "alias": "impressum",
+      "template": "Text",
+      "hiddenFromMenu": true,
+      "searchable": false,
+      "contentFile": "pages/impressum.html"
+    },
+    {
+      "key": "datenschutz",
+      "title": "Datenschutz",
+      "alias": "datenschutz",
+      "longTitle": "Datenschutzerklärung",
+      "template": "Text",
+      "hiddenFromMenu": true,
+      "searchable": false,
+      "contentFile": "pages/datenschutz.html"
+    },
+    {
+      "key": "nicht-gefunden",
+      "title": "Seite nicht gefunden",
+      "alias": "404",
+      "introText": "Diese Seite gibt es nicht oder nicht mehr. Vielleicht hilft einer dieser Wege weiter.",
+      "template": "Page",
+      "fields": {
+        "sketch": "luecke"
+      },
+      "hiddenFromMenu": true,
+      "searchable": false,
+      "contentFile": "pages/nicht-gefunden.html"
+    }
+  ],
+  "home": "start",
+  "notFound": "nicht-gefunden"
+}

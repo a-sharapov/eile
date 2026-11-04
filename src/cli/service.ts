@@ -17,6 +17,12 @@ import {
 import { networkInterfaces } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { prepareSite } from '../app.ts';
+import {
+  checkDomain,
+  defineDohResolver,
+  isPublicAddress,
+  localTarget,
+} from '../contexts/diagnostics/index.ts';
 import { compareVersions, restorePrevious } from '../contexts/upkeep/index.ts';
 import { HEALTH_PATH } from '../health.ts';
 import { isSqlite } from '../platform/archive.ts';
@@ -39,6 +45,7 @@ import {
   installCommand,
   listeningPorts,
   localUrl,
+  type MailRisk,
   parseMeminfo,
   parseShow,
   planService,
@@ -91,6 +98,8 @@ export type Host = {
   readonly memory: () => HostFacts['memory'];
   readonly addresses: () => readonly string[];
   readonly resolve: (domain: string) => Promise<readonly string[]>;
+  /** MX и SPF домена против адресов этой машины; null — DNS не ответил, молчим. */
+  readonly mail: (domain: string) => Promise<MailRisk | null>;
   /** Кто держит порт: null — свободен. */
   readonly holder: (port: number) => Promise<string | null>;
   /** Откат обновления: прежний бинарник — на место. */
@@ -277,6 +286,34 @@ const _holder = (port: number): Promise<string | null> =>
         holderOf(_.out)
       );
 
+// Только MX и SPF (ADR 0052): переезд сайта сюда не должен молча увести почту. DNS не ответил — молчим.
+const _mailRisk = (domain: string): Promise<MailRisk | null> =>
+  checkDomain({
+    resolver: defineDohResolver({ fetch, timeoutMs: 3000 }),
+    domain,
+    scope: 'mail',
+    local: localTarget(
+      Object.values(networkInterfaces())
+        .flat()
+        .flatMap((_) => (_ ? [_.address] : [])),
+      isPublicAddress
+    ),
+  }).then(
+    (report) =>
+      ((mx, spf) => ({
+        domain,
+        mx: mx !== undefined,
+        spf: spf !== undefined,
+        already: mx?.when === 'now' || spf?.when === 'now',
+      }))(
+        report.findings.find((_) => _.id === 'mx.moves'),
+        report.findings.find(
+          (_) => _.id === 'spf.moves' && _.status === 'error'
+        )
+      ),
+    () => null
+  );
+
 /** Эта машина. */
 export var defineHost = (): Host => ({
   platform: process.platform,
@@ -334,6 +371,7 @@ export var defineHost = (): Host => ({
       (_) => _.map((record) => record.address),
       () => []
     ),
+  mail: _mailRisk,
   holder: _holder,
   restore: (binary, previous) => restorePrevious(binary, previous),
   place: (from, name) => placeDatabase(from, stateDir('/var/lib', name)),
@@ -349,6 +387,8 @@ const _SAY = {
     mb: 'МБ',
     unsupported:
       'cms service ставит сайт службой systemd, а здесь её нет: нужен Linux, загруженный systemd. Как запустить сервер иначе — README, раздел «На сервере».',
+    windows:
+      'cms service ставит сайт службой systemd, а это Windows: здесь её нет. Как держать сайт запущенным — планировщиком заданий или обёрткой служб вроде WinSW — README, раздел «На Windows».',
     fromSource:
       'Служба запускает установленный бинарник, а этот cms запущен из исходников. Посмотреть юнит можно и так: cms service install … --print',
     hiddenBinary: (path: string) =>
@@ -369,6 +409,8 @@ const _SAY = {
       `${domain} не находится в DNS: сертификат не выпустится, пока запись A или AAAA не укажет на этот сервер.`,
     dnsElsewhere: (domain: string, addresses: string) =>
       `${domain} указывает на ${addresses}, а у этой машины другие адреса. За NAT и с облачным адресом так бывает; иначе поправьте DNS — без него сертификата не будет.`,
+    mailMoves: (domain: string, mx: boolean, spf: boolean, already: boolean) =>
+      `Почта ${domain} ${already ? 'уже идёт' : 'уйдёт'} вслед за сайтом: ${[mx ? `MX указывает на сам домен, и письма для @${domain} ${already ? 'приходят' : 'придут'} сюда, где почтового сервера нет` : '', spf ? `SPF через a и mx ${already ? 'уже не пропускает' : 'перестанет пропускать'} старый почтовый сервер` : ''].filter(Boolean).join('; ')}. Что поправить в DNS — cms diagnose domain ${domain}`,
     lowMemory: (size: string) =>
       `Памяти ${size}, а подкачки нет: под нагрузкой, например на загрузке большого файла, сайт может убить OOM. Файл подкачки на 1 ГиБ (при 512 МБ лучше на 2):`,
     moved: 'Сайт перенесён:',
@@ -452,6 +494,8 @@ const _SAY = {
     mb: 'MB',
     unsupported:
       'cms service installs the site as a systemd service, and there is no systemd here: it needs Linux booted with systemd. Other ways to run the server: README, “On a server”.',
+    windows:
+      'cms service installs the site as a systemd service, and this is Windows: there is none here. To keep the site running, use Task Scheduler or a service wrapper such as WinSW: README, “On Windows”.',
     fromSource:
       'The service runs the installed binary, and this cms runs from source. The unit can still be shown: cms service install … --print',
     hiddenBinary: (path: string) =>
@@ -472,6 +516,8 @@ const _SAY = {
       `${domain} is not in DNS: no certificate until an A or AAAA record points at this server.`,
     dnsElsewhere: (domain: string, addresses: string) =>
       `${domain} points at ${addresses}, and this machine has other addresses. Behind NAT or with a cloud address that happens; otherwise fix the DNS, there is no certificate without it.`,
+    mailMoves: (domain: string, mx: boolean, spf: boolean, already: boolean) =>
+      `Mail of ${domain} ${already ? 'already follows' : 'will follow'} the site: ${[mx ? `MX points to the domain itself, so mail for @${domain} ${already ? 'arrives' : 'will arrive'} here, where there is no mail server` : '', spf ? `SPF with a and mx ${already ? 'no longer passes' : 'stops passing'} the old mail server` : ''].filter(Boolean).join('; ')}. What to fix in DNS: cms diagnose domain ${domain}`,
     lowMemory: (size: string) =>
       `${size} of memory and no swap: under load, for example on a large upload, the OOM killer can stop the site. A 1 GiB swap file (2 GiB with 512 MB):`,
     moved: 'Site moved:',
@@ -790,6 +836,9 @@ const _CONCERN: {
   dns_elsewhere: (say, paint, _) => [
     `${paint.warn('!')} ${say.dnsElsewhere(_.domain, _.addresses.join(', '))}`,
   ],
+  mail_moves: (say, paint, _) => [
+    `${paint.warn('!')} ${say.mailMoves(_.domain, _.mx, _.spf, _.already)}`,
+  ],
   low_memory: (say, paint, _) => [
     `${paint.warn('!')} ${say.lowMemory(_mb(_.total, say))}`,
     ...SWAP_COMMANDS.map((line) => `    ${line}`),
@@ -840,9 +889,11 @@ const _facts = (
         host.resolve(domain).then((addresses) => ({ domain, addresses }))
       )
     ),
-  ]).then(({ 0: ports, 1: domains }) => ({
+    Promise.all(domainsOf(plan.mode).map(host.mail)),
+  ]).then(({ 0: ports, 1: domains, 2: mail }) => ({
     ports,
     domains,
+    mail: mail.flatMap((_) => (_ ? [_] : [])),
     memory: host.memory(),
     local: host.addresses(),
   }));
@@ -1238,15 +1289,20 @@ const _SERVICE: Readonly<
   uninstall: _uninstall,
 };
 
-/** `cms service <подкоманда>`: без подкоманды — status. */
+/**
+ * `cms service <подкоманда>`: без подкоманды — status. На Windows systemd нет ни в каком виде — отказ сразу,
+ * даже для --print (ADR 0049).
+ */
 export var runService = (
   ctx: Context,
   host: Host = defineHost()
 ): Promise<void> =>
-  (
-    _SERVICE[ctx.args[0] ?? 'status'] ??
-    (() => _reject(_say(ctx).noSubcommand(ctx.args[0])))
-  )(ctx, host);
+  host.platform === 'win32'
+    ? _reject(_say(ctx).windows)
+    : (
+        _SERVICE[ctx.args[0] ?? 'status'] ??
+        (() => _reject(_say(ctx).noSubcommand(ctx.args[0])))
+      )(ctx, host);
 
 // --- после cms update -------------------------------------------------------------
 

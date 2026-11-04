@@ -11,7 +11,11 @@ import {
 } from './interface/api.ts';
 import { defineEditBar, EDIT_BAR_URL } from './interface/edit-bar.ts';
 import { defineMcp } from './interface/mcp.ts';
-import { type AgentSession, defineAgentSession } from './interface/toolbox.ts';
+import {
+  type AgentKey,
+  type AgentSession,
+  defineAgentSession,
+} from './interface/toolbox.ts';
 
 export var MANAGER_PATH = '/manager';
 
@@ -65,30 +69,41 @@ const _sameOrigin = (request: Request, siteUrl: string): boolean =>
 const _SESSIONS = 1000;
 const _SESSION_MS = 60 * 60_000;
 
+const _hashOf = (token: string): string =>
+  new Bun.CryptoHasher('sha256').update(token).digest('hex');
+
 const _defineSessions = () => {
-  const sessions = new Map<string, { session: AgentSession; at: number }>();
-  const fresh = (key: string): AgentSession =>
+  const sessions = new Map<
+    string,
+    { session: AgentSession; at: number; token: string }
+  >();
+  const fresh = (key: string, token: string, agent: AgentKey): AgentSession =>
     ((session) => (
       sessions.size >= _SESSIONS &&
         sessions.delete(sessions.keys().next().value!),
-      sessions.set(key, { session, at: Date.now() }),
+      sessions.set(key, { session, at: Date.now(), token }),
       session
-    ))(defineAgentSession());
+    ))(defineAgentSession({ key: agent }));
+  // Сессия — только того ключа, что её открыл: чужой Mcp-Session-Id с другим ключом не подойдёт.
+  const live = (key: string, token: string): AgentSession | null =>
+    ((found) =>
+      found && found.token === token && Date.now() - found.at < _SESSION_MS
+        ? found.session
+        : null)(sessions.get(key));
   return {
     /** Новая сессия при initialize: её id уходит клиенту заголовком. */
-    open: (): { id: string; session: AgentSession } =>
-      ((id) => ({ id, session: fresh(`id:${id}`) }))(crypto.randomUUID()),
-    of: (id: string | null, token: string): AgentSession =>
-      ((found) =>
-        found && Date.now() - found.at < _SESSION_MS
-          ? found.session
-          : ((key) =>
-              ((own) =>
-                own && Date.now() - own.at < _SESSION_MS
-                  ? own.session
-                  : fresh(key))(sessions.get(key)))(
-              `key:${new Bun.CryptoHasher('sha256').update(token).digest('hex')}`
-            ))(id === null ? undefined : sessions.get(`id:${id}`)),
+    open: (
+      token: string,
+      agent: AgentKey
+    ): { id: string; session: AgentSession } =>
+      ((id) => ({ id, session: fresh(`id:${id}`, _hashOf(token), agent) }))(
+        crypto.randomUUID()
+      ),
+    of: (id: string | null, token: string, agent: AgentKey): AgentSession =>
+      ((hash) =>
+        (id === null ? null : live(`id:${id}`, hash)) ??
+        live(`key:${hash}`, hash) ??
+        fresh(`key:${hash}`, hash, agent))(_hashOf(token)),
   };
 };
 
@@ -109,17 +124,18 @@ export var defineManager = (
     toolbox: api.toolbox,
     site: services.site.settings.get,
     version: services.version,
+    reviewed: api.reviewed,
   });
   // Один запрос — одно сообщение JSON-RPC, ответ — JSON; поток событий (GET) не нужен: сервер не пишет первым.
   const mcpHttp = (request: Request): Promise<Response> =>
-    ((user) =>
+    ((login) =>
       request.method !== 'POST'
         ? Promise.resolve(
             new Response(null, { status: 405, headers: { allow: 'POST' } })
           )
         : !_sameOrigin(request, services.site.settings.get().siteUrl)
           ? Promise.resolve(_rpcError(403, -32600, 'Cross-site request'))
-          : user === null
+          : login === null
             ? Promise.resolve(
                 new Response(
                   JSON.stringify({
@@ -142,40 +158,43 @@ export var defineManager = (
                     : ((message) =>
                         message === undefined
                           ? _rpcError(400, -32700, 'Parse error')
-                          : ((opened) =>
-                              mcp(
-                                message,
-                                user,
-                                opened?.session ??
-                                  sessions.of(
-                                    request.headers.get('mcp-session-id'),
-                                    bearerToken(request)!
-                                  )
-                              ).then((reply) =>
-                                reply === null
-                                  ? new Response(null, { status: 202 })
-                                  : Response.json(reply, {
-                                      headers: {
-                                        'cache-control': 'no-store',
-                                        ...(opened && {
-                                          'mcp-session-id': opened.id,
-                                        }),
-                                      },
-                                    })
+                          : ((agent, token) =>
+                              ((opened) =>
+                                mcp(
+                                  message,
+                                  login.user,
+                                  opened?.session ??
+                                    sessions.of(
+                                      request.headers.get('mcp-session-id'),
+                                      token,
+                                      agent
+                                    )
+                                ).then((reply) =>
+                                  reply === null
+                                    ? new Response(null, { status: 202 })
+                                    : Response.json(reply, {
+                                        headers: {
+                                          'cache-control': 'no-store',
+                                          ...(opened && {
+                                            'mcp-session-id': opened.id,
+                                          }),
+                                        },
+                                      })
+                                ))(
+                                (message as { method?: unknown }).method ===
+                                  'initialize'
+                                  ? sessions.open(token, agent)
+                                  : null
                               ))(
-                              (message as { method?: unknown }).method ===
-                                'initialize'
-                                ? sessions.open()
-                                : null
+                              { id: login.token.id, name: login.token.name },
+                              bearerToken(request)!
                             ))(
                         attempt(
                           () => JSON.parse(text) as unknown,
                           () => undefined
                         )
                       )
-                ))(
-      services.identity.apiTokens.authenticate(bearerToken(request))
-    );
+                ))(services.identity.apiTokens.login(bearerToken(request)));
 
   return {
     /** `client` — адрес посетителя из сервера: для счёта неудачных входов. */
@@ -207,5 +226,9 @@ export var defineManager = (
 };
 
 export { managerMigrations } from './infrastructure/migrations.ts';
-export { type AgentSession, defineAgentSession } from './interface/toolbox.ts';
+export {
+  type AgentKey,
+  type AgentSession,
+  defineAgentSession,
+} from './interface/toolbox.ts';
 export type { ManagerServices };

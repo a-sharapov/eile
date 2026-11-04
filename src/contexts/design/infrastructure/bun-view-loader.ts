@@ -2,7 +2,7 @@ import { type PluginBuilder, plugin } from 'bun';
 import * as svelte from 'svelte';
 import * as svelteServer from 'svelte/internal/server';
 import { rewriteImports } from '../../../platform/module-imports.ts';
-import { fail } from '../../../shared/kernel/errors.ts';
+import { attempt, fail } from '../../../shared/kernel/errors.ts';
 import { pipe } from '../../../shared/kernel/pipe.ts';
 import {
   COMPONENT_IMPORT_PREFIX,
@@ -171,9 +171,25 @@ export var defineViewLoader = ({
       )
   );
 
+  // Спецификатор и граф — сразу, до первого await: загрузчик с подменой исходников (предпросмотр
+  // предложений) между вызовами меняет то, что видит `elements.get`.
+  const loadNow =
+    (kind: ElementKind) =>
+    (name: string): Promise<LoadedView> =>
+      attempt(
+        () =>
+          ((loaded, elements) =>
+            import(loaded).then((_) => ({ view: _.default, elements })))(
+            specifier(kind, name, []),
+            closures.get(`${kind}/${name}`) ?? [`${kind}/${name}`]
+          ),
+        (error) => Promise.reject(error)
+      );
+
   return {
     template: loadView('template'),
     component: loadView('component'),
+    now: loadNow,
     /** Забывает разрешённые спецификаторы; загруженные модули остаются в памяти. */
     invalidate: (): void => (resolved.clear(), closures.clear()),
   };

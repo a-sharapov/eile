@@ -155,9 +155,21 @@ describe('варианты размеров делает сервер', () => {
     )) as { result: { isError: boolean } };
     expect(result.result.isError).toBe(false);
     await app.media.variants.run();
+    // Оригинал 1000 px шире варианта 960 — он и закрывает верх набора, а не растянутый вариант.
     expect(app.media.image('blog/cover.png')?.srcset).toMatch(
-      /^\/media\/blog\/cover@480\.webp\?v=\w+ 480w, \/media\/blog\/cover@960\.webp\?v=\w+ 960w$/
+      /^\/media\/blog\/cover@480\.webp\?v=\w+ 480w, \/media\/blog\/cover@960\.webp\?v=\w+ 960w, \/media\/blog\/cover\.png\?v=\w+ 1000w$/
     );
+  });
+
+  it('srcset: оригинал шире 1920 в набор не идёт — хватает варианта 1920', async () => {
+    app.media.files.save({
+      path: 'img/wide.png',
+      data: await picture(2400, 1200, 'png'),
+    });
+    await app.media.variants.run();
+    const srcset = app.media.image('img/wide.png')?.srcset ?? '';
+    expect(srcset).toContain('wide@1920.webp');
+    expect(srcset).not.toContain('2400w');
   });
 
   it('поворот EXIF: варианты повёрнуты так, как картинку покажет браузер', async () => {

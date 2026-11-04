@@ -66,7 +66,8 @@ const meta = [
         <Shot
           name={shot}
           alt={t.cookSiteAlt}
-          sizes="(min-width: 64rem) 36rem, calc(100vw - 2.5rem)"
+          title={t.winStudio}
+          sizes="(min-width: 64rem) 36rem, calc(94vw - 1rem)"
           eager
         />
       </figure>
@@ -250,6 +251,7 @@ const meta = [
     .time {
       grid-column: 2;
       text-align: left;
+      white-space: normal;
     }
   }
 </style>

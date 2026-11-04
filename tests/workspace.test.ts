@@ -50,6 +50,53 @@ describe('выгрузка', () => {
   });
 });
 
+// git с core.autocrlf=true на Windows выдаёт файлы с CRLF; в сайте и в папке после pull — LF.
+const crlf = (text: string) => text.replaceAll('\n', '\r\n');
+
+describe('переводы строк CRLF', () => {
+  it('файлы с CRLF и тем же текстом — без правок: push ничего не меняет, pull не переписывает', async () => {
+    await pull(app, dir);
+    const base = await read('templates/Base.svelte');
+    const fields = await read('fields.json');
+    await write('templates/Base.svelte', crlf(base));
+    await write('fields.json', crlf(fields));
+    expect(push(app, await readFolder(dir))).toMatchObject({
+      added: [],
+      changed: [],
+      problems: [],
+    });
+    const again = await pull(app, dir);
+    expect(again.written).toEqual([]);
+    expect(await read('templates/Base.svelte')).toBe(crlf(base));
+  });
+
+  it('правка в файле с CRLF уходит в сайт с LF', async () => {
+    await pull(app, dir);
+    await write(
+      'components/Badge.svelte',
+      '<script>\r\n  let { text = "new" } = $props();\r\n</script>\r\n<b>{text}</b>\r\n'
+    );
+    const report = push(app, await readFolder(dir));
+    expect(report.added).toEqual(['components/Badge.svelte']);
+    expect(app.design.elements.get('component', 'Badge')!.source).toBe(
+      '<script>\n  let { text = "new" } = $props();\n</script>\n<b>{text}</b>\n'
+    );
+  });
+
+  it('BOM в начале файла не уходит в сайт и не делает файл изменённым', async () => {
+    await pull(app, dir);
+    const base = await read('templates/Base.svelte');
+    await write('templates/Base.svelte', `﻿${crlf(base)}`);
+    expect(push(app, await readFolder(dir)).changed).toEqual([]);
+  });
+
+  it('pull пишет LF', async () => {
+    await pull(app, dir);
+    expect(await read('templates/Base.svelte')).not.toContain('\r');
+    expect(await read('fields.json')).not.toContain('\r');
+  });
+});
+
 describe('отправка', () => {
   it('без правок — ничего не меняет', async () => {
     await pull(app, dir);

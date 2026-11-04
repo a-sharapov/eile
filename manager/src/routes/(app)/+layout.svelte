@@ -39,6 +39,7 @@ type Section = {
     | '/(app)/users'
     | '/(app)/settings'
     | '/(app)/backups'
+    | '/(app)/proposals'
     | '/(app)/help';
   label: MessageKey;
   icon: keyof typeof icons;
@@ -73,6 +74,13 @@ const _NAV: readonly Section[] = [
     href: '/(app)/media',
     label: 'nav.media',
     icon: 'images',
+    roles: ['admin', 'editor'],
+  },
+  // Предложения агентов (ADR 0054) — рядом со страницами: их разбирают те, кто правит сайт.
+  {
+    href: '/(app)/proposals',
+    label: 'nav.proposals',
+    icon: 'proposals',
     roles: ['admin', 'editor'],
   },
   // Статистику смотрят все менеджеры; включает и настраивает её администратор во вкладке настроек.

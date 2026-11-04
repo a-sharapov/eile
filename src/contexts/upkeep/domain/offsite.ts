@@ -13,7 +13,7 @@ export type OffsiteSettings = {
   /** Регион подписи запросов; пусто — us-east-1. */
   readonly region: string;
   readonly bucket: string;
-  /** Начало имён объектов, `kuechenly/`; пусто — корень бакета. */
+  /** Начало имён объектов, `my-site/`; пусто — корень бакета. */
   readonly prefix: string;
   readonly accessKey: string;
   /** Бакет в имени хоста (`bucket.host`), а не в пути (`host/bucket`). */

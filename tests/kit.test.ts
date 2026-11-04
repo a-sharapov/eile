@@ -7,6 +7,7 @@ import {
   kitClosure,
   kitFor,
 } from '../src/kit/index.ts';
+import { picture } from './fixtures/images.ts';
 
 let app: App;
 let ids: Record<string, number>;
@@ -329,5 +330,35 @@ describe('набор в менеджере', () => {
 
   it('неизвестный компонент — 404', async () => {
     expect((await call('POST', '/kit/Nope', {})).status).toBe(404);
+  });
+});
+
+describe('картинки и видео в тексте', () => {
+  it('Figure, Gallery и Video: srcset из медиатеки, подпись, ссылка на страницу; чужой ролик — ссылкой', async () => {
+    const jpeg = await picture(1200, 800, 'jpeg');
+    app.media.files.save({ path: 'photos/a.jpg', data: jpeg });
+    app.media.files.save({ path: 'photos/b.jpg', data: jpeg });
+    app.media.files.describe('photos/a.jpg', 'Кухня');
+    await app.media.variants.run();
+    const page = create('Галерея', 'galereya', null, {
+      content: `[[Figure src="photos/a.jpg" caption="Наша кухня" href=${ids.services} size="small"]]
+[[Gallery images="photos/a.jpg, photos/nope.jpg, photos/b.jpg" columns=2]]
+[[Figure src="photos/nope.jpg"]]
+[[Video url="https://vimeo.com/123456" title="Ролик"]]
+[[Video url="https://example.com/film"]]`,
+    });
+    const html = await text('/galereya');
+    expect(html).toMatch(
+      /<figure class="figure small[^"]*"><a href="\/uslugi"><img src="\/media\/photos\/a\.jpg\?v=[0-9a-f]+" srcset="[^"]*a@960\.webp[^"]*"/
+    );
+    expect(html).toContain('alt="Кухня"');
+    expect(html).toContain('Наша кухня</figcaption>');
+    expect(html.match(/<img/g)?.length).toBe(3);
+    expect(html).toContain('src="https://player.vimeo.com/video/123456"');
+    expect(html).toContain('title="Ролик"');
+    expect(html).toContain(
+      '<a href="https://example.com/film">https://example.com/film</a>'
+    );
+    expect(page).toBeGreaterThan(0);
   });
 });

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type App, createApp } from '../src/app.ts';
 import { DEMO } from './fixtures/demo.ts';
+import { expectMode, removeTemp } from './fixtures/platform.ts';
 
 let app: App;
 let admin: string;
@@ -235,7 +236,7 @@ describe('копия сайта в файле', () => {
     await setup();
   });
 
-  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => removeTemp(dir));
 
   it('в .db-копии нет сеансов и ключа ИИ: они не уходят с сервера', async () => {
     app.assistant.connection.save({
@@ -266,7 +267,7 @@ describe('копия сайта в файле', () => {
       _.startsWith('site.before-restore-')
     );
     expect(saved).toHaveLength(3);
-    expect(statSync(join(dir, saved[0]!)).mode & 0o777).toBe(0o600);
+    expectMode(join(dir, saved[0]!), 0o600);
   });
 
   it('перед восстановлением состояние сохраняется рядом с базой', async () => {
@@ -297,7 +298,7 @@ describe('бэкап командой', () => {
     });
     site.backup(join(dir, 'copy.db'));
     site.close();
-    expect(statSync(join(dir, 'copy.db')).mode & 0o777).toBe(0o600);
+    expectMode(join(dir, 'copy.db'), 0o600);
     expect(await Bun.file(join(dir, 'copy.db')).text()).not.toContain(
       'sk-CLI-SECRET'
     );
@@ -310,6 +311,6 @@ describe('бэкап командой', () => {
       await (await copy.fetch(new Request('http://localhost/kontakty'))).text()
     ).toContain('<h1>Контакты</h1>');
     copy.close();
-    rmSync(dir, { recursive: true, force: true });
+    removeTemp(dir);
   });
 });

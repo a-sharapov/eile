@@ -16,6 +16,7 @@ import {
   sealInfo,
 } from '../src/platform/seal.ts';
 import { isDomainError } from '../src/shared/kernel/errors.ts';
+import { removeTemp } from './fixtures/platform.ts';
 import { type FakeS3, startFakeS3 } from './fixtures/s3.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'cms-offsite-'));
@@ -25,7 +26,7 @@ beforeAll(() => {
 });
 afterAll(() => {
   s3.stop();
-  rmSync(dir, { recursive: true, force: true });
+  removeTemp(dir);
 });
 
 const SECRET = 'fake-secret-do-not-leak-1234567890';

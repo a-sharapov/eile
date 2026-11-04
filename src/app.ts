@@ -85,6 +85,14 @@ import {
   redirectsMigrations,
 } from './contexts/redirects/index.ts';
 import {
+  defineReview,
+  PREVIEW_PREFIX,
+  REVIEW_SERVER_TABLES,
+  type Review,
+  type ReviewEvent,
+  reviewMigrations,
+} from './contexts/review/index.ts';
+import {
   clearSearchIndex,
   defineSearch,
   SEARCH_PATH,
@@ -145,7 +153,11 @@ import {
   type ServerSettingsReport,
 } from './server-settings.ts';
 import { attempt, fail, rethrow } from './shared/kernel/errors.ts';
-import { type Localized, localized } from './shared/kernel/manager-language.ts';
+import {
+  type Localized,
+  localized,
+  type ManagerLanguage,
+} from './shared/kernel/manager-language.ts';
 import { errorDetail, errorKey } from './shared/kernel/report.ts';
 import { redirectPages, siteFacts } from './site-facts.ts';
 
@@ -200,6 +212,8 @@ export type App = {
   readonly search: Search;
   readonly certificates: Certificates;
   readonly redirects: RedirectsService;
+  /** Ссылки предпросмотра и проверка правок агентов (ADR 0054). */
+  readonly review: Review;
   /** Статистика посещений: счёт без cookie, цели, отчёт. */
   readonly stats: Stats;
   /** Диагностика сайта; другие модули добавляют проверки через `register`. */
@@ -254,6 +268,7 @@ const _MIGRATIONS: readonly Migration[] = [
   ...certificatesMigrations,
   ...redirectsMigrations,
   ...statsMigrations,
+  ...reviewMigrations,
 ];
 
 // Сеансы входа, подключение ИИ (его ключ), каналы уведомлений и их очередь, сертификаты HTTPS и их
@@ -267,6 +282,7 @@ const _SERVER_ONLY = [
   ...UPKEEP_SERVER_TABLES,
   ...CERTIFICATES_TABLES,
   ...STATS_SERVER_TABLES,
+  ...REVIEW_SERVER_TABLES,
 ];
 
 // Индекс поиска выводится из страниц: в JSON-копию не идёт, восстановление его не трогает, а после
@@ -306,6 +322,37 @@ const _AUDIT: Readonly<Record<string, Localized>> = {
 };
 
 const _USER: Localized = { en: 'User', de: 'Benutzer', ru: 'Пользователь' };
+
+// Агент отдал правки на проверку — владельцу тем же каналом, что и о событиях сайта.
+const _READY: Readonly<
+  Record<
+    ManagerLanguage,
+    {
+      readonly title: string;
+      readonly text: (event: ReviewEvent) => string;
+      readonly link: string;
+    }
+  >
+> = {
+  en: {
+    title: 'Agent changes are waiting for review',
+    text: (_) =>
+      `${_.title || `Change set ${_.changeSetId}`}: ${_.proposals} proposed change(s) from ${_.agent.userName}${_.agent.tokenName ? ` (${_.agent.tokenName})` : ''}. Nothing is on the site until you accept it.`,
+    link: 'Review in the manager',
+  },
+  de: {
+    title: 'Änderungen eines Agenten warten auf Prüfung',
+    text: (_) =>
+      `${_.title || `Änderungssatz ${_.changeSetId}`}: ${_.proposals} vorgeschlagene Änderung(en) von ${_.agent.userName}${_.agent.tokenName ? ` (${_.agent.tokenName})` : ''}. Auf der Website ist nichts davon, bis Sie es annehmen.`,
+    link: 'Im Manager prüfen',
+  },
+  ru: {
+    title: 'Правки агента ждут проверки',
+    text: (_) =>
+      `${_.title || `Набор ${_.changeSetId}`}: предложено правок — ${_.proposals}, от ${_.agent.userName}${_.agent.tokenName ? ` (${_.agent.tokenName})` : ''}. На сайте ничего не изменится, пока вы их не примете.`,
+    link: 'Проверить в менеджере',
+  },
+};
 
 const _isManager = (path: string): boolean =>
   path === MANAGER_PATH || path.startsWith(`${MANAGER_PATH}/`);
@@ -530,12 +577,44 @@ const _compose = (
     dictionary,
     report,
     modules: { Form: forms.render },
-    redirects: { match: redirects.match, hit: redirects.hit },
+    redirects: {
+      match: redirects.match,
+      matchQuery: redirects.matchQuery,
+      hit: redirects.hit,
+    },
     // Менеджер создаётся ниже: полоса понадобится только на запрос, когда он уже есть.
     editBar: (request, page) => manager.editBar(request, page),
     pageViews: stats.view,
     beacon: stats.beacon,
   });
+  const review = defineReview({
+    db,
+    bus,
+    clock,
+    content,
+    design,
+    preview: delivery.preview,
+    siteLanguage: () => settings().language,
+  });
+  bus.on<ReviewEvent>(
+    'review.change_set_ready',
+    (event) =>
+      void ((texts, url) =>
+        notify.send(
+          message({
+            topic: 'account',
+            title: texts.title,
+            text: texts.text(event),
+            link: url ? { label: texts.link, url } : null,
+          }),
+          notify.settings.status().incidents,
+          `review:${event.changeSetId}`
+        ))(
+        _READY[notify.language()],
+        settings().siteUrl &&
+          `${settings().siteUrl.replace(/\/$/, '')}${MANAGER_PATH}/proposals?set=${event.changeSetId}`
+      )
+  );
   const diagnostics = defineDiagnostics({
     bus,
     clock,
@@ -553,7 +632,14 @@ const _compose = (
   void (
     options.scaffold &&
     content.isEmpty() &&
-    applyScaffold(options.scaffold, { content, design, site, forms })
+    applyScaffold(options.scaffold, {
+      content,
+      design,
+      site,
+      forms,
+      media,
+      extensions,
+    })
   );
 
   const upkeep = defineUpkeep({
@@ -601,6 +687,7 @@ const _compose = (
     redirects,
     diagnostics,
     stats,
+    review,
     version: VERSION,
     db,
   });
@@ -621,14 +708,16 @@ const _compose = (
           ? forms.handle(request, client)
           : path === SEARCH_PATH
             ? Promise.resolve(searchHandler.handle(request, client))
-            : path.startsWith(`${ASSETS_PREFIX}/`)
-              ? design.assets(request)
-              : path.startsWith(MEDIA_PREFIX)
-                ? Promise.resolve(media.handle(request))
-                : notify.gateway.claims(path)
-                  ? (server?.timeout?.(request, _GATEWAY_SECONDS),
-                    notify.gateway.handle(request, client))
-                  : delivery.handle(request, client);
+            : path.startsWith(PREVIEW_PREFIX)
+              ? review.preview.handle(request, client)
+              : path.startsWith(`${ASSETS_PREFIX}/`)
+                ? design.assets(request)
+                : path.startsWith(MEDIA_PREFIX)
+                  ? Promise.resolve(media.handle(request))
+                  : notify.gateway.claims(path)
+                    ? (server?.timeout?.(request, _GATEWAY_SECONDS),
+                      notify.gateway.handle(request, client))
+                    : delivery.handle(request, client);
   };
 
   return {
@@ -653,6 +742,7 @@ const _compose = (
     certificates,
     redirects,
     stats,
+    review,
     diagnostics,
     mcp: manager.mcp,
   };
@@ -910,6 +1000,9 @@ export var createApp = (options: AppOptions = {}): App => {
     },
     get stats() {
       return parts.stats;
+    },
+    get review() {
+      return parts.review;
     },
     get diagnostics() {
       return parts.diagnostics;

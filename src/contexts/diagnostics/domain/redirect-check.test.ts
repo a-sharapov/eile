@@ -138,7 +138,8 @@ describe('итог адреса', () => {
     ];
     expect(outcome('/uber-uns/', moved, '/ueber-uns').outcome).toBe('moved');
     expect(
-      outcome('/uber-uns/', moved, 'https://kuechenly.de/ueber-uns').outcome
+      outcome('/uber-uns/', moved, 'https://muehlenhof.example/ueber-uns')
+        .outcome
     ).toBe('moved');
     expect(outcome('/uber-uns/', moved, '/').outcome).toBe('wrong_target');
     expect(

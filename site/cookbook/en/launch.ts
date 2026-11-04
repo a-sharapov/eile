@@ -20,8 +20,13 @@ const deploy: Chapter = {
     ),
     h2('server', 'Server and domain'),
     p(
-      'You need a small virtual server (VPS) with Linux: the cheapest plan with 1 GB of memory at any hosting provider will do. When you order it, choose Ubuntu or Debian. The host sends you the server’s IP address, for example <code>203.0.113.10</code>, and the password for the root user.',
-      'You buy a domain from a registrar. This chapter uses <code>facade.example</code>; put your own domain wherever you see it. In the domain’s DNS settings, create two A records, one for <code>facade.example</code> and one for <code>www.facade.example</code>, both with the server’s IP address. The records take anywhere from a few minutes to a couple of hours to spread across the internet.'
+      'You need a small virtual server (VPS) with Linux: a plan from 512 MB of memory will do, and 1 GB leaves room to spare. With less than a gigabyte and no swap file, <code>cms service install</code> warns you and shows how to add one. When you order it, choose Ubuntu or Debian. The host sends you the server’s IP address, for example <code>203.0.113.10</code>, and the password for the root user.',
+      'You buy a domain from a registrar. This chapter uses <code>facade.example</code>; put your own domain wherever you see it. If the domain already has a site or mail at a previous host, check it while DNS is still untouched. On your own computer, run:'
+    ),
+    code('sh', '$ cms diagnose domain facade.example --to 203.0.113.10'),
+    p(
+      'The command tells you what breaks once the domain leads to the new server. Most often it’s mail: if it lives at the old host on the same address, messages go to the new server, which has no mail. At the end it lists the records to fix before the switch, step by step. A brand-new domain needs no check.',
+      'Now, in the domain’s DNS settings at the registrar, create two A records, one for <code>facade.example</code> and one for <code>www.facade.example</code>, both with the server’s IP address. The records take anywhere from a few minutes to a couple of hours to spread across the internet.'
     ),
     h2('ssh', 'Log in to the server'),
     p(
@@ -31,10 +36,7 @@ const deploy: Chapter = {
     p(
       'Enter the password from your host. The prompt changes: from now on, your commands go to the server. Install Eile the same way as in chapter two:'
     ),
-    code(
-      'sh',
-      '$ curl -fsSL https://github.com/a-sharapov/eile/releases/latest/download/install.sh | bash'
-    ),
+    code('sh', '$ curl -fsSL https://eile.site/install.sh | bash'),
     p(
       'When you install as root, the program goes to <code>/usr/local/bin/cms</code>. Leave the server with the <code>exit</code> command:'
     ),
@@ -83,7 +85,7 @@ const deploy: Chapter = {
       'Email, Telegram and the mail gateway work right away: the service picks them up by itself, no restart needed. Then delete <code>facade-server.enc</code> from the server and from your folder: it is only for the move. If you have no such file, set up email and Telegram in the manager again.'
     ),
     p(
-      '<code>cms service status</code> shows how the site is doing. To see the service file without changing anything, add <code>--print</code>.'
+      '<code>cms service status</code> shows how the site is doing. To see the service file without changing anything, add <code>--print</code>. If your host offers uptime checks, give them the address <code>https://facade.example/_cms/health</code>: it answers 200 while the site runs and can read its database.'
     ),
     aside(
       'trouble',
@@ -92,6 +94,21 @@ const deploy: Chapter = {
         'Do the DNS records point to the server yet? Check with <code>ping facade.example</code>: the reply should show the server’s IP.',
         'Are ports 80 and 443 open? Some hosts have their own firewall in the control panel.',
         'What does the service say? <code>cms service logs</code> shows the last lines of its log.'
+      )
+    ),
+    aside(
+      'trouble',
+      'Emails don’t go out',
+      p(
+        'Many hosts block the SMTP mail ports on new servers: on DigitalOcean, for example, ports 25, 465 and 587. Then in ' +
+          ui('Settings') +
+          ' → ' +
+          ui('Notifications') +
+          ', set ' +
+          ui('Send through') +
+          ' to a mail service — Brevo, Postmark, Mailgun, Resend or Amazon SES — and paste its API key. Emails go out over HTTPS, the same way the site itself is served. Verify the sender’s domain with the service: it shows SPF and DKIM records to add to the domain’s DNS. Then press ' +
+          ui('Send a test') +
+          '.'
       )
     ),
     h2('address', 'The site address in the settings'),
@@ -135,7 +152,7 @@ const deploy: Chapter = {
     ),
     code('sh', '$ cms update'),
     p(
-      'It downloads the new version, checks its checksum, does a test run and restarts the service. If the new version doesn’t come up, <code>cms update</code> puts the previous one back and tells you. Before you update an alpha version, it’s a good idea to make a backup with ' +
+      'It downloads the new version, checks its checksum, does a test run, snapshots the database and restarts the service. If the new version doesn’t come up, <code>cms update</code> puts the previous one back together with the database and tells you. Still, before you update, it’s a good idea to make your own backup with ' +
         c('cms backup') +
         '.'
     ),
@@ -143,7 +160,7 @@ const deploy: Chapter = {
       'tip',
       'Moving to another server',
       p(
-        'It’s this chapter all over again: install <code>cms</code>, bring the copy of the site and the settings file, run <code>cms service install</code> and <code>cms restore --server</code>. Two files and ten minutes. If the old server is already gone, <code>cms restore --remote latest</code> takes the backup from the storage, with the recovery key.'
+        'It’s this chapter all over again: install <code>cms</code>, bring the copy of the site and the settings file, run <code>cms service install</code> and <code>cms restore --server</code>. If the old server is already gone, <code>cms restore --remote latest</code> takes the backup from the storage, with the recovery key.'
       )
     ),
     aside(
@@ -164,10 +181,56 @@ const next: Chapter = {
   title: 'What’s next',
   lead: 'The studio’s site is up and running. Here’s what else Eile can do and where to look when you want more.',
   description:
-    'What to learn after the Eile cookbook: site search, multiple languages, plugins, ready-made scaffolds, moving from MODX Evo and the documentation.',
+    'What to learn after the Eile cookbook: cookieless statistics, a draft for the client, AI agents and reviewing their edits, search, languages, scaffolds and packages, plugins, moving from WordPress and MODX Evo, and the documentation.',
   content: [
     p(
       'Over twelve chapters you installed Eile, built templates and components, added fields and settings, made a form that collects requests, brought a page to life with an island and put the site on the internet. That covers most small sites. Everything else is optional.'
+    ),
+    h2('statistics', 'Visitor statistics'),
+    p(
+      'Eile counts how many people visit and where they come from by itself, on the server. Open ' +
+        ui('Settings') +
+        ' → ' +
+        ui('Statistics') +
+        ', tick ' +
+        ui('Count visitors') +
+        ' and save. No cookies, no third-party counter and no consent banner: the visitor’s address and browser become a short hash, and its salt lives in server memory until midnight. Visitors, sources, UTM tags and goals show up in the ' +
+        ui('Statistics') +
+        ' section of the manager header. Form submissions count as goals by themselves.',
+      'While you are signed in to the manager, you aren’t counted: check from another browser.'
+    ),
+    aside(
+      'warn',
+      'Privacy policy',
+      p(
+        'The site’s privacy policy has to mention the counting. A sample paragraph in German and English sits right there in the statistics settings. It covers only the statistics: have a lawyer check the whole policy.'
+      )
+    ),
+    h2('client', 'A draft for the client'),
+    p(
+      'You can show an unpublished page to a client without a manager login. Open it and press ' +
+        ui('Link for a client') +
+        ' next to the preview. Say who it is for, set the number of days and press ' +
+        ui('Create link') +
+        '. Copy it right away: the full link is shown only once. The client sees the page with a “not published” label, and search engines leave it alone. When you no longer need the link, press ' +
+        ui('Revoke') +
+        '.'
+    ),
+    h2('agents', 'AI agents and reviewing their edits'),
+    p(
+      'An AI agent such as Claude Code connects to the site over MCP with one command. Run it in the site’s folder:'
+    ),
+    code('sh', '$ claude mcp add facade -- cms mcp --db site.db'),
+    p(
+      'To keep the agent’s edits from going live at once, open ' +
+        ui('Proposals') +
+        ' in the manager header and tick ' +
+        ui('Changes of all agents wait for review') +
+        '. From then on, pages, templates and components from the agent collect into a set: you see the diff and a preview, then press ' +
+        ui('Accept all') +
+        ' or ' +
+        ui('Reject all') +
+        '. The assistant inside the manager edits directly: you are watching it anyway.'
     ),
     h2('search', 'Site search'),
     p(
@@ -183,9 +246,9 @@ const next: Chapter = {
         ui('Translations') +
         '. The site you’re reading works this way: the Russian home page is at <code>/</code>, and the English one is at <code>/en</code>.'
     ),
-    h2('scaffolds', 'Ready-made scaffolds'),
+    h2('scaffolds', 'Ready-made scaffolds and packages'),
     p(
-      'The <code>cms new</code> command sets up a ready-made site: a blog, a portfolio, a company site, a showcase or a shop. They make a good textbook: set up a scaffold in a separate folder and read through its elements.'
+      'The <code>cms new</code> command sets up a ready-made site: a blog, a portfolio, a company site, a showcase or a shop. There is also an official package, <code>kuechenstudio</code>: a site for a kitchen studio in Germany, in German, with an Impressum, a Datenschutz page and slots for an online planner and a chat. <code>cms new kuechenstudio</code> takes it from the release page and checks its checksum. Scaffolds make a good textbook: set one up in a separate folder and read through its elements.'
     ),
     code(
       'sh',
@@ -194,13 +257,35 @@ const next: Chapter = {
     p(
       'The ' +
         c('--port 8081') +
-        ' option keeps the example from fighting over the port with the studio site, in case that one is running too.'
+        ' option keeps the example from fighting over the port with the studio site, in case that one is running too. Your own site can become a package like that: ' +
+        c('cms scaffold pack') +
+        ' turns a folder into a .zip file, and ' +
+        c('cms new ./studio.zip') +
+        ' sets it up.'
     ),
     h2('plugins', 'Plugins'),
     p(
       'A plugin changes how the whole site behaves. It can adjust the finished HTML before it goes out, redirect an address that doesn’t exist or react when a page is published. You write it in TypeScript right in ' +
         ui('Elements') +
         ' and turn it on with one button.'
+    ),
+    h2('wordpress', 'Moving from WordPress'),
+    p(
+      'A WordPress site moves over from an export file: in the WordPress admin, open Tools → Export and download everything. In a new folder, start with a dry run: it writes nothing and only shows the report.'
+    ),
+    code(
+      'sh',
+      '$ cms import-wp wordpress.xml --media https://old-site.example --dry-run\n$ cms import-wp wordpress.xml --media https://old-site.example'
+    ),
+    p(
+      'Pages with their tree, posts, images, menus and the SEO fields of Yoast, Rank Math, SEOPress and AIOSEO come along. Old addresses, even ones like <code>/?p=12</code>, become redirects. Layouts from builders such as Elementor can’t be moved: the text stays, and those pages are listed in the report. You can check the old addresses against the old site’s sitemap:'
+    ),
+    code(
+      'sh',
+      '$ cms diagnose redirects https://old-site.example/wp-sitemap.xml'
+    ),
+    p(
+      'Each address should arrive with a single 301 or 308 at a live page. The command reports anything else as an error.'
     ),
     h2('evo', 'Moving from MODX Evo'),
     p(

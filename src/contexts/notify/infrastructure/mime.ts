@@ -3,8 +3,8 @@ import { headline, type Message, safeUrl } from '../domain/message.ts';
 
 const _utf8 = new TextEncoder();
 
-// Перевод строки в значении заголовка дописал бы свой заголовок (Bcc:) — значения в одну строку.
-const _oneLine = (value: string): string =>
+/** Значение заголовка в одну строку: перевод строки дописал бы свой заголовок (Bcc:). */
+export var oneLine = (value: string): string =>
   value.replace(/[\r\n\t]+/g, ' ').trim();
 
 const _ASCII = /^[\x20-\x7e]*$/;
@@ -25,7 +25,7 @@ const _words = (value: string): string[] =>
 /** Значение заголовка: ASCII как есть, остальное — словами RFC 2047 через перенос строки с пробелом. */
 export var headerValue = (value: string): string =>
   ((line) => (_ASCII.test(line) ? line : _words(line).join('\r\n ')))(
-    _oneLine(value)
+    oneLine(value)
   );
 
 // base64 строками по 76 знаков, как требует MIME.
@@ -83,6 +83,20 @@ export var subjectOf = (item: Message, site: string): string =>
     ? `${headline(item)} — ${site}`
     : headline(item);
 
+/** Уведомление письмом: тема, текст и HTML — те же для SMTP и для HTTP API. */
+export var notificationOf = (
+  item: Message,
+  site: string
+): {
+  readonly subject: string;
+  readonly text: string;
+  readonly html: string;
+} => ({
+  subject: subjectOf(item, site),
+  text: _text(item, site),
+  html: _html(item, site),
+});
+
 /**
  * Письмо целиком: заголовки и multipart/alternative из текста и HTML, оба в base64 — восьмибитные
  * строки и точки в начале строки протоколу не мешают.
@@ -104,13 +118,14 @@ export var mimeMessage = ({
 }): string => {
   const boundary = `cms-${id}`;
   const domain = from.split('@')[1] ?? 'localhost';
+  const letter = notificationOf(item, site);
   return [
-    `From: ${site ? `${headerValue(site)} ` : ''}<${_oneLine(from)}>`,
-    `To: ${to.map((_) => `<${_oneLine(_)}>`).join(', ')}`,
-    ...(item.replyTo ? [`Reply-To: <${_oneLine(item.replyTo)}>`] : []),
-    `Subject: ${headerValue(subjectOf(item, site))}`,
+    `From: ${site ? `${headerValue(site)} ` : ''}<${oneLine(from)}>`,
+    `To: ${to.map((_) => `<${oneLine(_)}>`).join(', ')}`,
+    ...(item.replyTo ? [`Reply-To: <${oneLine(item.replyTo)}>`] : []),
+    `Subject: ${headerValue(letter.subject)}`,
     `Date: ${date.toUTCString().replace('GMT', '+0000')}`,
-    `Message-ID: <${id}@${_oneLine(domain)}>`,
+    `Message-ID: <${id}@${oneLine(domain)}>`,
     'MIME-Version: 1.0',
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
     '',
@@ -118,12 +133,12 @@ export var mimeMessage = ({
     'Content-Type: text/plain; charset=utf-8',
     'Content-Transfer-Encoding: base64',
     '',
-    _body(_text(item, site)),
+    _body(letter.text),
     `--${boundary}`,
     'Content-Type: text/html; charset=utf-8',
     'Content-Transfer-Encoding: base64',
     '',
-    _body(_html(item, site)),
+    _body(letter.html),
     `--${boundary}--`,
     '',
   ].join('\r\n');
@@ -133,9 +148,9 @@ export var mimeMessage = ({
 const _mailbox = (name: string, address: string): string =>
   ((line) =>
     line === ''
-      ? `<${_oneLine(address)}>`
-      : `${_ASCII.test(line) ? `"${line.replace(/["\\]/g, '\\$&')}"` : headerValue(line)} <${_oneLine(address)}>`)(
-    _oneLine(name)
+      ? `<${oneLine(address)}>`
+      : `${_ASCII.test(line) ? `"${line.replace(/["\\]/g, '\\$&')}"` : headerValue(line)} <${oneLine(address)}>`)(
+    oneLine(name)
   );
 
 const _ENTITIES: Readonly<Record<string, string>> = {
@@ -163,8 +178,8 @@ export var plainOf = (html: string): string =>
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-// HTML для письма без html: текст экранирован, переводы строк — `<br>`.
-const _htmlOf = (text: string): string =>
+/** HTML для письма без html: текст экранирован, переводы строк — `<br>`. */
+export var htmlOf = (text: string): string =>
   Bun.escapeHTML(text).replace(/\r?\n/g, '<br>\n');
 
 // Кусок письма: строка или байты, которые уходят в base64 строками по 76 знаков. Вложения кодируются
@@ -259,7 +274,7 @@ export var mailParts = ({
 }): Iterable<string | Uint8Array> => {
   const alternative = _multipart('alternative', `cms-${id}-a`, [
     _textPart(mail.text || plainOf(mail.html), 'plain'),
-    _textPart(mail.html || _htmlOf(mail.text), 'html'),
+    _textPart(mail.html || htmlOf(mail.text), 'html'),
   ]);
   const inline = mail.attachments.filter((_) => _.inline);
   const files = mail.attachments.filter((_) => !_.inline);
@@ -279,11 +294,11 @@ export var mailParts = ({
       `From: ${_mailbox(mail.from.name, mail.from.address)}`,
       ...(mail.from.address.toLowerCase() === envelope.toLowerCase()
         ? []
-        : [`Sender: <${_oneLine(envelope)}>`]),
-      `To: ${mail.to.map((_) => `<${_oneLine(_)}>`).join(', ')}`,
+        : [`Sender: <${oneLine(envelope)}>`]),
+      `To: ${mail.to.map((_) => `<${oneLine(_)}>`).join(', ')}`,
       `Subject: ${headerValue(mail.subject)}`,
       `Date: ${date.toUTCString().replace('GMT', '+0000')}`,
-      `Message-ID: <${id}@${_oneLine(envelope.split('@')[1] ?? 'localhost')}>`,
+      `Message-ID: <${id}@${oneLine(envelope.split('@')[1] ?? 'localhost')}>`,
       'MIME-Version: 1.0',
     ].join('\r\n')}\r\n`,
     ...root,

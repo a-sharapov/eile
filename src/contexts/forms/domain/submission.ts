@@ -21,6 +21,8 @@ export type SubmissionContext = {
   readonly url: string;
   readonly referrer: string;
   readonly utm: Readonly<Record<string, string>>;
+  /** `missing` — пришла без доказательства работы из браузера без JS, поэтому лежит в «Спаме» (ADR 0053). */
+  readonly proof?: 'missing';
 };
 
 /** Заявка с формы: снимок полей с подписями, контекст, адрес посетителя и статус обработки. */

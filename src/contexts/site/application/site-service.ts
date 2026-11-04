@@ -36,14 +36,14 @@ export var defineSiteService = ({
 
   // Переводы и свои настройки читает каждый рендер: держим в памяти до правки.
   let translations: ReadonlyMap<string, Translation> | null = null;
-  let custom: ReadonlyMap<string, string> | null = null;
+  let custom: ReadonlyMap<string, CustomSetting> | null = null;
 
   const translationMap = () =>
     (translations ??= new Map(
       dictionary.translations().map((_) => [_.key, _])
     ));
   const customMap = () =>
-    (custom ??= new Map(dictionary.settings().map((_) => [_.key, _.value])));
+    (custom ??= new Map(dictionary.settings().map((_) => [_.key, _])));
 
   const changed = (type: SiteEvent['type']) => (
     (translations = null),
@@ -68,20 +68,24 @@ export var defineSiteService = ({
         translate(translationMap().get(key), language, get().language),
     },
     customSettings: {
-      list: (): CustomSetting[] =>
-        [...customMap()].map(({ 0: key, 1: value }) => ({
-          key: parseKey(key),
-          value,
-        })),
-      save: (key: string, value: unknown): void => (
-        dictionary.saveSetting(createCustomSetting(key, value)),
+      list: (): CustomSetting[] => [...customMap().values()],
+      /** Пояснение не передано — остаётся прежнее: правка значения его не стирает. */
+      save: (key: string, value: unknown, note?: unknown): void => (
+        dictionary.saveSetting(
+          createCustomSetting(
+            key,
+            value,
+            note === undefined ? (customMap().get(key)?.note ?? '') : note
+          )
+        ),
         changed('site.custom_settings_changed')
       ),
       remove: (key: string): void => (
         dictionary.removeSetting(parseKey(key)),
         changed('site.custom_settings_changed')
       ),
-      value: (key: string): string | null => customMap().get(key) ?? null,
+      value: (key: string): string | null =>
+        customMap().get(key)?.value ?? null,
     },
   };
 };

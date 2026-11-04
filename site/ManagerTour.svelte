@@ -12,13 +12,13 @@ const points = [
   [t.tourBlocks, t.tourBlocksText],
   [t.tourSchedule, t.tourScheduleText],
   [t.tourHistory, t.tourHistoryText],
-  [t.tourJump, t.tourJumpText],
   [t.tourMedia, t.tourMediaText],
+  [t.tourShare, t.tourShareText],
 ];
 </script>
 
 <div class="tour">
-  <Shot name={en ? 'overview-en' : 'overview'} alt={t.shotOverview} />
+  <Shot name={en ? 'overview-en' : 'overview-ru'} alt={t.shotOverview} title={t.winManager} />
   <dl class="points">
     {#each points as { 0: term, 1: text }}
       <div>

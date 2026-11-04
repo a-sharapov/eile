@@ -6,8 +6,8 @@ import {
 import type { Transports } from './domain/ports.ts';
 import { type NotifySettings, restoredSettings } from './domain/settings.ts';
 import { startBackground } from './infrastructure/background.ts';
+import { defineEmailSender } from './infrastructure/email-sender.ts';
 import { cryptoGatewaySecrets } from './infrastructure/gateway-secrets.ts';
-import { defineSmtpSender } from './infrastructure/smtp-client.ts';
 import {
   defineIncidentRepository,
   defineOutboxRepository,
@@ -34,12 +34,22 @@ export type {
   Severity,
 } from './domain/message.ts';
 export { message } from './domain/message.ts';
-export type { SmtpProbe, Transports } from './domain/ports.ts';
+export type { EmailSender, SmtpProbe, Transports } from './domain/ports.ts';
+export {
+  type MailProvider,
+  PROVIDER_NAMES,
+} from './domain/providers.ts';
 export type {
+  ApiEmailSettings,
+  EmailSettings,
+  EmailStatus,
   GatewayStatus,
   NotifySettings,
   NotifyStatus,
+  SmtpEmailSettings,
 } from './domain/settings.ts';
+export { defineEmailSender } from './infrastructure/email-sender.ts';
+export { defineApiSender } from './infrastructure/mail-api.ts';
 export {
   NOTIFY_TABLES,
   notifyMigrations,
@@ -74,7 +84,7 @@ export var defineNotify = ({
     incidents: defineIncidentRepository(db),
     transports: transports ?? {
       telegram: defineTelegramClient(),
-      email: defineSmtpSender(),
+      email: defineEmailSender(),
     },
     clock,
     site,

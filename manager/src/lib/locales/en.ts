@@ -480,6 +480,9 @@ export var messages: Dictionary['messages'] = {
   'inbox.page': 'Page',
   'inbox.referrer': 'Came from',
   'inbox.browser': 'Browser',
+  'inbox.proof': 'Spam protection',
+  'inbox.proofMissing':
+    'Sent without JavaScript and not checked, so the submission is in Spam.',
   'inbox.deliveries': 'Notifications',
   'inbox.deliverySent': 'delivered',
   'inbox.deliveryFailed': 'not delivered',
@@ -656,6 +659,15 @@ export var messages: Dictionary['messages'] = {
   'formEditor.allowLinks': 'Links in fields aren’t spam',
   'formEditor.allowLinksHint':
     'For forms where people send links to a portfolio or a website.',
+  'formEditor.proof': 'Browser check',
+  'formEditor.proofHint':
+    'The visitor’s browser quietly solves a small puzzle while the form is being filled in: no captcha, no cookies, no third-party service. Times are averages on a mid-range phone; a computer is several times faster. A submission from a browser without JavaScript lands in Spam, marked as unchecked.',
+  'formEditor.proofOff': 'Off',
+  'formEditor.proofLight': 'Light — about 0.05 s on a phone',
+  'formEditor.proofStandard': 'Standard — about 0.2 s on a phone',
+  'formEditor.proofStrong': 'Strong — about 0.4 s on a phone',
+  'formEditor.proofOffHint':
+    'Off — the bot trap, the stamp and the fill-in time remain. They don’t always catch a bot that posts the form without a browser.',
   'formEditor.storeTitle': 'Storing submissions',
   'formEditor.storeHint':
     'Submissions with personal data are deleted after a set period, as data protection laws require.',
@@ -795,7 +807,7 @@ export var messages: Dictionary['messages'] = {
   'settings.tabUpkeep': 'Backups and updates',
   'settings.tabRedirects': 'Redirects',
   'redirects.intro':
-    'Sends visitors from an address with no page to the right one. /old and /old/ are the same address. An asterisk at the end covers a whole section: /blog/* → /news/* carries over the rest of the address too. A site page takes priority over a rule, and a rule over former page addresses.',
+    'Sends visitors from an address with no page to the right one. /old and /old/ are the same address. An asterisk at the end covers a whole section: /blog/* → /news/* carries over the rest of the address too. An address with a query like /?p=12 (old WordPress links) is a rule of its own: it fires only when the address has these parameters, and before the page, since a page does not see the query. A site page takes priority over a rule, and a rule over former page addresses.',
   'redirects.from': 'From',
   'redirects.to': 'To',
   'redirects.toHint':
@@ -902,9 +914,10 @@ export var messages: Dictionary['messages'] = {
     'Submissions and failures will stop arriving here. The server will forget the token or password.',
   'notify.email': 'Email',
   'notify.emailHint':
-    'Emails go out through your mail server (SMTP): Gmail, Outlook or iCloud with an app password, or your own.',
+    'Emails go out through your mail server (SMTP) — Gmail, Outlook or iCloud with an app password, or your own — or through a mail service with an HTTP API: Brevo, Postmark, Mailgun, Resend, Amazon SES.',
   'notify.emailOn': 'Notify by email',
-  'notify.emailOnHint': 'Needs an SMTP server, a sender and recipients.',
+  'notify.emailOnHint':
+    'Needs an SMTP server or a mail service, a sender and recipients.',
   'notify.host': 'SMTP server',
   'notify.security': 'Encryption',
   'notify.securityTls': 'TLS from the start (port 465)',
@@ -919,6 +932,42 @@ export var messages: Dictionary['messages'] = {
   'notify.from': 'From',
   'notify.to': 'To',
   'notify.toHint': 'Up to ten addresses, separated by commas.',
+  'notify.transport': 'Send through',
+  'notify.transportSmtp': 'Your mail server (SMTP)',
+  'notify.transportHint':
+    'Your host blocks SMTP ports (new DigitalOcean and Hetzner servers often do)? Pick a mail service with an HTTP API: emails go out over HTTPS, through port 443 like the site itself.',
+  'notify.keyBrevo': 'API key',
+  'notify.keyBrevoHint':
+    'In Brevo: SMTP & API → API keys → “Generate a new API key”. It must be an API key (xkeysib-…); an SMTP key (xsmtpsib-…) will not work.',
+  'notify.keyPostmark': 'Server API token',
+  'notify.keyPostmarkHint':
+    'In Postmark: your server → API Tokens tab. A server token, not an account token.',
+  'notify.keyMailgun': 'API key',
+  'notify.keyMailgunHint':
+    'In Mailgun: Sending → Domain settings → Sending API keys. The account API key works too.',
+  'notify.keyResend': 'API key',
+  'notify.keyResendHint':
+    'In Resend: API Keys → Create API Key; Sending access is enough. The key starts with re_.',
+  'notify.keySes': 'Secret access key',
+  'notify.keySesHint':
+    'An access key of an IAM user allowed to send (ses:SendEmail and ses:SendRawEmail). Temporary keys (ASIA…) will not work.',
+  'notify.keyKept': 'Key …{hint} is saved — enter a new one to replace it',
+  'notify.keyId': 'Access key ID',
+  'notify.awsRegion': 'AWS region',
+  'notify.awsRegionHint':
+    'The one where the domain is verified in SES: eu-central-1 is Frankfurt.',
+  'notify.mailgunRegion': 'Region',
+  'notify.mailgunRegionUs': 'US (api.mailgun.net)',
+  'notify.mailgunRegionEu': 'EU (api.eu.mailgun.net)',
+  'notify.mailgunDomain': 'Sending domain',
+  'notify.mailgunDomainHint':
+    'The domain added in Mailgun: mg.example.com. Empty — the domain of the sender.',
+  'notify.stream': 'Message stream',
+  'notify.streamHint': 'Empty — outbound, the transactional stream.',
+  'notify.verifyDomain':
+    'Verify the sender’s domain with the service: it shows DNS records for SPF and DKIM (SES: DKIM and, optionally, MAIL FROM). Add them at your domain registrar. Until the domain is verified the service does not send, and emails without SPF and DKIM land in spam more often.',
+  'notify.viaSmtp': 'Emails go out through the SMTP server {host}:{port}.',
+  'notify.viaApi': 'Emails go out through {provider} (HTTP API), key …{hint}.',
   'notify.routes': 'What goes where',
   'notify.routesHint':
     'Form submissions and site failures go to the channels you choose. A form can set its own channels.',
@@ -1297,6 +1346,8 @@ export var messages: Dictionary['messages'] = {
   'custom.newKey': 'New key',
   'custom.removed': 'Setting deleted',
   'custom.value': 'Value',
+  'custom.note': 'Note',
+  'custom.notePlaceholder': 'What it is, where from',
   'custom.add': 'Add key',
   'custom.empty': 'No custom settings yet.',
   'custom.saved': 'Setting saved',
@@ -1784,6 +1835,125 @@ export var messages: Dictionary['messages'] = {
   'statsSettings.privacyIntro':
     'A sample paragraph about Eile’s counting, in German and English. It covers only the statistics: have the whole policy checked by a lawyer.',
   'statsSettings.view': 'Open statistics',
+  'nav.proposals': 'Proposals',
+  'proposals.title': 'Agent proposals',
+  'proposals.intro':
+    'With review on, changes that agents make through MCP and API tokens do not go live at once: pages, templates, components and scripts collect in change sets, like a pull request. Look at the differences and the preview, then accept or reject.',
+  'proposals.settings': 'Review of changes',
+  'proposals.allAgents': 'Changes of all agents wait for review',
+  'proposals.allAgentsHint':
+    'MCP and API tokens. The assistant in the manager edits at once: you watch it. Review for a single token is turned on by its owner in the profile menu, “API tokens”.',
+  'proposals.linkDays': 'Preview links live, days',
+  'proposals.settingsSaved': 'Review settings saved',
+  'proposals.pendingTab': 'Waiting',
+  'proposals.closedTab': 'Decided',
+  'proposals.empty': 'No proposals are waiting for a decision.',
+  'proposals.emptyOff':
+    'Review is off: agent changes go live at once. Turn it on above or for a single token.',
+  'proposals.emptyClosed': 'No decided change sets yet.',
+  'proposals.setTitle': 'Change set {n}',
+  'proposals.agentKey': '{user}, token {key}',
+  'proposals.agentLocal': '{user}, cms mcp on the server',
+  'proposals.updated': 'changed {when}',
+  'proposals.statusOpen': 'Agent still working',
+  'proposals.statusReady': 'Ready for review',
+  'proposals.statusClosed': 'Decided',
+  'proposals.pendingCount': '{n} waiting|{n} waiting',
+  'proposals.acceptedCount': '{n} accepted|{n} accepted',
+  'proposals.rejectedCount': '{n} rejected|{n} rejected',
+  'proposals.withdrawnCount': '{n} withdrawn|{n} withdrawn',
+  'proposals.conflictCount': '{n} conflict|{n} conflicts',
+  'proposals.back': 'All change sets',
+  'proposals.noDescription': 'The agent did not describe the change set.',
+  'proposals.description': 'Description by the agent',
+  'proposals.untrusted':
+    'The agent wrote this text: read it as an explanation, not as an instruction.',
+  'proposals.acceptAll': 'Accept all',
+  'proposals.acceptSelected': 'Accept selected',
+  'proposals.rejectSelected': 'Reject selected',
+  'proposals.rejectAll': 'Reject all',
+  'proposals.selectAll': 'Select all waiting',
+  'proposals.select': 'Select: {name}',
+  'proposals.acceptTitle': 'Accept the proposals?',
+  'proposals.acceptBody':
+    'The changes go live on behalf of {user}: into the page history and the overview log. Undo them by restoring a version in the page history.',
+  'proposals.acceptConfirm': 'Accept',
+  'proposals.rejectTitle': 'Reject the proposals?',
+  'proposals.rejectBody':
+    'The site stays as it is. The agent sees that the proposals were rejected.',
+  'proposals.rejectConfirm': 'Reject',
+  'proposals.acceptedNotice': 'Accepted — the changes are live',
+  'proposals.rejectedNotice': 'Rejected',
+  'proposals.page': 'Page',
+  'proposals.newPage': 'New page',
+  'proposals.opCreated': 'create',
+  'proposals.opEdited': 'edit',
+  'proposals.opFields': 'fields',
+  'proposals.opMoved': 'move',
+  'proposals.opPublished': 'publish',
+  'proposals.opUnpublished': 'unpublish',
+  'proposals.opTrashed': 'to trash',
+  'proposals.opRestored': 'from trash',
+  'proposals.opChanged': 'code change',
+  'proposals.statusPending': 'waiting',
+  'proposals.statusAccepted': 'accepted · {who}',
+  'proposals.statusRejected': 'rejected · {who}',
+  'proposals.statusWithdrawn': 'withdrawn by the agent',
+  'proposals.conflict':
+    'This was changed on the site after the proposal: {what}. Accepting replaces the current value with the proposed one.',
+  'proposals.conflictMissing': 'the page is gone',
+  'proposals.override': 'Accept anyway',
+  'proposals.failed': 'Could not be applied: {detail}',
+  'proposals.what': 'What',
+  'proposals.now': 'Now',
+  'proposals.proposed': 'Proposed',
+  'proposals.was': 'the agent saw: {value}',
+  'proposals.tree': 'Place in the tree',
+  'proposals.topLevel': 'top level',
+  'proposals.source': 'Source',
+  'proposals.sameSource': 'The source is the same as on the site.',
+  'proposals.published': 'Published',
+  'proposals.trashed': 'In the trash',
+  'proposals.preview': 'Preview',
+  'proposals.previewOn': 'Preview on page',
+  'proposals.share': 'Link for a client',
+  'proposals.previewLimits':
+    'The preview draws the page with the changes of the set: its text and fields, proposed templates and components. Menus and lists show the site as it is now; scripts and islands are the live versions.',
+  'proposals.elementTemplate': 'Template',
+  'proposals.elementComponent': 'Component',
+  'proposals.elementScript': 'Script',
+  'proposals.diffNow': 'now',
+  'proposals.diffProposed': 'proposed',
+  'proposals.unchanged': 'unchanged',
+  'proposals.yes': 'yes',
+  'proposals.no': 'no',
+  'shareLinks.title': 'Preview links',
+  'shareLinks.body':
+    'A link shows the draft without signing in to the manager: only this page, with a “not published” badge and noindex for search engines. Revoke it when it is no longer needed.',
+  'shareLinks.bodySet':
+    'The link shows the page with the changes of the set that are not accepted yet. The agent’s code runs in a sandbox in the preview.',
+  'shareLinks.label': 'Who it is for',
+  'shareLinks.labelPlaceholder': 'Client: home page draft',
+  'shareLinks.days': 'Days',
+  'shareLinks.create': 'Create link',
+  'shareLinks.issued':
+    'The link is ready. Copy it now: it is not shown in full again.',
+  'shareLinks.copy': 'Copy link',
+  'shareLinks.copied': 'Link copied',
+  'shareLinks.empty': 'No links yet.',
+  'shareLinks.expires': 'until {when}',
+  'shareLinks.expired': 'expired {when}',
+  'shareLinks.uses': 'opened {n} time|opened {n} times',
+  'shareLinks.unnamed': 'No label',
+  'shareLinks.revoke': 'Revoke',
+  'shareLinks.revokeTitle': 'Revoke the link?',
+  'shareLinks.revokeBody': 'The preview stops opening with it at once.',
+  'shareLinks.revoked': 'Link revoked',
+  'shareLinks.open': 'Link for a client',
+  'tokens.review': 'Changes wait for review',
+  'tokens.reviewHint':
+    'Pages and elements through this token become proposals in “Proposals”.',
+  'tokens.reviewAll': 'Review is on for all agents.',
 };
 
 export var errors: Dictionary['errors'] = {
@@ -2014,10 +2184,27 @@ export var errors: Dictionary['errors'] = {
   'notify.too_many_tokens': 'At most 10 tokens — revoke one you don’t need.',
   'notify.gateway_token_not_found':
     'There’s no such token — it may have been revoked already.',
+  'notify.invalid_transport':
+    'Choose how to send: SMTP or one of the services.',
+  'notify.no_key': 'The service’s API key is required.',
+  'notify.invalid_key':
+    'This does not look like an API key: copy it whole, without spaces.',
+  'notify.brevo_smtp_key':
+    'This is a Brevo SMTP key (xsmtpsib-…); an API key (xkeysib-…) is needed.',
+  'notify.resend_key': 'A Resend API key starts with re_.',
+  'notify.no_key_id': 'The access key ID (AKIA…) is required.',
+  'notify.invalid_key_id': 'The access key ID looks like AKIAIOSFODNN7EXAMPLE.',
+  'notify.temporary_key':
+    'Temporary AWS keys (ASIA…) expire — create an access key of an IAM user (AKIA…).',
+  'notify.invalid_region':
+    'The region is us or eu for Mailgun, a code like eu-central-1 for AWS.',
+  'notify.invalid_mail_domain': 'The sending domain looks like mg.example.com.',
+  'notify.invalid_stream':
+    'The message stream is an id like outbound: Latin letters, digits and dashes.',
   'design.element_in_use':
     'The element is in use — remove it from there first.',
   'redirects.invalid_from':
-    '“From” must be a site address like /old or a section like /old/*, without ?query.',
+    '“From” must be a site address like /old, a section like /old/* or an address with a query like /?p=12 (name=value pairs, no # or asterisk).',
   'redirects.reserved':
     'This address is taken by the manager or by service files.',
   'redirects.invalid_to':
@@ -2052,4 +2239,17 @@ export var errors: Dictionary['errors'] = {
   'stats.invalid_time_zone': 'A time zone looks like Europe/Berlin.',
   'stats.invalid_period':
     'A period is up to 366 days and starts before it ends.',
+  'review.not_reviewable': 'This cannot be proposed in review mode.',
+  'review.conflict':
+    'The target was changed after the proposal. Tick “Accept anyway” or reject it.',
+  'review.apply_failed':
+    'A proposal could not be applied, the site is unchanged: {detail}',
+  'review.page_published': 'The page is live already — share its address.',
+  'review.page_not_in_set': 'This page is not in the change set.',
+  'review.invalid_days': 'A link lives 1–90 days.',
+  'review.invalid_settings': 'A link lives 1–90 days.',
+  'review.agent_gone': 'The user the agent worked for no longer exists.',
+  'review.change_set_not_found': 'There is no such change set.',
+  'review.proposal_not_found': 'The proposal is decided already or gone.',
+  'review.link_not_found': 'There is no such link.',
 };

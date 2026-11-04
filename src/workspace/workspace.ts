@@ -1,6 +1,8 @@
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { App } from '../app.ts';
 import type { NewField } from '../contexts/content/index.ts';
+import { posixPath } from '../platform/paths.ts';
 import { attempt, fail, isDomainError } from '../shared/kernel/errors.ts';
 import {
   byOrder,
@@ -61,6 +63,7 @@ const _SETTINGS = [
   'retentionDays',
   'minSeconds',
   'allowLinks',
+  'proof',
   'goal',
   'confirmation',
   'webhook',
@@ -436,6 +439,19 @@ export type PullReport = {
   readonly extra: readonly string[];
 };
 
+/**
+ * Текст файла папки — с переводами строк LF и без BOM: git с `core.autocrlf` на Windows выдаёт CRLF, а
+ * редакторы Windows бывает что пишут BOM. Без этого каждый файл казался бы изменённым, а в сайт ушёл бы
+ * CRLF (ADR 0049).
+ */
+const _lf = (text: string): string =>
+  text.replace(/^\uFEFF/, '').replaceAll('\r\n', '\n');
+
+// node:fs, а не Bun.file: на Windows отказ Bun.file(…).text() по несуществующему файлу не держит цикл
+// событий, и первый `cms elements pull` в пустую папку выходил с кодом 0, ничего не записав (ADR 0049).
+const _readText = (dir: string, path: string): Promise<string> =>
+  readFile(join(dir, path), 'utf8').then(_lf);
+
 /** Файлы папки, которые понимает отправка; `AGENTS.md`, `.git` и прочее не читаются. */
 export var readFolder = (dir: string): Promise<Files> =>
   Promise.all(
@@ -443,13 +459,11 @@ export var readFolder = (dir: string): Promise<Files> =>
       Array.fromAsync(new Bun.Glob(pattern).scan({ cwd: dir }))
     )
   )
-    .then((_) => [...new Set(_.flat())])
+    .then((_) => [...new Set(_.flat().map((path) => posixPath(path)))])
     .then((paths) =>
       Promise.all(
         paths.map((path) =>
-          Bun.file(join(dir, path))
-            .text()
-            .then((text) => [path, text] as const)
+          _readText(dir, path).then((text) => [path, text] as const)
         )
       )
     )
@@ -469,10 +483,10 @@ export var pull = (
       readFolder(dir).then(undefined, (): Files => new Map()),
       Promise.all(
         [...site, ...extra].map(({ 0: path, 1: text }) =>
-          Bun.file(join(dir, path))
-            .text()
+          _readText(dir, path)
             .then(undefined, () => null)
             .then((current) =>
+              // Файл с CRLF и тем же текстом не переписывается: перевод строк — дело git на этой машине.
               current === text
                 ? null
                 : Bun.write(join(dir, path), text).then(() => path)

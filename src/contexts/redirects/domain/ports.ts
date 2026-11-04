@@ -29,4 +29,6 @@ export type SitePages = {
   } | null;
   /** Страница, которая раньше жила по адресу: 301 туда сайт уже отвечает сам. */
   readonly movedFrom: (path: string) => number | null;
+  /** Те же ответы, но дерево страниц прочитано один раз: для пачки правил, пока страницы не меняются. */
+  readonly snapshot: () => SitePages;
 };

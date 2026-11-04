@@ -63,11 +63,16 @@ export type ApiToken = {
   readonly hint: string;
   readonly createdAt: string;
   readonly usedAt: string | null;
+  /** Правки этим ключом не применяются, а ждут проверки владельца сайта (ADR 0054). */
+  readonly review: boolean;
 };
 
 export type ApiTokenRepository = {
   readonly byHash: (tokenHash: string) => ApiToken | null;
   readonly of: (userId: UserId) => ApiToken[];
+  readonly get: (id: number) => ApiToken | null;
+  /** Только свой: чужому ключу проверку не сменить. */
+  readonly setReview: (id: number, userId: UserId, on: boolean) => boolean;
   readonly add: (token: Omit<ApiToken, 'id'>) => number;
   readonly touch: (id: number, at: string) => void;
   /** Только свой: чужой токен по id не отозвать. */

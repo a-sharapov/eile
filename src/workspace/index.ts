@@ -1,5 +1,5 @@
 export { type AgentsOptions, agentsGuide, CLAUDE_MD } from './agents-md.ts';
-export { type Files, PATTERNS } from './layout.ts';
+export { entryOf, type Files, PATTERNS } from './layout.ts';
 export {
   filesOf,
   type Problem,

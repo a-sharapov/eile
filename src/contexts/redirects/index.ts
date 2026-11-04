@@ -8,6 +8,7 @@ import type { SitePages } from './domain/ports.ts';
 import { defineRuleRepository } from './infrastructure/sqlite-rules.ts';
 
 export type {
+  BatchReport,
   ImportReport,
   RedirectsService,
   RuleWarning,

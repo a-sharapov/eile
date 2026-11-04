@@ -1,10 +1,12 @@
-# Релиз по тегу vX.Y.Z: проверка → бинарники под Linux (glibc и musl, x64 и arm64) и macOS (подписаны) →
-# сжатые копии, SHA256SUMS и install.sh с адресом этого репозитория → GitHub Release.
+# Релиз по тегу vX.Y.Z: проверка → бинарники под Linux (glibc и musl, x64 и arm64), macOS (подписаны) и
+# Windows (x64 и arm64, со значком и сведениями о файле) → сжатые копии, пакеты каркасов из packages/, SHA256SUMS,
+# install.sh и install.ps1 с адресом этого репозитория → GitHub Release.
 #
 #   git tag v0.1.0 && git push origin v0.1.0
 #
 # Установка из релиза:
 #   curl -fsSL https://github.com/<owner>/<repo>/releases/latest/download/install.sh | bash
+#   irm https://github.com/<owner>/<repo>/releases/latest/download/install.ps1 | iex
 name: Release
 
 on:
@@ -42,6 +44,12 @@ jobs:
       - run: bun run build:manager
       - run: bun run check
       - run: shellcheck install.sh
+      - name: install.ps1 разбирается PowerShell
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/install.ps1", [ref] $null, [ref] $errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Host $_ }; throw 'install.ps1 does not parse' }
 
   linux:
     needs: check
@@ -95,8 +103,57 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # Сборка Windows — на своём раннере каждой архитектуры: значок (из favicon.svg, scripts/icon.ts) и сведения о
+  # файле Bun вписывает только на самой Windows, а пробный запуск arm64 нужен на arm64 (ADR 0049).
+  windows:
+    needs: check
+    strategy:
+      matrix:
+        include:
+          - target: windows-x64
+            runner: windows-latest
+          - target: windows-arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/release.ts build ${{ matrix.target }}
+      - name: Пробный запуск — version и /_cms/health на временной базе
+        run: bun scripts/release.ts smoke dist/release/cms-${{ matrix.target }}.exe
+      - name: Значок и сведения о файле на месте
+        shell: pwsh
+        run: |
+          $info = (Get-Item dist/release/cms-${{ matrix.target }}.exe).VersionInfo
+          $info | Format-List ProductName, FileDescription, CompanyName, FileVersion, LegalCopyright
+          if ($info.ProductName -ne 'Eile') { throw 'the build has no file details' }
+      # Упаковка здесь — только для проверки установщика на этой архитектуре; в релиз идут файлы из publish.
+      - name: install.ps1 ставит то, что собрано, и дописывает PATH
+        shell: pwsh
+        run: |
+          bun scripts/release.ts pack --repo "$env:GITHUB_REPOSITORY"
+          $env:CMS_DOWNLOAD_URL = ([Uri] (Resolve-Path dist/release).Path).AbsoluteUri
+          $env:CMS_INSTALL_DIR = "$env:RUNNER_TEMP\eile"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File dist/release/install.ps1
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 exited with $LASTEXITCODE" }
+          & "$env:CMS_INSTALL_DIR\cms.exe" version
+          & "$env:CMS_INSTALL_DIR\eile.exe" version
+          $path = [Environment]::GetEnvironmentVariable('Path', 'User') -split ';'
+          if ($path -notcontains $env:CMS_INSTALL_DIR) { throw 'install.ps1 did not add the directory to the user PATH' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/release/cms-*.exe
+          if-no-files-found: error
+          retention-days: 3
+
   publish:
-    needs: [linux, macos]
+    needs: [linux, macos, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -111,7 +168,9 @@ jobs:
         with:
           path: dist/release
           merge-multiple: true
-      - name: Сжатые копии, SHA256SUMS, install.sh
+      # Пакеты каркасов из packages/ проверяются так же, как перед установкой: нужен компилятор Svelte.
+      - run: bun install --frozen-lockfile
+      - name: Сжатые копии, пакеты каркасов, SHA256SUMS, install.sh и install.ps1
         run: bun scripts/release.ts pack --repo "$GITHUB_REPOSITORY"
       - name: Установщик ставит то, что собрано
         run: |
@@ -129,8 +188,10 @@ jobs:
           stable=$(gh release list --exclude-pre-releases --exclude-drafts --limit 100 --json tagName \
             --jq '[.[].tagName | select(contains("-") | not)][0] // ""')
           if [[ "$TAG" == *-* && -n "$stable" ]]; then prerelease=(--prerelease); fi
+          # *.zip — сборки Windows и официальные пакеты каркасов <имя>.zip (ADR 0056); суммы всех — в SHA256SUMS.
           gh release create "$TAG" \
-            dist/release/*.gz dist/release/SHA256SUMS dist/release/install.sh \
+            dist/release/*.gz dist/release/*.zip dist/release/SHA256SUMS \
+            dist/release/install.sh dist/release/install.ps1 \
             --title "Eile $TAG" --generate-notes --verify-tag "${prerelease[@]}"
       # Проверка выше шла через CMS_DOWNLOAD_URL и не трогала ветку с адресом репозитория; здесь — ровно то, что
       # запустит пользователь: установщик и файлы с опубликованного релиза.
@@ -140,3 +201,19 @@ jobs:
             | CMS_NO_MODIFY_PATH=1 CMS_INSTALL_DIR="$RUNNER_TEMP/bin" bash -s -- "$TAG"
           "$RUNNER_TEMP/bin/cms" version
           "$RUNNER_TEMP/bin/eile" version
+
+  # То же для Windows: install.ps1 и файлы с опубликованного релиза, через Windows PowerShell 5.1 — его `irm`
+  # есть на каждой Windows.
+  windows-from-release:
+    needs: publish
+    runs-on: windows-latest
+    steps:
+      - name: Установка одной строкой из релиза
+        shell: powershell
+        run: |
+          $env:CMS_INSTALL_DIR = "$env:RUNNER_TEMP\eile"
+          $env:CMS_NO_MODIFY_PATH = '1'
+          $env:CMS_VERSION = $env:TAG
+          irm "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:TAG/install.ps1" | iex
+          & "$env:CMS_INSTALL_DIR\cms.exe" version
+          & "$env:CMS_INSTALL_DIR\eile.exe" version

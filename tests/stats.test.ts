@@ -8,6 +8,7 @@ import type { UserView } from '../src/contexts/identity/index.ts';
 import { defineAgentSession } from '../src/contexts/manager/index.ts';
 import type { StatsReport } from '../src/contexts/stats/index.ts';
 import { DEMO } from './fixtures/demo.ts';
+import { proofOf } from './fixtures/proof.ts';
 
 // Статистика посещений (ADR 0044): счёт на сервере без cookie, цели, маячок, отчёт в менеджере и агенту.
 
@@ -357,6 +358,7 @@ describe('цели', () => {
         body: JSON.stringify({
           _stamp: [/name="_stamp" value="([^"]+)"/.exec(html)![1]!],
           _iat: [/name="_iat" value="([^"]+)"/.exec(html)![1]!],
+          ...proofOf(html),
           name: ['Anna'],
         }),
       }),
@@ -394,6 +396,32 @@ describe('цели', () => {
       sources: [{ value: 'newsletter', visitors: 1, base: 1, rate: 1 }],
       entries: [{ value: '/kuhni', visitors: 1, base: 1, rate: 1 }],
     });
+  });
+
+  it('заявка из браузера без JS (без доказательства работы) — в «Спаме», не цель (ADR 0053)', async () => {
+    const html = await (await view('/kuhni')).text();
+    now = new Date(now.getTime() + 10_000);
+    const response = await app.fetch(
+      new Request('https://site.test/_cms/forms/callback', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          origin: 'https://site.test',
+          'user-agent': _CHROME,
+        },
+        body: new URLSearchParams({
+          _stamp: /name="_stamp" value="([^"]+)"/.exec(html)![1]!,
+          _iat: /name="_iat" value="([^"]+)"/.exec(html)![1]!,
+          _proof: '',
+          _nojs: '1',
+          name: 'Anna',
+        }),
+      }),
+      from('203.0.113.7')
+    );
+    expect(response.status).toBe(303);
+    expect(app.forms.inbox.list({ status: 'spam', limit: 5 })).toHaveLength(1);
+    expect(report().goals).toEqual([]);
   });
 
   it('заявка того, чьих просмотров не считали (бот, менеджер), — не цель', async () => {

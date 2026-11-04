@@ -4,6 +4,7 @@ import {
   type Chapter,
   code,
   h2,
+  h3,
   kbd,
   list,
   p,
@@ -36,10 +37,10 @@ const intro: Chapter = {
     ),
     h2('you-need', 'What you need'),
     list(
-      '<b>A computer with Linux or macOS.</b> On Windows, install <a href="https://learn.microsoft.com/windows/wsl/install">WSL</a>: it is Linux inside Windows, and everything in the cookbook works there.',
+      '<b>A computer with Linux, macOS or Windows 10 and 11.</b> Eile runs on all three.',
       '<b>A terminal.</b> This is the window where you type commands. On macOS it is called Terminal and lives in Applications → Utilities. On Ubuntu, press ' +
         kbd('Ctrl', 'Alt', 'T') +
-        ' to open it.',
+        ' to open it. On Windows, use PowerShell: type the word in the Start menu.',
       '<b>A browser.</b> Any modern one: you’ll use it both to view the site and to edit it.',
       '<b>About an hour for the first four chapters.</b> After that, go at your own pace.'
     ),
@@ -77,7 +78,7 @@ const intro: Chapter = {
       'trouble',
       'If something doesn’t work',
       p(
-        'Many chapters end with a section on common mistakes. If your answer isn’t there, write to us on <a href="https://github.com/a-sharapov/eile/issues">GitHub</a>: describe what you did and what you saw. Eile is still in alpha, and reports like these help us improve it.'
+        'Many chapters end with a section on common mistakes. If your answer isn’t there, write to us on <a href="https://github.com/a-sharapov/eile/issues">GitHub</a>: describe what you did and what you saw. Eile is young, and reports like these help us improve it.'
       )
     ),
   ].join('\n'),
@@ -89,7 +90,7 @@ const install: Chapter = {
   menuTitle: 'Install',
   lead: 'We’ll install Eile with one command, start an empty site and sign in to the manager. It takes about ten minutes.',
   description:
-    'How to install Eile on Linux or macOS, start a site and create the first administrator.',
+    'How to install Eile on Linux, macOS or Windows, start a site and create the first administrator.',
   content: [
     aside(
       'goal',
@@ -106,12 +107,16 @@ const install: Chapter = {
         kbd('Enter') +
         ':'
     ),
-    code(
-      'sh',
-      '$ curl -fsSL https://github.com/a-sharapov/eile/releases/latest/download/install.sh | bash'
-    ),
+    code('sh', '$ curl -fsSL https://eile.site/install.sh | bash'),
     p(
       'The command downloads the installer and runs it. The installer works out which system you have, downloads the matching build of Eile, checks its checksum (this confirms the file arrived whole and nobody swapped it) and puts the <code>cms</code> program where the terminal can find it.'
+    ),
+    h3('On Windows', 'windows'),
+    p('Open PowerShell and paste a different command, also as a whole:'),
+    code('sh', 'PS> irm https://eile.site/install.ps1 | iex'),
+    p(
+      'The installer picks the build for your processor, checks its checksum and puts <code>cms.exe</code> into a folder in your user profile. You don’t need admin rights, and <code>cms</code> works in the same window right away. Everything else is as in the cookbook: PowerShell has <code>mkdir</code> and <code>cd</code> too.',
+      'The program has no digital signature yet, so Smart App Control in Windows 11, if it is on, won’t let <code>cms.exe</code> start. Regular Windows protection and SmartScreen let the installer’s file through.'
     ),
     p('Let’s check that everything is in place:'),
     code('sh', `$ cms version\nEile ${VERSION}`),
@@ -120,7 +125,7 @@ const install: Chapter = {
       'trouble',
       'The terminal says “command not found”',
       p(
-        'The installer added the program’s location to the terminal settings, but the open window doesn’t know about it yet. Close the terminal, open a new one and run <code>cms version</code> again.'
+        "The installer added the program’s location to the terminal settings, but the open window doesn’t know about it yet. Close the terminal, open a new one and run <code>cms version</code> again. In PowerShell the same problem reads “The term 'cms' is not recognized as the name of a cmdlet, function, script file, or operable program”, and the fix is the same."
       )
     ),
     h2('folder', 'A folder for the site'),
@@ -149,7 +154,10 @@ const install: Chapter = {
     Ready-made sites (blog, portfolio, shop): cms new
 
   ▸ No users yet. Create the administrator at:
-    http://localhost:8080/manager/setup?token=…`
+    http://localhost:8080/manager/setup?token=…
+    or without a browser: cms users add <email>
+
+  cms help for commands and examples · Ctrl+C to stop`
     ),
     p('Let’s go through what it says.'),
     list(

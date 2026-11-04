@@ -143,7 +143,7 @@ const copy = (text: string) =>
       <div class="fields-2">
         <label>
           {t('offsite.prefix')}
-          <input class="code" bind:value={form.prefix} placeholder="kuechenly" spellcheck="false" autocomplete="off" />
+          <input class="code" bind:value={form.prefix} placeholder="my-site" spellcheck="false" autocomplete="off" />
           <small>{t('offsite.prefixHint')}</small>
         </label>
         <label>

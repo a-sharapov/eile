@@ -82,6 +82,8 @@ export type Delivery =
       readonly status: 301 | 302;
       /** Дописать query исходного запроса: у своих адресов и у правил переадресации. */
       readonly query: boolean;
+      /** Параметры query, которые узнало правило (`p` у `/?p=12`): их в адрес цели не дописывать. */
+      readonly consumed?: readonly string[];
     };
 
 export type PageDeliveryPorts = {
@@ -748,6 +750,24 @@ export var definePageDelivery = ({
         ruleTarget(found.to, site)
       ))(redirects?.match(path) ?? null);
 
+  // Правило с query (`/?p=12` со старого WordPress) — раньше страницы и кэша: страница query не видит, и
+  // главная молча открылась бы с 200 вместо записи. Узнанные параметры в адрес цели не идут.
+  const queried = (request: RequestInfo, path: string): Delivery | null =>
+    redirects?.matchQuery && Object.keys(request.query).length > 0
+      ? ((found) =>
+          found &&
+          ((to) =>
+            to === null
+              ? null
+              : (redirects.hit(found.id),
+                {
+                  ..._redirect(to, !to.startsWith('/'), found.status, true),
+                  consumed: found.consumed ?? [],
+                }))(ruleTarget(found.to, settings())))(
+          redirects.matchQuery(path, request.query)
+        )
+      : null;
+
   // Адрес без страницы: правило, иначе прежний адрес страницы; null — ни того, ни другого.
   const redirectOf = (path: string, site: SiteSettings): Delivery | null =>
     ruled(path, site) ??
@@ -858,13 +878,16 @@ export var definePageDelivery = ({
         canonical === null || !cacheable(request)
           ? undefined
           : cache.get(cacheKey(request, canonical));
-      return canonical === null
-        ? notFound(request, settings())
-        : canonical !== request.path
-          ? Promise.resolve(normalized(canonical))
-          : cached
-            ? fromCache(request, cached)
-            : fromTree(request);
+      const ruled = canonical === null ? null : queried(request, canonical);
+      return ruled
+        ? Promise.resolve(ruled)
+        : canonical === null
+          ? notFound(request, settings())
+          : canonical !== request.path
+            ? Promise.resolve(normalized(canonical))
+            : cached
+              ? fromCache(request, cached)
+              : fromTree(request);
     };
 
   return {

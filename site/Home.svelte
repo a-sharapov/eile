@@ -3,15 +3,19 @@
 import Install from '$components/Install';
 import Layout from '$components/Layout';
 import Shot from '$components/Shot';
+import Window from '$components/Window';
 import { media, site } from '$core';
 import Content from '$core/Content';
 import Island from '$core/Island';
 
 let { page } = $props();
 const t = site().i18n;
-// Ролик есть не на каждом языке: нет файла — нет и кнопки.
-const video = media(`video/howto-${page.language || 'ru'}.mp4`);
-// Английская главная показывает английский менеджер над сайтом студии из кукбука.
+// Ролик есть не на каждом языке: нет файла — нет и кнопки. WebM и кадр-заставка — по желанию.
+const lang = page.language || 'ru';
+const video = media(`video/howto-${lang}.mp4`);
+const webm = media(`video/howto-${lang}.webm`);
+const poster = media(`video/howto-${lang}.webp`);
+// Обе главные показывают менеджер на своём языке над сайтом студии из кукбука.
 const en = page.language === 'en';
 
 // Однобуквенное слово («в», «и», «a») не остаётся в конце строки: пробел после него неразрывный.
@@ -27,16 +31,24 @@ const _glue = (_: string): string =>
   </section>
   <div class="stage">
     <figure class="frame">
-      <div class="screen">
-        <Shot name={en ? 'editor-en' : 'editor'} alt={t.shotEditor} eager />
-        {#if video}
-          <Island
-            name="DemoVideo"
-            props={{ src: video, label: t.demoPlay, close: t.demoClose, title: t.demoTitle }}
-          />
-        {/if}
-      </div>
-      <figcaption>{t.shotDemo}</figcaption>
+      <Window title={t.winManager}>
+        <div class="screen">
+          <Shot name={en ? 'editor-en' : 'editor-ru'} alt={t.shotEditor} eager />
+          {#if video}
+            <Island
+              name="DemoVideo"
+              props={{
+                src: video,
+                webm: webm ?? '',
+                poster: poster ?? '',
+                label: t.demoPlay,
+                close: t.demoClose,
+                title: t.demoTitle,
+              }}
+            />
+          {/if}
+        </div>
+      </Window>
     </figure>
   </div>
   <div class="blocks"><Content of={page} /></div>
@@ -60,6 +72,8 @@ const _glue = (_: string): string =>
     font-variation-settings: 'SHRP' 100;
     letter-spacing: -0.035em;
     text-wrap: balance;
+    /* Крупный текст в узком окне: длинное слово переносится, а не раздвигает страницу. */
+    overflow-wrap: anywhere;
   }
 
   .lead {
@@ -89,9 +103,9 @@ const _glue = (_: string): string =>
     position: relative;
   }
 
-  /* Пока играет ролик, рамка принимает его пропорции: на телефоне вместо высокого кадра — 16:10. */
+  /* Пока играет ролик, рамка принимает его пропорции 16:9: без полос по краям, и на телефоне вместо высокого кадра. */
   .screen:has(:global(.player)) {
-    aspect-ratio: 16 / 10;
+    aspect-ratio: 16 / 9;
   }
 
   .screen:has(:global(.player)) :global(.shot) {
@@ -104,13 +118,6 @@ const _glue = (_: string): string =>
     margin: 0 auto;
     padding-bottom: clamp(2rem, 4vw, 4rem);
     animation: rise 1100ms var(--ease) 120ms both;
-  }
-
-  figcaption {
-    margin-top: 1rem;
-    color: var(--faint);
-    font-size: 0.8125rem;
-    text-align: center;
   }
 
   @keyframes rise {
@@ -140,6 +147,7 @@ const _glue = (_: string): string =>
     font-variation-settings: 'SHRP' 100;
     letter-spacing: -0.032em;
     text-wrap: balance;
+    overflow-wrap: anywhere;
   }
 
   /* Абзац держит строку читаемой длины, но стоит у левого края широкой колонки. */

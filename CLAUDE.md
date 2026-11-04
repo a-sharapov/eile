@@ -14,7 +14,9 @@ bun run dev:manager # SPA менеджера на Vite с прокси API на 
 bun run build      # SPA + dist/cms: один файл, запуск: dist/cms --port 8080 --db site.db
 bun run site       # промо-сайт Eile на самой Eile → eile.db (--force, --url); в бинарник не входит
 dist/cms new blog --db site.db              # сайт из каркаса: blog, portfolio, company, showcase, shop
+dist/cms new ./packages/kuechenstudio --db studio.db  # пакет из папки, без сети
 dist/cms import-evo dump.sql --db site.db   # перенос сайта Evo
+dist/cms import-wp wp.xml --db site.db      # перенос сайта WordPress: WXR или дамп, --media, --dry-run
 dist/cms backup copy.db --db site.db        # бэкап всего сайта одним файлом
 dist/cms --domain example.com --db site.db  # HTTPS без прокси: Let's Encrypt сам
 dist/cms elements pull site --db site.db    # элементы файлами и AGENTS.md; check — проверка, push — в сайт

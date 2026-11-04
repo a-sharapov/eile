@@ -116,7 +116,11 @@ describe('язык', () => {
     expect(cliLanguage({ LANG: 'ru_RU.UTF-8' })).toBe('ru');
     expect(cliLanguage({ LANG: 'en_US.UTF-8' })).toBe('en');
     expect(cliLanguage({ LANG: 'C.UTF-8' })).toBe('en');
-    expect(cliLanguage({})).toBe('en');
+    expect(cliLanguage({}, '')).toBe('en');
+    // Windows: LANG нет — язык из региональных настроек системы; LANG, если задан, важнее.
+    expect(cliLanguage({}, 'ru-RU')).toBe('ru');
+    expect(cliLanguage({}, 'de-DE')).toBe('en');
+    expect(cliLanguage({ LANG: 'en_US.UTF-8' }, 'ru-RU')).toBe('en');
     expect(cliLanguage({ LANG: 'ru_RU.UTF-8', LC_ALL: 'de_DE.UTF-8' })).toBe(
       'en'
     );

@@ -10,18 +10,38 @@ import {
 /** Ответ инструмента: текст для модели и удался ли вызов. */
 export type ToolResult = { readonly text: string; readonly ok: boolean };
 
+/** Ключ API, которым вошёл агент: по нему — отметка «правки ждут проверки» и набор правок. */
+export type AgentKey = { readonly id: number; readonly name: string };
+
 /**
  * Сеанс агента: один запрос в разговоре менеджера, один процесс `cms mcp`, одна сессия MCP по HTTP.
  * Прочитал текст посетителей — помечен до конца: код, формы, поля и настройки в нём не меняются.
+ * `channel` — откуда агент: MCP или ассистент в менеджере, за которым следит человек; при проверке
+ * правок (ADR 0054) правки MCP копятся набором этого сеанса.
  */
 export type AgentSession = {
+  readonly id: string;
+  readonly channel: 'mcp' | 'assistant';
+  readonly key: AgentKey | null;
   readonly tainted: () => boolean;
   readonly taint: () => void;
 };
 
-export var defineAgentSession = (): AgentSession => {
+export var defineAgentSession = ({
+  channel = 'mcp',
+  key = null,
+}: {
+  readonly channel?: AgentSession['channel'];
+  readonly key?: AgentKey | null;
+} = {}): AgentSession => {
   let tainted = false;
-  return { tainted: () => tainted, taint: () => void (tainted = true) };
+  return {
+    id: crypto.randomUUID(),
+    channel,
+    key,
+    tainted: () => tainted,
+    taint: () => void (tainted = true),
+  };
 };
 
 const _TAINTED =
@@ -54,6 +74,8 @@ export var fullGuide = (): string =>
     GUIDE.plugin,
     '## Statistics',
     GUIDE.stats,
+    '## Review of agent changes',
+    GUIDE.review,
   ].join('\n\n');
 
 // Памятка — тоже инструмент: модель читает правила, когда собирается писать код, а не держит их в промпте.
@@ -61,7 +83,7 @@ const _READ_GUIDE: AgentTool = {
   name: 'read_guide',
   title: 'How the site is built',
   description:
-    'Rules for templates, components, site scripts, $core, page text, forms, fields and plugins, and how visitor statistics are counted. Read the topic before writing that kind of thing or reading get_stats.',
+    'Rules for templates, components, site scripts, $core, page text, forms, fields and plugins, how visitor statistics are counted and how review of agent changes works. Read the topic before writing that kind of thing, reading get_stats or working in review mode.',
   access: 'user',
   input: {
     type: 'object',
@@ -132,6 +154,9 @@ const _problemOf = (tool: AgentTool, args: Args): string | null =>
       (schema.required ?? []).find((_) => args[_] === undefined)
     ))(tool.input as _Schema);
 
+const _pending = (body: unknown): boolean =>
+  (body as { pending?: unknown } | null)?.pending === true;
+
 const _errorText = (error: {
   readonly code?: string;
   readonly message?: string;
@@ -156,7 +181,8 @@ const _resultOf =
             ok: true,
           }))
         : response.json().then((body) => ({
-            text: `${tool.untrusted ? _UNTRUSTED : ''}${JSON.stringify(tool.result ? tool.result(body, args) : body)}`,
+            // Правка ушла на проверку: ответ — квитанция набора, а не страница или элемент.
+            text: `${tool.untrusted ? _UNTRUSTED : ''}${JSON.stringify(tool.result && !_pending(body) ? tool.result(body, args) : body)}`,
             ok: true,
           }));
 
@@ -165,7 +191,11 @@ const _resultOf =
  * MCP и разговор с агентом в менеджере.
  */
 export var defineToolbox = (
-  call: (user: UserView, request: ToolRequest) => Promise<Response>
+  call: (
+    user: UserView,
+    request: ToolRequest,
+    session: AgentSession
+  ) => Promise<Response>
 ) => ({
   list: (user: UserView): readonly AgentTool[] => _TOOLS.filter(_allowed(user)),
   find: (name: unknown): AgentTool | undefined =>
@@ -193,7 +223,7 @@ export var defineToolbox = (
                 ? Promise.resolve({ text: tool.answer(args), ok: true })
                 : Promise.resolve(args)
                     .then(tool.request!)
-                    .then((request) => call(user, request))
+                    .then((request) => call(user, request, session))
                     .then(_resultOf(tool, args))
                     // Текст посетителей попал в разговор — до конца сеанса агент ему не подчиняется.
                     .then(

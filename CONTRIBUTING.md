@@ -62,11 +62,13 @@ CMS_API=http://localhost:8090 bun run dev:manager     # если сервер н
 | `src/contexts/<имя>/`     | Ограниченные контексты: `domain`, `application`, `infrastructure`, `interface` |
 | `src/kit/`                | Набор готовых компонентов для «Элементов»                                      |
 | `src/scaffolds/`          | Каркасы сайтов для `cms new` и приветствие новой базы                          |
+| `packages/`               | Официальные пакеты каркасов: выходят с выпуском как `<имя>.zip` (ADR 0056)     |
 | `manager/`                | Менеджер: SvelteKit 3, свой `package.json`                                     |
 | `tests/`                  | Интеграционные тесты и правила архитектуры; доменные тесты лежат рядом с кодом |
 | `scripts/`                | Сборка бинарника и релиза                                                      |
 | `site/`                   | Промо-сайт Eile, сделанный на самой Eile; в бинарник не входит                 |
-| `install.sh`              | Установщик `curl … \| bash`                                                    |
+| `install.sh`              | Установщик `curl … \| bash` для Linux и macOS                                  |
+| `install.ps1`             | Установщик `irm … \| iex` для Windows; только ASCII, сообщения по-английски    |
 | `docs/`                   | Видение, суть Evo, глоссарий, архитектура, ADR, дорожная карта                 |
 
 ## Как писать код
@@ -147,23 +149,30 @@ git push origin v0.2.0
 
 Тег запускает `.github/workflows/release.yml`:
 
-1. проверка: тег совпадает с версией, `bun run check`, shellcheck установщика;
+1. проверка: тег совпадает с версией, `bun run check`, shellcheck `install.sh`, разбор `install.ps1`;
 2. бинарники под Linux — x64 и arm64, glibc и musl; пробный запуск на Ubuntu и в Alpine;
 3. бинарники под macOS — Intel и Apple Silicon, подпись ad-hoc с правами на JIT
    (`scripts/entitlements.plist`) и пробный запуск;
-4. сжатые копии `cms-<система>-<процессор>.gz`, `SHA256SUMS` и `install.sh` с адресом этого репозитория;
-   установщик ставит собранное из `file://` и запускает;
-5. GitHub Release с заметками из коммитов. Тег с дефисом (`v0.2.0-rc.1`) — пре-релиз, если стабильный
-   релиз уже есть: `latest` на пре-релизы не указывает. Пока стабильных нет, альфы и беты публикуются
-   обычными релизами — иначе установка одной строкой вела бы в пустоту.
+4. бинарники под Windows — x64 на `windows-latest`, arm64 на `windows-11-arm`, со значком из
+   `manager/static/favicon.svg` и сведениями о файле; пробный запуск `version` и `/_cms/health`, `install.ps1`
+   ставит собранное из `file://` ([ADR 0049](docs/adr/0049-windows.md));
+5. сжатые копии `cms-<система>-<процессор>.gz`, для Windows — `.zip` с `cms.exe`, пакеты каркасов
+   `packages/<имя>/` → `<имя>.zip` ([ADR 0056](docs/adr/0056-scaffold-packages.md)), `SHA256SUMS`, `install.sh` и
+   `install.ps1` с адресом этого репозитория; `install.sh` ставит собранное из `file://` и запускает;
+6. GitHub Release с заметками из коммитов, затем установка одной строкой с опубликованного релиза — и
+   `install.sh`, и `install.ps1` через Windows PowerShell 5.1. Тег с дефисом (`v0.2.0-rc.1`) — пре-релиз,
+   если стабильный релиз уже есть: `latest` на пре-релизы не указывает. Пока стабильных нет, альфы и беты
+   публикуются обычными релизами — иначе установка одной строкой вела бы в пустоту.
 
 Перезапустить публикацию для существующего тега — «Run workflow» у Release с этим тегом.
 
 Собрать релиз локально:
 
 ```sh
-bun run release build linux-x64          # без целей — все: linux-{x64,arm64}[-musl], darwin-{x64,arm64}
-bun run release pack --repo owner/name   # .gz, SHA256SUMS, install.sh
+bun run release build linux-x64          # без целей — все: linux-{x64,arm64}[-musl], darwin-{x64,arm64}, windows-{x64,arm64}
+bun run release pack --repo owner/name   # .gz и .zip, пакеты каркасов, SHA256SUMS, install.sh и install.ps1
+bun run release packages --out /tmp/pkg  # только пакеты каркасов и их SHA256SUMS
+bun run release smoke dist/release/cms-linux-x64   # version и /_cms/health на временной базе
 CMS_DOWNLOAD_URL="file://$PWD/dist/release" CMS_INSTALL_DIR=/tmp/cms-bin bash dist/release/install.sh
 ```
 
@@ -174,7 +183,50 @@ CMS_DOWNLOAD_URL="file://$PWD/dist/release" CMS_INSTALL_DIR=/tmp/cms-bin bash di
 служба на нём не даст ([ADR 0048](docs/adr/0048-health-releases-url-redirect-check.md)).
 
 Бинарники для macOS, собранные на Linux, перед запуском на Mac нужно подписать (`codesign --sign -`);
-в CI их собирает и подписывает раннер macOS.
+в CI их собирает и подписывает раннер macOS. Сборки для Windows с Linux выходят без значка и сведений о файле:
+их Bun вписывает, только когда собирает на Windows, — в CI это делают раннеры Windows.
+
+## Windows и wine
+
+Сборку под Windows можно проверить на Linux под [wine](https://www.winehq.org/), без Windows
+([ADR 0049](docs/adr/0049-windows.md)). Свой префикс — чтобы не трогать общий, пути к файлам — через диск `Z:`:
+
+```sh
+export WINEPREFIX=/var/tmp/eile-wine WINEDEBUG=-all
+bun run release build windows-x64        # dist/release/cms-windows-x64.exe, без значка
+wine dist/release/cms-windows-x64.exe version
+wine dist/release/cms-windows-x64.exe --port 8090 --db 'Z:\var\tmp\site.db'
+```
+
+Под wine проверяются сервер, менеджер, медиатека с вариантами картинок, `elements`, `backup`, `restore`,
+Ctrl+C (`kill -INT` процессу wine) и `cms update` со своей лентой на `CMS_RELEASES_URL` (см. «Релиз»): wine, как
+Windows, не даёт удалить запущенный `.exe`. Сам Bun для Windows тоже запускается: рантайм, который `bun build
+--target=bun-windows-x64` скачал в `~/.bun/install/cache/bun-windows-x64-v<версия>`, — это `bun.exe`.
+
+```sh
+cp ~/.bun/install/cache/bun-windows-x64-v1.4.4 /var/tmp/bun.exe
+WINEPATH='Z:\var\tmp' NODE_ENV=production wine /var/tmp/bun.exe test src tests --timeout 30000
+```
+
+Под Bun для Windows работают и `--windows-icon` с остальными `--windows-*`: `compile()` из `scripts/binary.ts`
+с `windowsInfo()` даёт `cms.exe` со значком и сведениями о файле, как в CI. Менеджер и входной файл для этого
+собираются на Linux (`prepareEntry()`): в `node_modules` — Rollup и esbuild под Linux, Vite под wine их не
+загрузит. Тестам под wine нужна копия репозитория с настоящим каталогом `node_modules`, а не ссылкой.
+
+Чего wine не умеет: отказ соединения с закрытым портом не приходит (тесты на него ждут до таймаута; не проходит и
+STARTTLS), а stdin из трубы Linux не читается: для `--password-stdin` —
+`wine cmd /c "type pw.txt | cms.exe users add …"`. `install.ps1` под wine не проверить — его ставит тест
+`tests/install-ps1.test.ts` на раннере Windows.
+
+**Значок `cms.exe`** рисуется из `manager/static/favicon.svg` при каждой сборке под Windows, копии в репозитории
+нет. Посмотреть или собрать отдельно:
+
+```sh
+bun scripts/icon.ts /var/tmp/eile.ico   # 256…16 px; файл одинаков на любой машине
+magick identify /var/tmp/eile.ico       # кадры и размеры (ImageMagick)
+```
+
+Поменяли знак — поменяйте `favicon.svg`, значок подтянется сам.
 
 ## HTTPS на стенде
 

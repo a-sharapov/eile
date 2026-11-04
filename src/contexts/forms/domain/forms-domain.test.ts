@@ -2,6 +2,12 @@ import { describe, expect, it } from 'bun:test';
 import { isDomainError } from '../../../shared/kernel/errors.ts';
 import { createForm, editForm, parseFormName } from './form.ts';
 import {
+  challengeText,
+  PROOF_LIMITS,
+  parseProofLevel,
+  parseSolution,
+} from './proof.ts';
+import {
   assertLabels,
   checkValues,
   type FieldSpec,
@@ -170,16 +176,83 @@ describe('форма', () => {
     expect(changed.state).toMatchObject({ revision: 2, updatedAt: 'later' });
   });
 
+  it('защита от спама: у новой формы — «standard», правка меняет её на любой уровень и не трогает без просьбы', () => {
+    const form = createForm(parseFormName('a'), { title: 'A' }, 'now').state;
+    expect(form.proof).toBe('standard');
+    expect(editForm({ title: 'B' }, 'later')(form).state.proof).toBe(
+      'standard'
+    );
+    expect(editForm({ proof: 'off' }, 'later')(form).state.proof).toBe('off');
+    expect(editForm({ proof: 'strong' }, 'later')(form).state.proof).toBe(
+      'strong'
+    );
+    expect(
+      createForm(parseFormName('a'), { title: 'A', proof: 'light' }, 'now')
+        .state.proof
+    ).toBe('light');
+    expect(parseProofLevel('off')).toBe('off');
+    expect(codeOf(() => parseProofLevel('max'))).toBe('forms.invalid_proof');
+  });
+
   it.each([
     [{ retentionDays: 0 }, 'forms.invalid_retention'],
     [{ minSeconds: 61 }, 'forms.invalid_seconds'],
     [{ successPage: -1 }, 'forms.invalid_page'],
+    [{ proof: 'hard' } as never, 'forms.invalid_proof'],
+    [{ proof: true } as never, 'forms.invalid_proof'],
+    [{ proof: null } as never, 'forms.invalid_proof'],
   ])('%p — %p', (input, code) => {
     expect(
       codeOf(() =>
         createForm(parseFormName('a'), { title: 'A', ...input }, 'now')
       )
     ).toBe(code);
+  });
+});
+
+describe('задача защиты строкой', () => {
+  const task = {
+    algorithm: 'SHA-256' as const,
+    salt: 'AbCdEfGhIjKlMn_-',
+    max: PROOF_LIMITS.standard,
+    expires: 1_800_000_000_000,
+    hash: 'f'.repeat(64),
+    signature: 's'.repeat(43),
+  };
+
+  it('в атрибут — через точку, решение — задача и число', () => {
+    const text = challengeText(task);
+    expect(text).toBe(
+      `SHA-256.AbCdEfGhIjKlMn_-.200000.1800000000000.${'f'.repeat(64)}.${'s'.repeat(43)}`
+    );
+    expect(parseSolution(`${text}.4711`)).toEqual({ ...task, number: 4711 });
+  });
+
+  it.each([
+    ['', 'пусто'],
+    ['SHA-256.x.1.2.3.4.5', 'короткие части'],
+    [
+      `SHA-1.AbCdEfGhIjKlMn_-.200000.1800000000000.${'f'.repeat(64)}.${'s'.repeat(43)}.1`,
+      'чужой алгоритм',
+    ],
+    [
+      `SHA-256.AbCdEfGhIjKlMn_-.200000.1800000000000.${'f'.repeat(64)}.${'s'.repeat(43)}`,
+      'без числа',
+    ],
+    [
+      `SHA-256.AbCdEfGhIjKlMn_-.200000.1800000000000.${'F'.repeat(64)}.${'s'.repeat(43)}.1`,
+      'хэш не в нижнем регистре',
+    ],
+    [
+      `SHA-256.AbCdEfGhIjKlMn_-.200000.1800000000000.${'f'.repeat(64)}.${'s'.repeat(43)}.-1`,
+      'отрицательное число',
+    ],
+    [
+      `SHA-256.AbCdEfGhIjKlMn_-.200000.1800000000000.${'f'.repeat(64)}.${'s'.repeat(43)}.12345678`,
+      'число длиннее семи цифр',
+    ],
+  ])('не того вида — null: %p (%s)', (raw) => {
+    expect(parseSolution(raw)).toBeNull();
   });
 });
 
@@ -628,7 +701,7 @@ describe('подписи значений скрытого поля', () => {
       {
         paket: ['planung'],
         firma: ['Küchen Müller'],
-        seite: ['https://kuechenly.de/'],
+        seite: ['https://muehlenhof.example/'],
       },
       'de'
     );

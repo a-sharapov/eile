@@ -1,8 +1,10 @@
 <!-- @component
 Скриншот менеджера из медиатеки: `screens/<имя>-light.webp` и `-dark.webp`. Видна картинка под тему сайта
 (переключатель в шапке, иначе системная), ширину браузер берёт из уменьшенных копий, на телефоне — кадр `<имя>-m-…`.
+С `title` снимок стоит в окне (Window); без него окно рисует тот, кто вставил снимок.
 -->
 <script lang="ts">
+import Window from '$components/Window';
 import { image } from '$core';
 
 let {
@@ -12,9 +14,17 @@ let {
   alt = '',
   /** Грузить сразу — для первого экрана */
   eager = false,
-  /** Ширина снимка на странице для выбора копии */
-  sizes = '(min-width: 80rem) 76rem, calc(100vw - 2.5rem)',
-}: { name?: string; alt?: string; eager?: boolean; sizes?: string } = $props();
+  /** Ширина снимка на странице для выбора копии: по умолчанию — широкая колонка сайта */
+  sizes = '(min-width: 80rem) 76rem, calc(94vw - 1rem)',
+  /** Заголовок окна вокруг снимка; пусто — без окна */
+  title = '',
+}: {
+  name?: string;
+  alt?: string;
+  eager?: boolean;
+  sizes?: string;
+  title?: string;
+} = $props();
 
 const light = image(`screens/${name}-light.webp`);
 const dark = image(`screens/${name}-dark.webp`);
@@ -25,7 +35,7 @@ const set = (_: NonNullable<typeof light>): string =>
   [_.srcset, `${_.src} ${_.width}w`].filter(Boolean).join(', ');
 </script>
 
-{#if light}
+{#snippet pictures()}
   <div class="shot">
     <picture class="light">
       {#if phoneLight}
@@ -55,12 +65,21 @@ const set = (_: NonNullable<typeof light>): string =>
           width={dark.width}
           height={dark.height}
           alt={alt || dark.alt}
-          loading="lazy"
+          loading={eager ? 'eager' : 'lazy'}
+          fetchpriority={eager ? 'high' : undefined}
           decoding="async"
         />
       </picture>
     {/if}
   </div>
+{/snippet}
+
+{#if light}
+  {#if title}
+    <Window {title}>{@render pictures()}</Window>
+  {:else}
+    {@render pictures()}
+  {/if}
 {/if}
 
 <style>
@@ -92,13 +111,11 @@ const set = (_: NonNullable<typeof light>): string =>
     }
   }
 
+  /* Рамку, скругление и тень даёт окно. */
   img {
     display: block;
     width: 100%;
     height: auto;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-l);
     background: var(--bg);
-    box-shadow: var(--shadow-shot);
   }
 </style>

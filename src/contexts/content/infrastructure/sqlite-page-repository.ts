@@ -127,6 +127,13 @@ export var definePageRepository = (db: Database): PageRepository => {
   const sequence = db.query<{ seq: number }, []>(
     "SELECT seq FROM sqlite_sequence WHERE name = 'content_pages'"
   );
+  // sqlite_sequence правится обычным UPDATE; строки ещё нет, пока в таблицу не вставляли ни разу.
+  const bump = db.query<{ seq: number }, []>(
+    "UPDATE sqlite_sequence SET seq = seq + 1 WHERE name = 'content_pages' RETURNING seq"
+  );
+  const first = db.query<{ seq: number }, []>(
+    "INSERT INTO sqlite_sequence (name, seq) VALUES ('content_pages', 1) RETURNING seq"
+  );
   const byId = db.query<PageRow, [number]>(
     'SELECT * FROM content_pages WHERE id = ?'
   );
@@ -241,6 +248,8 @@ export var definePageRepository = (db: Database): PageRepository => {
   return {
     // bun:sqlite синхронный: между чтением счётчика и save() никто не вставит строку.
     nextId: () => parsePageId((sequence.get()?.seq ?? 0) + 1),
+    reserve: () => parsePageId((bump.get() ?? first.get()!).seq),
+    lastId: () => sequence.get()?.seq ?? 0,
     get: (id) => toPage(byId.get(id)),
     findSibling: (parentId, alias) => toPage(sibling.get(parentId, alias)),
     ancestors: (id) => ids(ancestors.all(id)),

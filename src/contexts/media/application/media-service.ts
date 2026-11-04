@@ -21,7 +21,11 @@ import type {
   UploadContent,
   VariantQueue,
 } from '../domain/ports.ts';
-import { isResizable, takesVariants } from '../domain/variants.ts';
+import {
+  isResizable,
+  takesVariants,
+  VARIANT_WIDTHS,
+} from '../domain/variants.ts';
 import { defineVariantJobs } from './variant-jobs.ts';
 
 export type { UploadContent };
@@ -202,12 +206,24 @@ export var defineMediaService = ({
           .filter((_) => variantWidth(_.path) !== null)
           .toSorted((a, b) => variantWidth(a.path)! - variantWidth(b.path)!)
       : [];
+    // Оригинал шире самого крупного варианта, но не шире 1920, — тоже кандидат: иначе снимок в 800 px
+    // браузер растягивал бы из варианта 480. Оригинал крупнее 1920 в набор не идёт: на экране высокой
+    // плотности браузер скачал бы его целиком, а вариант 1920 уже есть.
+    const largest = variantWidth(variants.at(-1)?.path ?? '') ?? 0;
+    const original =
+      file &&
+      variants.length > 0 &&
+      (file.width ?? 0) > largest &&
+      (file.width ?? 0) <= VARIANT_WIDTHS.at(-1)!
+        ? [`${mediaUrl(file)} ${file.width}w`]
+        : [];
     return (
       file && {
         src: mediaUrl(file),
-        srcset: variants
-          .map((_) => `${mediaUrl(_)} ${variantWidth(_.path)}w`)
-          .join(', '),
+        srcset: [
+          ...variants.map((_) => `${mediaUrl(_)} ${variantWidth(_.path)}w`),
+          ...original,
+        ].join(', '),
         width: file.width,
         height: file.height,
         alt: file.alt,

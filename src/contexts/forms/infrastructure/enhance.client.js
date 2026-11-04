@@ -1,6 +1,7 @@
 // Улучшение форм сайта в браузере: без него форма работает обычной отправкой с переходом.
 // Отправка без перезагрузки, ошибки у полей, новая печать после устаревшей, черновик, первое касание UTM,
-// условные поля и шаги.
+// условные поля, шаги и решение задачи защиты от спама. PROOF_WORKER_URL, proofSearch и proofTask стоят в
+// начале этого файла: их подставляет enhance.ts.
 const DRAFT = 'cms:form:';
 const LANDING = 'cms:utm';
 
@@ -99,10 +100,12 @@ const button = (text, className) => {
 const steps = (form) => {
   const list = [...form.querySelectorAll('fieldset[data-step]')];
   if (list.length < 2) {
-    return { reveal: () => {}, advance: () => false, valid: () => true };
+    return {
+      reveal: () => {},
+      advance: () => false,
+      valid: () => checkFields(form, form, () => {}),
+    };
   }
-  // Браузер проверял бы и поля скрытых шагов, до события submit: проверяем сами, по шагам.
-  form.noValidate = true;
   const submit =
     form.querySelector('.field-submit') ??
     form.querySelector(
@@ -135,13 +138,7 @@ const steps = (form) => {
         ?.focus();
   };
   const forward = () => {
-    const invalid = [
-      ...list[current].querySelectorAll('input, select, textarea'),
-    ].find((_) => !_.disabled && !_.checkValidity());
-    if (invalid) {
-      invalid.reportValidity();
-      return;
-    }
+    if (!checkFields(form, list[current], () => {})) return;
     save(form);
     show(current + 1, true);
   };
@@ -161,17 +158,113 @@ const steps = (form) => {
     forward();
     return true;
   };
-  // Перед отправкой — вся форма: неверное поле открывает свой шаг и показывает подсказку браузера.
-  const valid = () => {
-    const invalid = [...form.querySelectorAll('input, select, textarea')].find(
-      (_) => !_.disabled && !_.checkValidity()
-    );
-    if (!invalid) return true;
-    reveal(invalid);
-    invalid.reportValidity();
-    return false;
-  };
+  // Перед отправкой — вся форма: неверное поле открывает свой шаг, ошибка — у поля.
+  const valid = () => checkFields(form, form, reveal);
   return { reveal, advance, valid };
+};
+
+// Задача защиты (ADR 0053) — в воркере; нет воркера или его запретили — кусками на странице, по 12 мс между
+// событиями, чтобы ввод не тормозил. Ни cookie, ни хранилища: наружу уходит только найденное число.
+const PROOF_SLICE_MS = 12;
+
+const nextTask = () =>
+  new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => resolve();
+    channel.port2.postMessage(0);
+  });
+
+const solveHere = async (task) => {
+  let size = 2000;
+  for (let from = 0; from <= task.max; ) {
+    const started = performance.now();
+    const to = Math.min(task.max + 1, from + size);
+    const found = proofSearch(task.salt, task.challenge, from, to);
+    if (found >= 0) return found;
+    const spent = Math.max(1, performance.now() - started);
+    size = Math.max(500, Math.round((size * PROOF_SLICE_MS) / spent));
+    from = to;
+    await nextTask();
+  }
+  throw new Error('unsolved');
+};
+
+const solveInWorker = (task) =>
+  new Promise((resolve, reject) => {
+    const worker = new Worker(PROOF_WORKER_URL);
+    worker.onmessage = (event) => {
+      worker.terminate();
+      if (event.data >= 0) resolve(event.data);
+      else reject(new Error('unsolved'));
+    };
+    worker.onerror = (event) => {
+      event.preventDefault();
+      worker.terminate();
+      reject(new Error('worker'));
+    };
+    worker.postMessage({
+      salt: task.salt,
+      challenge: task.challenge,
+      max: task.max,
+    });
+  });
+
+const solve = (task) => {
+  try {
+    return solveInWorker(task).catch((error) =>
+      error.message === 'unsolved' ? Promise.reject(error) : solveHere(task)
+    );
+  } catch {
+    return solveHere(task);
+  }
+};
+
+// Решать начинаем при первом касании формы: к отправке число обычно готово, иначе отправка его ждёт.
+// Строка состояния — role="status": читалка скажет «проверяется» и «готово», вёрстка не сдвигается.
+const proof = (form) => {
+  let current = null;
+  const fieldOf = () =>
+    form.elements.namedItem('_proof') ??
+    form.appendChild(
+      Object.assign(document.createElement('input'), {
+        type: 'hidden',
+        name: '_proof',
+      })
+    );
+  const say = (state, text) => {
+    const status = form.querySelector('.cms-form-proof');
+    if (!status) return;
+    status.dataset.state = state;
+    status.textContent = text;
+  };
+  const start = () => {
+    const text = form.dataset.proof;
+    if (!text) return Promise.resolve();
+    if (current?.text === text) return current.done;
+    const task = proofTask(text);
+    fieldOf().value = '';
+    if (!task) return Promise.resolve();
+    say('working', form.dataset.proofWorking || '');
+    const done = solve(task).then(
+      (number) => {
+        if (form.dataset.proof !== text) return;
+        fieldOf().value = `${text}.${number}`;
+        say('done', form.dataset.proofDone || '');
+      },
+      // Не решилось — уйдёт без решения: сервер выдаст новую задачу, а не потеряет заявку.
+      () => say('', '')
+    );
+    current = { text, done };
+    return done;
+  };
+  // Сервер выдал новую печать и задачу к ней: прежнее решение к ней не подходит.
+  const renew = (text) => {
+    form.dataset.proof = text;
+    current = null;
+  };
+  form.addEventListener('focusin', start, { once: true });
+  form.addEventListener('input', start, { once: true });
+  return { start, renew };
 };
 
 // В черновик — только то, что вводил человек: скрытые и служебные поля всегда свежие с сервера.
@@ -218,12 +311,23 @@ const save = (form) => {
   } catch {}
 };
 
+// Id ошибок вынимаются из aria-describedby, id подсказок остаются.
+const unlink = (control, id) => {
+  const rest = (control.getAttribute('aria-describedby') ?? '')
+    .split(/\s+/)
+    .filter((_) => _ && _ !== id && !(id === undefined && _.includes('-err-')));
+  rest.length
+    ? control.setAttribute('aria-describedby', rest.join(' '))
+    : control.removeAttribute('aria-describedby');
+};
+
 const clearErrors = (form) => {
   for (const node of form.querySelectorAll('.field-error, .cms-form-message')) {
     node.remove();
   }
   for (const node of form.querySelectorAll('[aria-invalid]')) {
     node.removeAttribute('aria-invalid');
+    unlink(node);
   }
 };
 
@@ -250,7 +354,11 @@ const showErrors = (form, errors, message, reveal = () => {}) => {
     const id = `${name}-err-${field}`;
     for (const control of controls) {
       control.setAttribute('aria-invalid', 'true');
-      control.setAttribute('aria-describedby', id);
+      unlink(control, id);
+      control.setAttribute(
+        'aria-describedby',
+        [control.getAttribute('aria-describedby'), id].filter(Boolean).join(' ')
+      );
     }
     const wrapper = controls[0].closest('[data-field]');
     const node = paragraph('field-error', text, id);
@@ -259,6 +367,40 @@ const showErrors = (form, errors, message, reveal = () => {}) => {
   }
   if (first) reveal(first);
   first?.focus();
+};
+
+// Проверка браузера (required, pattern, type) — но ошибка у поля, как рисует сервер, а не всплывающая
+// подсказка: текст — data-message поля или обёртки, иначе сообщение браузера.
+const messageOf = (control) =>
+  control.dataset.message ||
+  control.closest('[data-field]')?.dataset.message ||
+  control.validationMessage;
+
+const checkFields = (form, root, reveal) => {
+  const errors = {};
+  for (const control of root.querySelectorAll('input, select, textarea')) {
+    if (!control.name || control.disabled || control.type === 'hidden')
+      continue;
+    if (errors[control.name] || control.checkValidity()) continue;
+    errors[control.name] = messageOf(control);
+  }
+  clearErrors(form);
+  if (Object.keys(errors).length === 0) return true;
+  showErrors(form, errors, null, reveal);
+  return false;
+};
+
+// Исправленное поле теряет свою ошибку сразу, не дожидаясь отправки.
+const settle = (form, control) => {
+  if (!control?.name || control.getAttribute('aria-invalid') !== 'true') return;
+  const group = form.querySelectorAll(`[name="${CSS.escape(control.name)}"]`);
+  if (![...group].every((_) => _.disabled || _.checkValidity())) return;
+  const id = `${form.dataset.cmsForm}-err-${control.name}`;
+  form.querySelector(`#${CSS.escape(id)}`)?.remove();
+  for (const _ of group) {
+    _.removeAttribute('aria-invalid');
+    unlink(_, id);
+  }
 };
 
 const done = (form, reply) => {
@@ -307,13 +449,14 @@ const bodyOf = (form, fields) => {
   return { headers: { accept: 'application/json' }, body: data };
 };
 
-const send = async (form, retried, reveal) => {
+const send = async (form, retried, reveal, guard) => {
   const button = form.querySelector(
     'button[type="submit"], button:not([type])'
   );
   form.dataset.busy = '1';
   button?.setAttribute('aria-busy', 'true');
   clearErrors(form);
+  await guard.start();
   const fields = valuesOf(form);
   const landing = (() => {
     try {
@@ -330,12 +473,13 @@ const send = async (form, retried, reveal) => {
       credentials: 'same-origin',
     });
     const reply = await response.json().catch(() => ({}));
-    // Печать устарела (вкладку открыли вчера): новая печать — и та же отправка ещё раз.
+    // Печать устарела (вкладку открыли вчера) или задача защиты не подошла: новая печать с задачей —
+    // и та же отправка ещё раз.
     if (reply.stamp && !retried) {
       form.elements.namedItem('_stamp').value = reply.stamp.token;
       form.elements.namedItem('_iat').value = String(reply.stamp.iat);
-      delete form.dataset.busy;
-      return send(form, true, reveal);
+      if (reply.proof) guard.renew(reply.proof);
+      return await send(form, true, reveal, guard);
     }
     if (reply.ok) return done(form, reply);
     showErrors(
@@ -360,18 +504,34 @@ const send = async (form, retried, reveal) => {
   }
 };
 
+// data-min="today" у даты: min — сегодняшний день по часам посетителя (страница в кэше, сервер его не знает).
+const today = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
 for (const form of document.querySelectorAll('form[data-cms-form]')) {
+  // Со скриптом поля проверяет он сам и пишет ошибку у поля; без скрипта — подсказки браузера.
+  form.noValidate = true;
+  for (const input of form.querySelectorAll(
+    'input[type="date"][data-min="today"]'
+  )) {
+    input.min = today();
+  }
   restore(form);
   conditions(form);
   const { reveal, advance, valid } = steps(form);
+  const guard = proof(form);
   let timer = 0;
-  form.addEventListener('input', () => {
+  form.addEventListener('change', (event) => settle(form, event.target));
+  form.addEventListener('input', (event) => {
+    settle(form, event.target);
     clearTimeout(timer);
     timer = setTimeout(() => save(form), 400);
   });
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     if (advance() || !valid()) return;
-    if (!form.dataset.busy) send(form, false, reveal);
+    if (!form.dataset.busy) send(form, false, reveal, guard);
   });
 }

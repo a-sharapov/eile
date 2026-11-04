@@ -58,7 +58,7 @@ describe('вебхук формы', () => {
           context: {
             pageId: 3,
             pageTitle: 'Bestellen',
-            url: 'https://kuechenly.de/bestellen',
+            url: 'https://muehlenhof.example/bestellen',
             referrer: '',
             utm: {},
           },
@@ -71,7 +71,7 @@ describe('вебхук формы', () => {
       receivedAt: '2026-11-02T10:00:00.000Z',
       values: { name: 'Anna', partner: 'P-42' },
       files: ['plan.pdf'],
-      page: { id: 3, url: 'https://kuechenly.de/bestellen' },
+      page: { id: 3, url: 'https://muehlenhof.example/bestellen' },
     });
   });
 

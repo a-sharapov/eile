@@ -4,7 +4,9 @@ import type {
   NewField,
 } from '../contexts/content/index.ts';
 import type { DesignService } from '../contexts/design/index.ts';
+import type { ExtensionsService } from '../contexts/extensions/index.ts';
 import type { FormInput, FormsService } from '../contexts/forms/index.ts';
+import type { MediaService } from '../contexts/media/index.ts';
 import type { SiteService } from '../contexts/site/index.ts';
 import { kitClosure } from '../kit/index.ts';
 import { fail } from '../shared/kernel/errors.ts';
@@ -20,6 +22,16 @@ export type ScaffoldPage = Omit<
   readonly key?: string;
   readonly fields?: CreatePageInput['fields'];
   readonly children?: readonly ScaffoldPage[];
+};
+
+/** Своя настройка каркаса с пояснением для менеджера: что это и где взять значение. */
+export type ScaffoldSetting = { readonly value: string; readonly note: string };
+
+/** Файл медиатеки каркаса: путь в медиатеке (`img/hero.jpg`), содержимое и описание картинки. */
+export type ScaffoldMedia = {
+  readonly path: string;
+  readonly data: Uint8Array;
+  readonly alt?: string;
 };
 
 /** Каркас сайта: элементы, поля, формы, свои настройки и дерево страниц — всё, с чем сайт стартует. */
@@ -39,10 +51,16 @@ export type Scaffold = {
   /** Свои компоненты: зависимости — раньше зависящих. */
   readonly components?: Readonly<Record<string, string>>;
   readonly templates: Readonly<Record<string, string>>;
+  /** Скрипты сайта для браузера (ADR 0039). */
+  readonly scripts?: Readonly<Record<string, string>>;
+  /** Плагины — код сервера; встроенные каркасы их не ставят, пакет — только с `--allow-plugins`. */
+  readonly plugins?: Readonly<Record<string, string>>;
   readonly fields?: readonly NewField[];
   readonly forms?: Readonly<Record<string, FormInput>>;
   /** Свои настройки сайта; `@{key}` в значении — id страницы. */
-  readonly settings?: Readonly<Record<string, string>>;
+  readonly settings?: Readonly<Record<string, string | ScaffoldSetting>>;
+  /** Файлы медиатеки; варианты размеров картинкам делает сервер (ADR 0046). */
+  readonly media?: readonly ScaffoldMedia[];
   readonly pages: readonly ScaffoldPage[];
   /** Ключи главной и страницы 404. */
   readonly home: string;
@@ -54,15 +72,24 @@ export type ScaffoldServices = {
   readonly design: DesignService;
   readonly site: SiteService;
   readonly forms: FormsService;
+  readonly media: Pick<MediaService, 'files'>;
+  readonly extensions: Pick<ExtensionsService, 'plugins'>;
 };
 
 export type ScaffoldReport = {
   readonly pages: number;
   readonly templates: number;
   readonly components: number;
+  readonly scripts: number;
+  readonly plugins: number;
   readonly fields: number;
   readonly forms: number;
+  readonly media: number;
 };
+
+/** Значение своей настройки каркаса: строкой или с пояснением. */
+export var settingValue = (setting: string | ScaffoldSetting): string =>
+  typeof setting === 'string' ? setting : setting.value;
 
 const _REF = /@\{([a-z][a-z0-9-]*)\}/g;
 
@@ -99,7 +126,7 @@ const _plant = (
 /** Разворачивает каркас на пустой сайт; `siteName` — своё название вместо названия каркаса. */
 export var applyScaffold = (
   scaffold: Scaffold,
-  { content, design, site, forms }: ScaffoldServices,
+  { content, design, site, forms, media, extensions }: ScaffoldServices,
   siteName?: string
 ): ScaffoldReport => {
   // Набор — на языке каркаса: английский сайт получает английские подписи компонентов.
@@ -111,6 +138,10 @@ export var applyScaffold = (
     ).values(),
   ];
   kit.forEach((_) => void design.components.save(_.name, _.source));
+  // Скрипты — раньше элементов: шаблон подключает скрипт по имени.
+  Object.entries(scaffold.scripts ?? {}).forEach(
+    ({ 0: name, 1: source }) => void design.scripts.save(name, source)
+  );
   Object.entries(scaffold.components ?? {}).forEach(
     ({ 0: name, 1: source }) => void design.components.save(name, source)
   );
@@ -118,6 +149,11 @@ export var applyScaffold = (
     ({ 0: name, 1: source }) => void design.templates.save(name, source)
   );
   (scaffold.fields ?? []).forEach((_) => void content.fields.save(_));
+  (scaffold.media ?? []).forEach(
+    (_) =>
+      void (media.files.save({ path: _.path, data: _.data }),
+      _.alt && media.files.describe(_.path, _.alt))
+  );
 
   const planted = _plant(content, null, scaffold.pages);
   const ids = new Map(
@@ -139,8 +175,12 @@ export var applyScaffold = (
         ...(input.source ? { source: resolve(input.source) } : {}),
       })
   );
+  // Пояснение к настройке ядро этой версии не хранит: в сайт уходит значение.
   Object.entries(scaffold.settings ?? {}).forEach(
-    ({ 0: key, 1: value }) => void site.customSettings.save(key, resolve(value))
+    ({ 0: key, 1: setting }) =>
+      void (typeof setting === 'string'
+        ? site.customSettings.save(key, resolve(setting))
+        : site.customSettings.save(key, resolve(setting.value), setting.note))
   );
   site.settings.update({
     name: siteName?.trim() || scaffold.siteName,
@@ -151,13 +191,20 @@ export var applyScaffold = (
       ? Number(resolve(`@{${scaffold.notFound}}`))
       : null,
   });
+  // Плагины — последними: их хуки не должны срабатывать на события самой установки.
+  Object.entries(scaffold.plugins ?? {}).forEach(
+    ({ 0: name, 1: source }) => void extensions.plugins.save(name, source)
+  );
 
   return {
     pages: planted.length,
     templates: Object.keys(scaffold.templates).length,
     components: kit.length + Object.keys(scaffold.components ?? {}).length,
+    scripts: Object.keys(scaffold.scripts ?? {}).length,
+    plugins: Object.keys(scaffold.plugins ?? {}).length,
     fields: scaffold.fields?.length ?? 0,
     forms: Object.keys(scaffold.forms ?? {}).length,
+    media: scaffold.media?.length ?? 0,
   };
 };
 

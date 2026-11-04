@@ -13,6 +13,8 @@ type Token = {
   readonly hint: string;
   readonly createdAt: string;
   readonly usedAt: string | null;
+  /** Правки ключом ждут проверки в «Предложениях» (ADR 0054). */
+  readonly review: boolean;
 };
 
 let {
@@ -25,11 +27,33 @@ let tokens = $state<Token[] | null>(null);
 let name = $state('');
 let issued = $state<string | null>(null);
 let busy = $state(false);
+// Проверка правок всех агентов: тогда отметка у ключа ничего не добавляет.
+let reviewAll = $state(false);
 
 const failed = (error: unknown) => notify(describe(error), 'error');
 
 const load = () =>
-  api.get<Token[]>('/tokens').then((_) => void (tokens = _), failed);
+  Promise.all([
+    api.get<Token[]>('/tokens'),
+    api.get<{ agents: boolean }>('/review/settings').then(
+      (_) => _.agents,
+      () => false
+    ),
+  ]).then(
+    ({ 0: list, 1: all }) => void ((tokens = list), (reviewAll = all)),
+    failed
+  );
+
+const setReview = (token: Token, review: boolean) =>
+  api
+    .send<Token>('PATCH', `/tokens/${token.id}`, { review })
+    .then(
+      (next) =>
+        void (tokens = (tokens ?? []).map((_) =>
+          _.id === next.id ? next : _
+        )),
+      failed
+    );
 
 $effect(() => {
   void (open
@@ -122,6 +146,10 @@ const revoke = (token: Token) =>
               <span class="what">
                 <strong>{token.name}</strong>
                 <small class="muted">…{token.hint} · {t('tokens.created', { when: moment(token.createdAt) })} · {token.usedAt ? t('tokens.used', { when: ago(token.usedAt) }) : t('tokens.unused')}</small>
+                <label class="review" title={t('tokens.reviewHint')}>
+                  <input type="checkbox" checked={reviewAll || token.review} disabled={reviewAll} onchange={(e) => setReview(token, e.currentTarget.checked)} />
+                  <span>{t('tokens.review')}</span>
+                </label>
               </span>
               <button type="button" class="ghost icon" aria-label={`${t('tokens.revoke')}: ${token.name}`} title={t('tokens.revoke')} onclick={() => revoke(token)}>{@html icons.trash}</button>
             </li>
@@ -129,6 +157,7 @@ const revoke = (token: Token) =>
         </ul>
       {/if}
 
+      {#if reviewAll}<p class="muted small">{t('tokens.reviewAll')}</p>{/if}
       <p class="muted small">{t('tokens.limits')}</p>
       <div class="actions">
         <button type="button" onclick={() => (open = false)}>{t('common.close')}</button>
@@ -240,6 +269,14 @@ const revoke = (token: Token) =>
   }
 
   .small {
+    font-size: 0.875rem;
+  }
+
+  .review {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+    margin-top: 0.25rem;
     font-size: 0.875rem;
   }
 

@@ -89,14 +89,23 @@ export type PageCacheStats = ReturnType<PageCache['size']> & {
   readonly manual: boolean;
 };
 
+type RuleTarget = {
+  readonly id: number;
+  /** Адрес, полный URL или страница `[~id~]`. */
+  readonly to: string;
+  readonly status: 301 | 302;
+  /** Параметры query, которые узнало правило: в адрес цели они не переходят. */
+  readonly consumed?: readonly string[];
+};
+
 /** Правила переадресации владельца сайта: адрес без страницы → цель и код ответа. */
 export type RedirectRules = {
-  readonly match: (path: string) => {
-    readonly id: number;
-    /** Адрес, полный URL или страница `[~id~]`. */
-    readonly to: string;
-    readonly status: 301 | 302;
-  } | null;
+  readonly match: (path: string) => RuleTarget | null;
+  /** Правило с query (`/?p=12`): адрес и query посетителя. */
+  readonly matchQuery?: (
+    path: string,
+    query: Readonly<Record<string, string>>
+  ) => RuleTarget | null;
   /** Правило сработало: счётчик и время. */
   readonly hit: (id: number) => void;
 };

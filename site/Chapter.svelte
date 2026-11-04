@@ -44,10 +44,13 @@ const meta = [
   `${minutes} ${_plural(t.cookMinutes, minutes)}`,
 ].join(' · ');
 
-// Разделы главы для правой колонки: заголовки второго уровня с id.
+// Разделы главы для правой колонки: заголовки второго и (с id) третьего уровня, по порядку текста.
 const sections = [
-  ...page.content.matchAll(/<h2 id="([^"]+)">([\s\S]*?)<\/h2>/g),
-].map((_) => [_[1]!, _[2]!.replace(/<[^>]*>/g, '')] as const);
+  ...page.content.matchAll(/<h([23]) id="([^"]+)">([\s\S]*?)<\/h\1>/g),
+].map(
+  (_) =>
+    [_[2] ?? '', (_[3] ?? '').replace(/<[^>]*>/g, ''), _[1] === '3'] as const
+);
 
 // Подсветка кода на сервере: страница уходит готовым HTML и без скриптов, результат лежит в кэше.
 // Скобки в коде остаются сущностями, иначе текст страницы принял бы `[[…]]` и `[~…~]` за теги.
@@ -137,25 +140,31 @@ const _paint = (rules: readonly Rule[], text: string): string =>
       )
     ))(new RegExp(rules.map((_) => `(${_[1]})`).join('|') || '(?!)', 'gm'));
 
-// В сеансе терминала строки без «$ » — ответ программы: они тише и без разбора.
-const _shell = (text: string): string =>
-  ((session) =>
-    text
-      .split('\n')
-      .map((line) =>
-        line.startsWith('$ ')
-          ? `<span class="pr">$ </span>${_paint(_SHELL, line.slice(2))}`
-          : session
-            ? _span('o', line)
-            : _paint(_SHELL, line)
-      )
-      .join('\n'))(/^\$ /m.test(text));
+// В сеансе терминала строки без «$ » (в PowerShell — «PS> ») — ответ программы: они тише и без разбора.
+const _PROMPT = /^(?:\$|PS>) /;
 
+const _line =
+  (session: boolean) =>
+  (line: string): string =>
+    ((prompt) =>
+      prompt
+        ? `<span class="pr">${_encode(prompt)}</span>${_paint(_SHELL, line.slice(prompt.length))}`
+        : session
+          ? _span('o', line)
+          : _paint(_SHELL, line))(_PROMPT.exec(line)?.[0] ?? '');
+
+const _shell = (text: string): string =>
+  text
+    .split('\n')
+    .map(_line(/^(?:\$|PS>) /m.test(text)))
+    .join('\n');
+
+// Длинная строка кода прокручивается, поэтому у pre есть фокус: прокрутить можно и с клавиатуры.
 const _highlight = (html: string): string =>
   html.replace(
     /<pre([^>]*)><code class="language-(\w+)">([\s\S]*?)<\/code><\/pre>/g,
     (_match, attributes: string, lang: string, body: string) =>
-      `<pre${attributes}><code class="language-${lang}">${
+      `<pre${attributes} tabindex="0"><code class="language-${lang}">${
         lang === 'sh'
           ? _shell(_decode(body))
           : _paint(_RULES[lang] ?? [], _decode(body))
@@ -223,8 +232,8 @@ const html = _highlight(page.content);
       <aside class="here" aria-label={t.cookOnPage}>
         <p>{t.cookOnPage}</p>
         <ul>
-          {#each sections as { 0: id, 1: title } (id)}
-            <li><a href={`#${id}`}>{title}</a></li>
+          {#each sections as { 0: id, 1: title, 2: sub } (id)}
+            <li class:sub><a href={`#${id}`}>{title}</a></li>
           {/each}
         </ul>
       </aside>
@@ -271,7 +280,7 @@ const html = _highlight(page.content);
 
   .chapters a {
     display: grid;
-    grid-template-columns: 1.6rem 1fr;
+    grid-template-columns: 1.6rem minmax(0, 1fr);
     gap: 0.4rem;
     padding: 0.4rem 0.6rem;
     border-radius: 0.5rem;
@@ -364,9 +373,13 @@ const html = _highlight(page.content);
     color: var(--text);
   }
 
+  .here .sub {
+    padding-left: 0.85rem;
+  }
+
   .pager {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 1rem;
     margin-top: 4rem;
     padding-top: 2rem;
@@ -489,7 +502,8 @@ const html = _highlight(page.content);
     border-radius: 0.35rem;
     background: var(--raised);
     font-weight: 600;
-    white-space: nowrap;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
   }
 
   .prose :global(:where(figure.code)) {
@@ -515,6 +529,20 @@ const html = _highlight(page.content);
     font: 400 0.875rem/1.7 var(--mono);
     tab-size: 2;
     scrollbar-color: #39424e transparent;
+  }
+
+  /* Рамка кода обрезает всё, что снаружи: кольцо фокуса рисуется внутри. */
+  /* Кольцо фокуса на тёмном коде — светлым синим: не меньше 3:1 к фону окна. */
+  .prose :global(:where(pre:focus-visible)) {
+    outline-color: #8db4ec;
+    outline-offset: -2px;
+    border-radius: var(--radius);
+  }
+
+  /* Команды переносятся, а не прячутся за край: длинный адрес установщика виден целиком. */
+  .prose :global(:where(pre:has(> code.language-sh))) {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .prose :global(:where(pre code)) {
@@ -549,12 +577,13 @@ const html = _highlight(page.content);
     color: #8a94a1;
   }
 
+  /* Приглашение тише команды, но читается: «PS>» — уже слово, ему нужно 4,5:1. */
   .prose :global(:where(pre .pr)) {
-    color: #6c7682;
+    color: #808a96;
     user-select: none;
   }
 
-  .prose :global(:where(aside)) {
+  .prose :global(:where(.callout)) {
     margin: 1.75rem 0;
     padding: 1.1rem 1.4rem;
     border: 1px solid var(--line);
@@ -562,16 +591,16 @@ const html = _highlight(page.content);
     background: var(--bg);
   }
 
-  .prose :global(:where(aside.goal)) {
+  .prose :global(:where(.callout.goal)) {
     border-color: color-mix(in oklab, var(--accent) 18%, transparent);
     background: var(--accent-soft);
   }
 
-  .prose :global(:where(aside > :last-child)) {
+  .prose :global(:where(.callout > :last-child)) {
     margin-bottom: 0;
   }
 
-  .prose :global(:where(aside p, aside ul)) {
+  .prose :global(:where(.callout p, .callout ul)) {
     margin: 0.5rem 0;
     font-size: 1rem;
   }
@@ -581,17 +610,17 @@ const html = _highlight(page.content);
     font-weight: 650;
   }
 
-  .prose :global(:where(aside.check ul)) {
+  .prose :global(:where(.callout.check ul)) {
     padding: 0;
     list-style: none;
   }
 
-  .prose :global(:where(aside.check li)) {
+  .prose :global(:where(.callout.check li)) {
     position: relative;
     padding-left: 1.6rem;
   }
 
-  .prose :global(:where(aside.check li)::before) {
+  .prose :global(:where(.callout.check li)::before) {
     content: '';
     position: absolute;
     left: 0;

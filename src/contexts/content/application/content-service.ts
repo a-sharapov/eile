@@ -1,5 +1,5 @@
 import { type Changed, chain } from '../../../shared/kernel/changed.ts';
-import { fail } from '../../../shared/kernel/errors.ts';
+import { attempt, fail } from '../../../shared/kernel/errors.ts';
 import type { EventBus } from '../../../shared/kernel/events.ts';
 import { pipe } from '../../../shared/kernel/pipe.ts';
 import { aliasFromTitle, parseAlias } from '../domain/alias.ts';
@@ -50,7 +50,11 @@ import type {
   RevisionRepository,
   RevisionSummary,
 } from '../domain/revision-repository.ts';
-import type { DraftContent, PublishedContent } from './published-content.ts';
+import type {
+  DraftContent,
+  PageView,
+  PublishedContent,
+} from './published-content.ts';
 
 export type CreatePageInput = Omit<NewPage, 'parentId'> & {
   readonly parentId?: number | null;
@@ -59,6 +63,18 @@ export type CreatePageInput = Omit<NewPage, 'parentId'> & {
 };
 
 export type Clock = () => Date;
+
+/**
+ * Страница, какой она станет после предложенной правки, — без записи и событий (ADR 0054). `created` —
+ * страницы ещё нет: id занят впрок, всё о ней — в `changes`, `parentId` и `fields`.
+ */
+export type PageDraft = {
+  readonly id: number;
+  readonly created?: boolean;
+  readonly changes?: PageChanges;
+  readonly fields?: FieldValues;
+  readonly parentId?: number | null;
+};
 
 /** Что вернуть из версии: поля страницы и значения полей; менеджер может их поправить (чистка HTML). */
 export type RestoreInput = {
@@ -92,6 +108,12 @@ const _ref = (page: Page): PageRef => ({
 
 const _escaped = (text: string): string =>
   text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Дата публикации из другой CMS: только настоящая дата, в ISO UTC; иначе — момент переноса.
+const _published = (raw: string | null | undefined): string | null =>
+  raw && !Number.isNaN(new Date(raw).getTime())
+    ? new Date(raw).toISOString()
+    : null;
 
 // Тег компонента в тексте: [[Name]] или [[Name параметры]], но не [[NameOther]].
 const _componentTag = (name: string): RegExp =>
@@ -264,12 +286,20 @@ export var defineContentService = ({
       ? (_: PageChange) => _
       : chain(setFields(fields.all(), values));
 
-  const create = (input: CreatePageInput): PageId =>
+  // Занятый впрок id (предложение агента) — только свободный и не новее последнего выданного.
+  const reservedId = (id: number): PageId =>
+    ((parsed) =>
+      pages.get(parsed) || parsed > pages.lastId()
+        ? fail('content.invalid_page_id', `Page id ${id} is not reserved`)
+        : parsed)(parsePageId(id));
+
+  /** `reserved` — id, занятый `reserveId` для предложенной агентом страницы. */
+  const create = (input: CreatePageInput, reserved?: number): PageId =>
     pipe(
       (_: CreatePageInput) =>
         ((parentId) =>
           createPage(
-            pages.nextId(),
+            reserved === undefined ? pages.nextId() : reservedId(reserved),
             { ...linkTranslation(_, null), parentId },
             branchLanguage(parentId)
           ))((_.parentId ?? null) === null ? null : load(_.parentId!).id),
@@ -278,10 +308,14 @@ export var defineContentService = ({
       store
     )(input);
 
-  // Перенос с другой CMS: id сохраняются, чтобы старые ссылки `[~5~]` вели туда же.
+  // Перенос с другой CMS: id сохраняются, чтобы старые ссылки `[~5~]` вели туда же; дата публикации —
+  // прежняя, иначе лента записей встала бы по дате переноса.
   const importPage = (
     id: number,
-    input: CreatePageInput & { readonly trashed?: boolean }
+    input: CreatePageInput & {
+      readonly trashed?: boolean;
+      readonly publishedAt?: string | null;
+    }
   ): PageId =>
     pipe(
       (_: number) =>
@@ -295,7 +329,10 @@ export var defineContentService = ({
             (input.parentId ?? null) === null ? null : load(input.parentId!).id,
         }),
       withFields(input.fields),
-      (_: PageChange) => (input.publish ? chain(publishPage(now()))(_) : _),
+      (_: PageChange) =>
+        input.publish
+          ? chain(publishPage(_published(input.publishedAt) ?? now()))(_)
+          : _,
       (_: PageChange) => (input.trashed ? chain(trashPage(now()))(_) : _),
       store
     )(id);
@@ -457,6 +494,41 @@ export var defineContentService = ({
         prepare(restoreChanges(revision.snapshot, load(pageId), fields.all()))
       ))(revisionOf(pageId, revisionId));
 
+  // Язык ветки предпросмотра: родителя может ещё не быть — он сам предложен в том же наборе.
+  const draftLanguage = (parentId: number | null): string =>
+    attempt(
+      () => branchLanguage(parentId),
+      () => siteLanguage()
+    );
+
+  const simulate = (draft: PageDraft): PageView =>
+    ((parentId) =>
+      pipe(
+        (_: PageDraft) =>
+          _.created
+            ? createPage(
+                parsePageId(_.id),
+                {
+                  ...(_.changes as NewPage),
+                  parentId: parentId === null ? null : parsePageId(parentId),
+                },
+                draftLanguage(parentId)
+              )
+            : editPage(_.changes ?? {}, draftLanguage(parentId))(load(_.id)),
+        withFields(draft.fields),
+        (_: PageChange) =>
+          drafts.viewOf({
+            ..._.state,
+            parentId: parentId === null ? null : parsePageId(parentId),
+          })
+      )(draft))(
+      draft.parentId !== undefined
+        ? draft.parentId
+        : draft.created
+          ? null
+          : load(draft.id).parentId
+    );
+
   const runDue = (): number => {
     const at = now();
     nextScheduled =
@@ -467,6 +539,9 @@ export var defineContentService = ({
   return {
     pages: {
       create,
+      /** Занять id для страницы, которую предложил агент: её создадут с ним, когда примут. */
+      reserveId: (): PageId => pages.reserve(),
+      simulate,
       /** `author` — кто правит: его имя увидит история; без него правка — от сайта. */
       edit: (
         id: number,
@@ -530,6 +605,13 @@ export var defineContentService = ({
         revisions.list(load(pageId).id),
       get: revisionOf,
       restore: restoreRevision,
+      /** Что вернёт возврат к версии — для предложения агента, без записи. */
+      changes: (pageId: number, revisionId: number): RestoreInput =>
+        restoreChanges(
+          revisionOf(pageId, revisionId).snapshot,
+          load(pageId),
+          fields.all()
+        ),
     },
     fields: {
       save: (input: NewField): FieldName =>

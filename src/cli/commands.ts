@@ -17,15 +17,7 @@ import { importEvo } from '../evo-import/import.ts';
 import { parseDump } from '../evo-import/sql-dump.ts';
 import { errorLine } from '../platform/request-url.ts';
 import { PRODUCT, REPOSITORY } from '../product.ts';
-import {
-  applyScaffold,
-  clearWelcome,
-  type Scaffold,
-  scaffoldsFor,
-  untouched,
-  WELCOME,
-  WELCOME_EN,
-} from '../scaffolds/index.ts';
+import { type Scaffold, WELCOME, WELCOME_EN } from '../scaffolds/index.ts';
 import { attempt, isDomainError } from '../shared/kernel/errors.ts';
 import { pipe } from '../shared/kernel/pipe.ts';
 import {
@@ -52,14 +44,16 @@ import {
   restoreRemote,
   restoreServer,
 } from './copies.ts';
+import { runDomain } from './domain.ts';
 import { COMMANDS, commandHelp, overview, unknownText } from './help.ts';
 import { httpsUrl, type ServeBase, serveSecure } from './https.ts';
 import type { Language } from './language.ts';
 import { motd, pages } from './motd.ts';
 import { type Paint, padEnd } from './paint.ts';
 import { named, PROGRAM } from './program.ts';
-import { promptHidden } from './prompt.ts';
+import { promptHidden, readStdin } from './prompt.ts';
 import { runRedirects } from './redirects.ts';
+import { runNew, runScaffold } from './scaffolds.ts';
 import {
   defineHost,
   restartReport,
@@ -68,6 +62,7 @@ import {
   type ServiceRestart,
 } from './service.ts';
 import { VERSION } from './version.ts';
+import { runImportWp } from './wp-import.ts';
 
 export {
   type CliError,
@@ -88,13 +83,24 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
     'identity.invalid_role': 'Такой роли нет: admin или editor.',
     'evo.no_site_content':
       'В дампе нет таблицы site_content — это точно дамп сайта Evo?',
+    'wp.not_wordpress':
+      'В дампе нет таблиц WordPress (posts, postmeta, options) — это точно дамп сайта WordPress?',
+    'wp.evo_dump': 'Это дамп сайта Evo: cms import-evo <dump.sql>',
+    'wp.not_wxr':
+      'Это XML, но не экспорт WordPress: нужен файл из «Инструменты → Экспорт».',
+    'wp.not_empty':
+      'В базе уже есть страницы или элементы. Перенос — в новую базу (--db new-site.db) или под пустую страницу: --into <id>.',
+    'wp.into_missing':
+      'Страницы с этим id нет: --into — id страницы из дерева.',
+    'wp.into_not_empty':
+      'У этой страницы уже есть вложенные: перенос ложится только под пустую страницу.',
     'backup.invalid': 'Это не копия сайта: нужен файл .db или JSON из backup.',
     'backup.foreign': `Это база SQLite, но не сайта на ${PRODUCT}.`,
     'backup.newer': `Копия сделана более новой версией ${PRODUCT} — обновите программу.`,
     'upkeep.not_binary':
       'cms update заменяет установленный бинарник, а этот cms запущен из исходников: обновите репозиторий.',
     'upkeep.unsupported_platform':
-      'Для этой системы сборок нет: нужны Linux или macOS на x64 или arm64.',
+      'Для этой системы сборок нет: нужны Linux, macOS или Windows на x64 или arm64.',
     'upkeep.releases_unavailable':
       'Страница релизов не ответила — проверьте сеть и попробуйте позже.',
     'upkeep.download_failed':
@@ -106,7 +112,7 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
     'upkeep.binary_broken':
       'Новая версия не запускается на этой системе — установленный cms не тронут.',
     'upkeep.no_write':
-      'Нет прав на запись в каталог cms: запустите cms update через sudo.',
+      'Нет прав на запись в каталог cms: запустите cms update через sudo, на Windows — в окне администратора.',
     'upkeep.invalid_releases_url':
       'CMS_RELEASES_URL — адрес API релизов вида https://mirror.example/api, без логина, пароля, query и #.',
     'upkeep.insecure_releases_url':
@@ -173,6 +179,21 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
       'Это не имя копии: список копий — cms restore --remote',
     'upkeep.no_disk_space':
       'На диске мало места для сжатия: нужно вдвое больше, чем занимают данные базы.',
+    'package.sha256_required':
+      'Пакет по адресу ставится только с --sha256 <сумма>: её даёт автор пакета. Без неё по адресу может лежать что угодно, и завтра — другое. Ничего не скачано.',
+    'package.invalid_sha256':
+      '--sha256 — 64 шестнадцатеричные цифры, как их печатает sha256sum.',
+    'package.insecure_url':
+      'Пакет скачивается только по https; http — только с этой машины (localhost, 127.0.0.1).',
+    'package.checksum_mismatch':
+      'SHA-256 пакета не совпала: файл повреждён или подменён. Сайт не тронут.',
+    'package.no_checksums':
+      'В выпуске нет суммы для этого пакета (SHA256SUMS): ставить его нечем проверить.',
+    'package.download_failed': 'Пакет не скачался — проверьте адрес и сеть.',
+    'package.too_large': 'Пакет больше 64 МБ — так много в каркас не кладут.',
+    'package.sha256_folder':
+      'У папки нет SHA-256: соберите архив (cms scaffold pack) или уберите --sha256.',
+    'package.not_found': 'Нет такого файла или папки пакета.',
   },
   en: {
     'identity.weak_password': 'A password needs at least 10 characters.',
@@ -181,6 +202,17 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
     'identity.invalid_role': 'No such role: admin or editor.',
     'evo.no_site_content':
       'The dump has no site_content table. Is it really a dump of an Evo site?',
+    'wp.not_wordpress':
+      'The dump has no WordPress tables (posts, postmeta, options) — is it really a WordPress dump?',
+    'wp.evo_dump': 'This is an Evo dump: cms import-evo <dump.sql>',
+    'wp.not_wxr':
+      'This is XML, but not a WordPress export: use the file from “Tools → Export”.',
+    'wp.not_empty':
+      'The database already has pages or elements. Import into a new database (--db new-site.db) or under an empty page: --into <id>.',
+    'wp.into_missing':
+      'There is no page with this id: --into takes a page id from the tree.',
+    'wp.into_not_empty':
+      'This page already has child pages: the import goes only under an empty page.',
     'backup.invalid':
       'This is not a site copy: use a .db or JSON file made by backup.',
     'backup.foreign': `This is an SQLite database, but not a ${PRODUCT} site.`,
@@ -188,7 +220,7 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
     'upkeep.not_binary':
       'cms update replaces the installed binary, and this cms runs from source: update the repository instead.',
     'upkeep.unsupported_platform':
-      'There are no builds for this system: Linux or macOS on x64 or arm64 only.',
+      'There are no builds for this system: Linux, macOS or Windows on x64 or arm64 only.',
     'upkeep.releases_unavailable':
       'The releases page did not answer. Check the network and try again later.',
     'upkeep.download_failed':
@@ -200,7 +232,7 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
     'upkeep.binary_broken':
       'The new version does not run on this system. The installed cms is untouched.',
     'upkeep.no_write':
-      'No write access to the cms directory: run cms update with sudo.',
+      'No write access to the cms directory: run cms update with sudo, on Windows from an administrator window.',
     'upkeep.invalid_releases_url':
       'CMS_RELEASES_URL is a releases API address like https://mirror.example/api, without user, password, query or #.',
     'upkeep.insecure_releases_url':
@@ -267,6 +299,23 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
       'This is not a copy name: list the copies with cms restore --remote',
     'upkeep.no_disk_space':
       'Not enough disk space to compact: it needs twice the size of the data in the database.',
+    'package.sha256_required':
+      'A package from an address installs only with --sha256 <hash> from its author. Without it the address can serve anything, and something else tomorrow. Nothing was downloaded.',
+    'package.invalid_sha256':
+      '--sha256 takes 64 hex digits, as sha256sum prints them.',
+    'package.insecure_url':
+      'Packages download over https only; http only from this machine (localhost, 127.0.0.1).',
+    'package.checksum_mismatch':
+      'The package SHA-256 does not match: the file is damaged or replaced. The site is untouched.',
+    'package.no_checksums':
+      'The release has no checksum for this package (SHA256SUMS): nothing to verify it with.',
+    'package.download_failed':
+      'The package did not download: check the address and the network.',
+    'package.too_large':
+      'The package is over 64 MB: a scaffold does not take that much.',
+    'package.sha256_folder':
+      'A folder has no SHA-256: pack it (cms scaffold pack) or drop --sha256.',
+    'package.not_found': 'No such package file or folder.',
   },
 };
 
@@ -290,17 +339,8 @@ const _SAY = {
     notIssued: (error: string) => `Сертификат HTTPS не выпущен: ${error}`,
     retry:
       'Следующая попытка — через час; подробности — в журнале сбоев менеджера.',
-    scaffoldArg: '<каркас>',
-    newMore: '— подробнее: cms help new',
-    about: (title: string, summary: string) => `${title} — ${summary}`,
-    noScaffold: (name: string, names: string) =>
-      `Нет каркаса «${name}». Есть: ${names} — cms new`,
-    hasSite: (db: string, name: string) =>
-      `В базе ${db} уже есть сайт. Каркас — в новую базу: cms new ${name} --db ${name}.db`,
-    created: (title: string, name: string) => `${title} «${name}» — в`,
     pages: 'Страницы',
     elements: 'Элементы',
-    fieldsAndForms: 'Поля и формы',
     fields: 'Поля',
     templates: (n: number) => `шаблонов ${n}`,
     components: (n: number) => `компонентов ${n}`,
@@ -310,7 +350,6 @@ const _SAY = {
     forms: (n: number) => `форм ${n}`,
     values: (n: number) => `значений ${n}`,
     run: 'Запуск:',
-    restart: ' — если сервер на этой базе уже работает, перезапустите его',
     site: 'Сайт',
     siteLine: (name: string) => `«${name}»`,
     language: (language: string) => `язык ${language}`,
@@ -390,7 +429,7 @@ const _SAY = {
     andMore: (n: number) => `и ещё ${n}`,
     siteErrors: (n: number) => `На сайте ошибок: ${n}`,
     noDiagnoseCommand: (name: string) =>
-      `Нет подкоманды diagnose ${name}. Есть: redirects — cms help diagnose`,
+      `Нет подкоманды diagnose ${name}. Есть: redirects, domain — cms help diagnose`,
     noAgentUser:
       'Агент работает от имени пользователя, а их нет. Создайте администратора: cms users add <почта> --role admin',
     mcpReady: (site: string, who: string, role: string) =>
@@ -405,17 +444,8 @@ const _SAY = {
     issued: (date: string) => `HTTPS certificate until ${date}:`,
     notIssued: (error: string) => `HTTPS certificate not issued: ${error}`,
     retry: 'Next try in an hour; details are in the manager’s error log.',
-    scaffoldArg: '<scaffold>',
-    newMore: '· details: cms help new',
-    about: (title: string, summary: string) => `${title}: ${summary}`,
-    noScaffold: (name: string, names: string) =>
-      `No scaffold “${name}”. There are: ${names} (cms new)`,
-    hasSite: (db: string, name: string) =>
-      `${db} already has a site. Put the scaffold into a new database: cms new ${name} --db ${name}.db`,
-    created: (title: string, name: string) => `${title} “${name}” in`,
     pages: 'Pages',
     elements: 'Elements',
-    fieldsAndForms: 'Fields, forms',
     fields: 'Fields',
     templates: (n: number) => `templates ${n}`,
     components: (n: number) => `components ${n}`,
@@ -425,7 +455,6 @@ const _SAY = {
     forms: (n: number) => `forms ${n}`,
     values: (n: number) => `values ${n}`,
     run: 'Run:',
-    restart: ' (if a server already runs on this database, restart it)',
     site: 'Site',
     siteLine: (name: string) => `“${name}”`,
     language: (language: string) => `language ${language}`,
@@ -506,7 +535,7 @@ const _SAY = {
     andMore: (n: number) => `and ${n} more`,
     siteErrors: (n: number) => `Errors on the site: ${n}`,
     noDiagnoseCommand: (name: string) =>
-      `No subcommand diagnose ${name}. There is redirects: cms help diagnose`,
+      `No subcommand diagnose ${name}. There are redirects and domain: cms help diagnose`,
     noAgentUser:
       'The agent works as a user, and there are none. Add an administrator: cms users add <email> --role admin',
     mcpReady: (site: string, who: string, role: string) =>
@@ -633,6 +662,13 @@ const _releasesUrl = (options: Options): string =>
     ? parseReleasesUrl(options.releasesUrl, options.releasesInsecure === true)
     : GITHUB_API;
 
+// Остановка с записью остатка статистики и закрытием базы. На Windows SIGTERM не приходит: там Ctrl+C,
+// Ctrl+Break и закрытое окно консоли (SIGHUP), обёртки служб вроде NSSM и WinSW шлют Ctrl+C.
+const _STOP_SIGNALS: Readonly<Record<string, readonly NodeJS.Signals[]>> = {
+  win32: ['SIGINT', 'SIGBREAK', 'SIGHUP', 'SIGTERM'],
+  _: ['SIGINT', 'SIGTERM'],
+};
+
 const _serve = (ctx: Context): Promise<void> =>
   Bun.file(ctx.options.db)
     .exists()
@@ -660,7 +696,7 @@ const _serve = (ctx: Context): Promise<void> =>
       });
       const server = _listen(ctx, app, domains);
       const shutdown = () => (server.stop(), app.close(), process.exit(0));
-      ['SIGINT', 'SIGTERM'].forEach(
+      (_STOP_SIGNALS[process.platform] ?? _STOP_SIGNALS._!).forEach(
         (signal) => void process.on(signal, shutdown)
       );
       const tree = app.content.drafts.tree();
@@ -688,77 +724,6 @@ const _serve = (ctx: Context): Promise<void> =>
         )
       );
     });
-
-// --- new -----------------------------------------------------------------
-
-const _catalog = (paint: Paint, language: Language): string =>
-  ((say) =>
-    [
-      '',
-      // Каркасы — на языке CLI: по-английски и сами сайты английские.
-      ...scaffoldsFor(language).map(
-        (_) =>
-          `  ${padEnd(paint.command(_.name), 12)}${say.about(_.title, _.summary)}`
-      ),
-      '',
-      `  ${paint.bold(PROGRAM)} ${paint.command('new')} ${paint.dim(say.scaffoldArg)} ${paint.flag('--db')} site.db ${paint.dim(named(PROGRAM)(say.newMore))}`,
-      '',
-    ].join('\n'))(_SAY[language]);
-
-const _scaffold = (ctx: Context, name: string): Promise<Scaffold> =>
-  ((found) =>
-    found
-      ? Promise.resolve(found)
-      : _reject(
-          _say(ctx).noScaffold(
-            name,
-            scaffoldsFor(ctx.language)
-              .map((_) => _.name)
-              .join(', ')
-          )
-        ))(scaffoldsFor(ctx.language).find((_) => _.name === name));
-
-// Каркас ложится на новую базу или на нетронутое приветствие; пользователи остаются.
-const _new = (ctx: Context): Promise<void> =>
-  ctx.args[0] === undefined
-    ? Promise.resolve(ctx.out(_catalog(ctx.paint, ctx.language)))
-    : _scaffold(ctx, ctx.args[0])
-        .then((scaffold) => {
-          const app = createApp({ databasePath: ctx.options.db });
-          return Promise.resolve()
-            .then(() =>
-              Object.values(_WELCOME).some((_) => untouched(_, app))
-                ? (clearWelcome(app),
-                  {
-                    scaffold,
-                    report: applyScaffold(scaffold, app, ctx.options.name),
-                    name: app.site.settings.get().name,
-                  })
-                : _reject(_say(ctx).hasSite(ctx.options.db, scaffold.name))
-            )
-            .finally(() => app.close());
-        })
-        .then(({ scaffold, report, name }) =>
-          ((say) =>
-            ctx.out(
-              [
-                `${ctx.paint.ok('✓')} ${say.created(scaffold.title, name)} ${ctx.paint.path(ctx.options.db)}:`,
-                _row(ctx.paint, say.pages, String(report.pages)),
-                _row(
-                  ctx.paint,
-                  say.elements,
-                  `${say.templates(report.templates)}${_dot(ctx.paint)}${say.components(report.components)}`
-                ),
-                _row(
-                  ctx.paint,
-                  say.fieldsAndForms,
-                  `${say.fieldCount(report.fields)}${_dot(ctx.paint)}${say.forms(report.forms)}`
-                ),
-                '',
-                `${say.run} ${ctx.paint.bold(PROGRAM)} ${ctx.paint.flag('--db')} ${ctx.options.db}${ctx.paint.dim(say.restart)}`,
-              ].join('\n')
-            ))(_say(ctx))
-        );
 
 // --- info ----------------------------------------------------------------
 
@@ -922,7 +887,9 @@ const _list = (ctx: Context): Promise<void> =>
 const _password = (ctx: Context): Promise<string> =>
   ((say) =>
     ctx.options.passwordStdin
-      ? Bun.stdin.text().then((_) => _.replace(/\r?\n$/, ''))
+      ? readStdin()
+          .text()
+          .then((_) => _.replace(/\r?\n$/, ''))
       : ctx.tty
         ? promptHidden(say.newPassword, say.cancelled).then((first) =>
             promptHidden(say.again, say.cancelled).then((second) =>
@@ -1195,6 +1162,7 @@ const _diagnoseSite = (ctx: Context): Promise<void> =>
 const _DIAGNOSE: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
   site: _diagnoseSite,
   redirects: (ctx) => runRedirects(ctx),
+  domain: (ctx) => runDomain(ctx),
 };
 
 const _diagnose = (ctx: Context): Promise<void> =>
@@ -1516,7 +1484,8 @@ const _update = (ctx: Context): Promise<void> =>
 
 export var RUN: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
   serve: _serve,
-  new: _new,
+  new: runNew,
+  scaffold: runScaffold,
   info: _info,
   users: _users,
   backup: (ctx) =>
@@ -1533,6 +1502,7 @@ export var RUN: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
         : _restore(ctx),
   compact,
   'import-evo': _import,
+  'import-wp': runImportWp,
   elements: _elements,
   mcp: _mcp,
   diagnose: _diagnose,

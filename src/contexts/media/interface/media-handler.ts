@@ -116,6 +116,11 @@ const _answer = (
     'cache-control':
       url.searchParams.get('v') === file.meta.hash ? _YEAR : 'no-cache',
     ...(file.meta.contentType.startsWith('image/svg') ? _SVG : {}),
+    // Шрифт браузер берёт по CORS: без этого его не получит страница без своего origin — предпросмотр
+    // предложенных правок в песочнице (ADR 0054). Шрифт и так публичен по адресу.
+    ...(file.meta.contentType.startsWith('font/')
+      ? { 'access-control-allow-origin': '*' }
+      : {}),
   };
   const head = request.method === 'HEAD';
   const span = _span(

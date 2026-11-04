@@ -19,6 +19,7 @@ export type {
   IssuedToken,
   Login,
   ResetLink,
+  TokenLogin,
   UserView,
 } from './application/identity-service.ts';
 export type { IdentityEvent } from './domain/events.ts';
@@ -35,6 +36,8 @@ export type CarriedToken = {
   readonly tokenHash: string;
   readonly hint: string;
   readonly createdAt: string;
+  /** Правки ключа ждут проверки; в файлах настроек старых версий поля нет. */
+  readonly review?: boolean;
 };
 
 /** Что стало с привезёнными ключами: добавлены, уже были, пользователя с такой почтой нет. */
@@ -98,6 +101,7 @@ export var defineIdentity = ({
             tokenHash: _.tokenHash,
             hint: _.hint,
             createdAt: _.createdAt,
+            review: _.review,
           }))
         ),
       apply: (raw: unknown): TokensApplied =>
@@ -120,6 +124,7 @@ export var defineIdentity = ({
                         hint: token.hint,
                         createdAt: token.createdAt,
                         usedAt: null,
+                        review: token.review === true,
                       }),
                       { outcome: 'added' as const, email: token.email }))(
                 users.byEmail(token.email.toLowerCase() as Email)

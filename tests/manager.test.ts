@@ -352,7 +352,24 @@ describe('элементы и настройки', () => {
       (await call('PUT', '/translations/x', { values: { ru: 'y' } }, editor))
         .status
     ).toBe(403);
-    await call('PUT', '/custom-settings/phone', { value: '+7' });
+    // Пояснение задаётся при добавлении; правка значения без пояснения его не стирает.
+    await call('PUT', '/custom-settings/phone', {
+      value: '+7',
+      note: 'Телефон  в шапке\n и подвале',
+    });
+    expect(
+      await json(await call('PUT', '/custom-settings/phone', { value: '+49' }))
+    ).toEqual([
+      { key: 'phone', value: '+49', note: 'Телефон в шапке и подвале' },
+    ]);
+    expect(
+      (
+        await call('PUT', '/custom-settings/phone', {
+          value: '+49',
+          note: 'x'.repeat(501),
+        })
+      ).status
+    ).toBe(422);
     expect(await json(await call('DELETE', '/custom-settings/phone'))).toEqual(
       []
     );

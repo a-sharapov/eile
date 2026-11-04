@@ -15,6 +15,7 @@
 </p>
 
 <p align="center">
+  <a href="https://eile.site">Сайт</a> ·
   <a href="#установка">Установка</a> ·
   <a href="#быстрый-старт">Быстрый старт</a> ·
   <a href="#документация">Документация</a> ·
@@ -28,13 +29,15 @@
 _Eile_ — по-немецки «спешка»; «Eile mit Weile» — поспешай не торопясь: сайт отдаётся мгновенно, а менеджер
 спокоен.
 
-> **Альфа-версия.** Пробовать и делать сайты можно, но до 1.0 возможны несовместимые изменения. Перед
-> обновлением делайте копию: `cms backup`.
+> **До 1.0** возможны несовместимые изменения. Перед обновлением делайте копию: `cms backup`.
 
 ```sh
 curl -fsSL https://github.com/a-sharapov/eile/releases/latest/download/install.sh | bash
 cms new blog --db site.db && cms --db site.db
 ```
+
+На Windows — в PowerShell: `irm https://github.com/a-sharapov/eile/releases/latest/download/install.ps1 | iex`
+([подробнее](#на-windows)).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/manager-editor-dark.webp">
@@ -52,8 +55,8 @@ cms new blog --db site.db && cms --db site.db
 - **Менеджер.** Текст страницы блоками, медиатека с уменьшенными копиями картинок, корзина, публикация по
   расписанию, переводы и свои настройки, ИИ-помощник у полей, тёмная тема.
 - **Формы и заявки.** Форма — HTML5-разметка, тег `[#Form:имя]` в тексте, заявки в менеджере и уведомления
-  в Telegram и на почту. Туда же приходят сообщения о сбоях сайта, а почтовый шлюз даёт другим сервисам
-  слать письма почтой сайта по токену.
+  в Telegram и на почту — через SMTP или HTTP API почтового сервиса, если хостинг закрыл SMTP. Туда же
+  приходят сообщения о сбоях сайта, а почтовый шлюз даёт другим сервисам слать письма почтой сайта по токену.
 - **Находимость.** canonical, sitemap.xml, robots.txt, llms.txt, Markdown-версии страниц, постраничные
   списки с ЧПУ (`/blog/page-2`), старые адреса ведут на новые.
 - **Статистика без cookie.** Посетители, просмотры, источники, UTM, страницы входа и цели с конверсией —
@@ -65,11 +68,17 @@ cms new blog --db site.db && cms --db site.db
   редиректы — всё в менеджере.
 - **ИИ-агенты.** Ассистент в менеджере сам правит страницы по просьбе; `cms mcp` и ключи API подключают
   Claude, Cursor и Codex; `cms elements` выкладывает шаблоны и компоненты файлами с памяткой AGENTS.md.
+  Правки агента можно сначала проверять: они копятся наборами, как pull request, с разницей и предпросмотром.
+- **Черновик клиенту.** Ссылка предпросмотра показывает неопубликованную страницу без входа в менеджер — со
+  сроком, отзывом и плашкой «не опубликовано».
 - **HTTPS без прокси.** `cms --domain example.com` сам получает сертификат Let's Encrypt и продлевает его.
 - **Обновления.** Менеджер сообщает о новой версии, `cms update` ставит её одной командой со сверкой
   контрольной суммы.
-- **Готовые сайты.** `cms new` разворачивает блог, портфолио, сайт компании, витрину или магазин.
+- **Готовые сайты.** `cms new` разворачивает блог, портфолио, сайт компании, витрину или магазин, а также
+  пакет каркаса — файлом, по адресу с суммой или официальный из выпуска.
 - **Переезд с Evo.** `cms import-evo` переносит сайт из дампа MySQL вместе с шаблонами.
+- **Переезд с WordPress.** `cms import-wp` переносит страницы, записи, картинки, SEO и меню из экспорта WXR или
+  дампа MySQL, а старые адреса, включая `/?p=12`, — в переадресации; `--dry-run` сначала покажет отчёт.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/manager-overview-dark.webp">
@@ -82,10 +91,14 @@ cms new blog --db site.db && cms --db site.db
 curl -fsSL https://github.com/a-sharapov/eile/releases/latest/download/install.sh | bash
 ```
 
-Установщик выбирает сборку под систему — Linux x64 и arm64 (glibc и musl) или macOS (Intel и Apple
-Silicon), — проверяет SHA256 и кладёт `cms` в `~/.local/bin` (под root — в `/usr/local/bin`). Рядом
-появляется `eile` — второе имя той же команды: `eile help` и `cms help` одно и то же. Если каталога нет в
-`PATH`, установщик дописывает его в файл оболочки.
+```powershell
+irm https://github.com/a-sharapov/eile/releases/latest/download/install.ps1 | iex   # Windows, PowerShell
+```
+
+Установщик выбирает сборку под систему — Linux x64 и arm64 (glibc и musl), macOS (Intel и Apple Silicon) или
+Windows (x64 и arm64, [ниже](#на-windows)), — проверяет SHA256 и кладёт `cms` в `~/.local/bin` (под root — в
+`/usr/local/bin`). Рядом появляется `eile` — второе имя той же команды: `eile help` и `cms help` одно и то же.
+Если каталога нет в `PATH`, установщик дописывает его в файл оболочки.
 
 ```sh
 curl -fsSL …/install.sh | bash -s -- v0.2.0    # конкретная версия
@@ -99,8 +112,8 @@ CMS_DOWNLOAD_URL=https://mirror.example/eile/v0.2.0 bash install.sh   # файл
 с `SHA256SUMS`, распакуйте `gunzip` и сделайте файл исполняемым. Второе имя — `ln -s cms eile` в том же
 каталоге.
 
-Обновление — `sudo cms update` или тот же установщик ещё раз. `cms update` сам перезапускает службу из
-`cms service install`; сервер, запущенный иначе, перезапустите.
+Обновление — `sudo cms update` (на Windows — `cms update`) или тот же установщик ещё раз. `cms update` сам
+перезапускает службу из `cms service install`; сервер, запущенный иначе, перезапустите.
 
 Установщику зеркало задаёт `CMS_DOWNLOAD_URL`, а `cms update` и проверке обновлений в менеджере —
 `CMS_RELEASES_URL`: адрес API релизов в формате GitHub вместо `https://api.github.com`. Так обновляются в сети без
@@ -116,7 +129,7 @@ CMS_RELEASES_URL=http://127.0.0.1:9000 cms update --check   # проба на с
 ## Быстрый старт
 
 ```sh
-cms new blog --db site.db   # готовый сайт: blog, portfolio, company, showcase или shop
+cms new blog --db site.db   # готовый сайт: blog, portfolio, company, showcase, shop; kuechenstudio — пакет из релиза
 cms --db site.db            # сайт и менеджер на http://localhost:8080
 ```
 
@@ -131,8 +144,11 @@ cms backup copy.db --db site.db        # копия всего сайта одн
 cms restore copy.db --db site.db       # восстановить из копии
 cms backup --server server.enc         # настройки сервера — на новую машину: cms restore --server
 cms import-evo dump.sql --db site.db   # перенести сайт MODX Evo
+cms new ./studio.zip --db site.db      # сайт из пакета каркаса; по адресу — с --sha256 от автора
+cms import-wp wp.xml --media uploads --db site.db   # перенести сайт WordPress с картинками
 cms users password eile@example.com    # новый пароль, если администратор забыл свой
 cms diagnose redirects old.txt --db site.db   # старые адреса после переезда: один 301 и 200
+cms diagnose domain a.de --to 203.0.113.10    # до правки DNS: почта, SPF, www, CAA, TTL
 cms help                               # все команды с примерами
 ```
 
@@ -172,6 +188,11 @@ claude mcp add site -- cms mcp --db /srv/site.db  # агент правит ст
 Агенту на другом компьютере — ключ API из меню профиля и адрес `https://ваш-сайт/manager/mcp`. Подробнее —
 [ADR 0034](docs/adr/0034-ai-agents.md).
 
+Чтобы правки агента не шли на сайт сразу, включите проверку: для всех агентов — в разделе «Предложения»,
+для одного ключа — отметкой «Правки ждут проверки» в «Ключах API». Тогда страницы, шаблоны, компоненты и
+скрипты агента копятся набором; вы смотрите разницу и предпросмотр и принимаете или отклоняете их. Формы,
+поля и настройки агент в этом режиме не меняет. Подробнее — [ADR 0054](docs/adr/0054-previews-and-agent-review.md).
+
 ## На сервере
 
 Одна команда ставит сайт службой systemd: свой пользователь в песочнице, база в `/var/lib/cms`, перезапуск
@@ -204,6 +225,14 @@ sudo cms service uninstall               # остановить и удалит�
 работает и читает базу, иначе 503, без входа и кэша. Тот же адрес проверяют `cms service` и `cms update` после
 перезапуска. Номер версии он называет только запросу с этой же машины.
 
+До того как трогать DNS, запустите `cms diagnose domain example.com --to <IP нового сервера>`
+([ADR 0052](docs/adr/0052-domain-check.md)). Команда скажет, что сломается при переключении A на новый сервер:
+почта, если MX указывает на сам домен; SPF с `a` и `mx`, который перестанет пропускать старый почтовый сервер; www
+и wildcard; AAAA без IPv6 у нового сервера; CAA, который не пускает Let’s Encrypt; долгий TTL. Затем напечатает,
+что сделать до переключения, по шагам и записями зоны. DNS она спрашивает поверх HTTPS (Cloudflare, Google), без
+доступа к ним — резолвером этой машины; ошибки — код выхода 1. `cms service install --domain` предупреждает о
+почте и сам.
+
 Перед переключением домена старые адреса проверяет `cms diagnose redirects`: список текстом или sitemap.xml
 прежнего сайта, на базе (`--db`, без сети) или на новом сервере (`--base https://новый-адрес`). Каждый адрес должен
 прийти одним 301 на живую страницу; цепочки, 302, 404 и уход на другой хост — ошибки, код выхода 1.
@@ -229,6 +258,18 @@ systemd право на порты 80 и 443 даёт `sudo setcap cap_net_bind_
 `CMS_MEDIA_CACHE`. Если папка не пишется (диск только для чтения, кончилось место), сайт работает и так: файлы
 идут из базы, в журнале — одна строка ([ADR 0038](docs/adr/0038-media-cache.md)).
 
+### Почта, когда порты SMTP закрыты
+
+Уведомления, письма посетителям, «Забыли пароль?» и почтовый шлюз уходят почтой сайта: своим сервером SMTP или
+почтовым сервисом по HTTP API. Многие VPS закрывают исходящий SMTP: у новых серверов DigitalOcean, по отзывам,
+закрыты 25, 465 и 587, у Hetzner — 25 и 465. Тогда в «Настройках → Уведомления → Почта» выберите в «Как
+отправлять» сервис — Brevo, Postmark, Mailgun (US или EU), Resend или Amazon SES — и вставьте его ключ API.
+Письма уйдут по HTTPS через порт 443, как ходит и сам сайт. SES и Mailgun получают то же письмо MIME, что
+ушло бы по SMTP. Brevo, Postmark и Resend собирают письмо из полей JSON, а у Brevo картинки по `cid` приходят
+обычными вложениями. Домен отправителя подтвердите у сервиса записями SPF и DKIM, иначе он письмо не
+отправит. Ключ живёт только на сервере: менеджер показывает последние четыре знака, а в копию сайта ключ не
+входит, только в файл настроек сервера ([ADR 0051](docs/adr/0051-mail-over-http-apis.md)).
+
 ### Копии вне сервера и переезд
 
 Автокопии лежат на том же диске, что и сайт. Чтобы они пережили сервер, включите «Копии вне сервера» в
@@ -246,8 +287,8 @@ S3_ENDPOINT=https://fra1.digitaloceanspaces.com S3_BUCKET=copies \
   cms restore --remote latest --db site.db             # сервера больше нет: сайт на чистой машине
 ```
 
-Пароль почты, бот Telegram, почтовый шлюз, хранилище с ключом копий, ключ ИИ и ключи API — настройки сервера, в
-копию сайта они не входят. На новую машину их переносит файл настроек под паролем:
+Пароль или ключ API почты, бот Telegram, почтовый шлюз, хранилище с ключом копий, ключ ИИ и ключи API —
+настройки сервера, в копию сайта они не входят. На новую машину их переносит файл настроек под паролем:
 
 ```sh
 cms backup --server server.enc --db site.db                     # дома: пароль спросят дважды
@@ -262,19 +303,67 @@ sudo cms restore --server server.enc --db /var/lib/cms/site.db   # служба 
 сжимает базу сам, если свободно больше пятой части, а `cms compact` или «Сжать сейчас» в менеджере делают это сразу
 — на базе в 63 МБ это полсекунды, и сайт при этом работает.
 
+## На Windows
+
+```powershell
+irm https://github.com/a-sharapov/eile/releases/latest/download/install.ps1 | iex
+& ([scriptblock]::Create((irm https://github.com/a-sharapov/eile/releases/latest/download/install.ps1))) -Version v0.2.0
+```
+
+Установщик берёт сборку под процессор (x64 или arm64), сверяет `SHA256SUMS` и кладёт `cms.exe` в
+`%LOCALAPPDATA%\Programs\Eile`, а рядом второе имя `eile.exe` — жёсткую ссылку на тот же файл. Прав
+администратора не нужно; каталог дописывается в `PATH` пользователя, и в этом же окне `cms` работает сразу.
+Настройки — те же переменные, что у `install.sh`: `CMS_VERSION`, `CMS_INSTALL_DIR`, `CMS_NO_MODIFY_PATH`,
+`CMS_DOWNLOAD_URL`. Без установщика — `cms-windows-<процессор>.zip` со [страницы
+релизов](https://github.com/a-sharapov/eile/releases): внутри один `cms.exe`.
+
+`cms update` работает и здесь: запущенный `cms.exe` становится `cms.old.exe`, новый встаёт на его место, сервер
+доживает на старом файле до перезапуска ([ADR 0049](docs/adr/0049-windows.md)). Остановить сервер — Ctrl+C или
+Ctrl+Break: статистика допишется, база закроется.
+
+Бинарник не подписан. Файл, скачанный установщиком, Windows не помечает, и SmartScreen молчит. Архив, скачанный
+браузером, помечен: при двойном щелчке SmartScreen предупредит («Подробнее» → «Выполнить в любом случае») —
+снимите метку командой `Unblock-File cms.exe`. Smart App Control в Windows 11, если он включён, неподписанный файл
+не запустит.
+
+`cms service` — только для systemd. Чтобы сайт поднимался сам, есть два пути, оба без сторонних серверов:
+
+- **Планировщик заданий** — сайт запускается при входе пользователя, в своём окне консоли (закрыть окно —
+  остановить сервер):
+
+  ```powershell
+  $cms = "$env:LOCALAPPDATA\Programs\Eile\cms.exe"
+  $action = New-ScheduledTaskAction -Execute $cms -Argument '--port 8080 --db C:\sites\site.db' -WorkingDirectory C:\sites
+  Register-ScheduledTask -TaskName Eile -Action $action -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME)
+  ```
+
+- **Служба Windows через обёртку** вроде [WinSW](https://github.com/winsw/winsw) или NSSM: обёртка запускает
+  `cms.exe --port 8080 --db C:\sites\site.db`, перезапускает после сбоя и останавливает через Ctrl+C, так что база
+  закрывается аккуратно. Пути к `cms.exe` и базе пишите полностью: у службы от `LocalSystem` свой
+  `%LOCALAPPDATA%`.
+
+Права файлов на Windows задают ACL, а не `chmod`: копии сайта и файл настроек сервера (в них хэши паролей и ключи)
+читает всякий, кому открыта папка. В профиле пользователя это только он и администраторы; общую папку вроде
+`C:\sites` закройте сами (`icacls`).
+
 ## Документация
 
 **Владельцам сайтов**
 
+- [Кукбук](https://eile.site/cookbook) на [eile.site](https://eile.site): сайт кухонной студии с нуля, от установки до
+  сервера с HTTPS.
 - Справка в менеджере — раздел «Помощь» (`/manager/help`): страницы, текст, медиатека, формы и заявки,
   быстрые клавиши.
 - `cms help` и `cms help <команда>` — все команды с примерами.
 - [Переезд с MODX Evo](docs/adr/0009-evo-import.md) и [что взято из Evo, а что изменено](docs/evo-essence.md).
+- [Переезд с WordPress](docs/adr/0050-wordpress-import.md): что переносится, что попадает в отчёт.
 - [Резервные копии](docs/adr/0015-site-backups.md) ·
   [формы и заявки](docs/adr/0021-forms.md) ·
   [уведомления в Telegram и на почту](docs/adr/0020-notify.md) ·
   [готовые сайты](docs/adr/0022-scaffolds.md) ·
+  [пакеты каркасов](docs/adr/0056-scaffold-packages.md) ·
   [установка](docs/adr/0023-releases-and-installer.md) ·
+  [Windows](docs/adr/0049-windows.md) ·
   [автокопии](docs/adr/0024-scheduled-backups.md) ·
   [копии вне сервера и переезд настроек](docs/adr/0045-offsite-backups-and-server-settings.md) ·
   [обновления](docs/adr/0025-updates.md) ·
@@ -286,9 +375,13 @@ sudo cms restore --server server.enc --db /var/lib/cms/site.db   # служба 
   [правка прямо на сайте](docs/adr/0032-edit-bar.md) ·
   [переводы страниц и hreflang](docs/adr/0033-page-translations.md) ·
   [ИИ-агенты: папка элементов, MCP, ключи API](docs/adr/0034-ai-agents.md) ·
+  [ссылки предпросмотра и проверка правок агентов](docs/adr/0054-previews-and-agent-review.md) ·
   [кэш медиатеки на диске](docs/adr/0038-media-cache.md) ·
   [почтовый шлюз для других сервисов](docs/adr/0040-mail-gateway.md) ·
+  [почта через HTTP API, когда SMTP закрыт](docs/adr/0051-mail-over-http-apis.md) ·
   [мониторинг, зеркало релизов и проверка редиректов](docs/adr/0048-health-releases-url-redirect-check.md).
+  [мониторинг, зеркало релизов и проверка редиректов](docs/adr/0048-health-releases-url-redirect-check.md) ·
+  [проверка домена перед переездом](docs/adr/0052-domain-check.md).
 
 **Разработчикам шаблонов**
 

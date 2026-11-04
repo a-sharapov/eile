@@ -12,6 +12,7 @@ import {
   sealServerSettings,
 } from '../src/server-settings.ts';
 import { isDomainError } from '../src/shared/kernel/errors.ts';
+import { expectMode } from './fixtures/platform.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'cms-server-settings-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -72,7 +73,7 @@ const configured = async () => {
     enabled: true,
     endpoint: 'https://fra1.digitaloceanspaces.com',
     region: 'fra1',
-    bucket: 'kuechenly-copies',
+    bucket: 'muehlenhof-copies',
     prefix: 'site',
     accessKey: 'DO00EXAMPLE',
     secret: 'spaces-secret',
@@ -113,7 +114,10 @@ describe('файл настроек сервера', () => {
       'upkeep',
       'version',
     ]);
-    expect(settings.notify?.email?.password).toBe(SMTP_PASSWORD);
+    expect(settings.notify?.email).toMatchObject({
+      transport: 'smtp',
+      password: SMTP_PASSWORD,
+    });
     expect(settings.notify?.gateway.tokens).toHaveLength(1);
     expect(settings.assistant?.key).toBe(AI_KEY);
     expect(settings.upkeep.offsite?.secret).toBe('spaces-secret');
@@ -191,7 +195,7 @@ describe('файл настроек сервера', () => {
     expect(target.app.upkeep.offsite.status()).toMatchObject({
       keyId: source.offsite.keyId,
       hasSecret: true,
-      settings: { bucket: 'kuechenly-copies', prefix: 'site/' },
+      settings: { bucket: 'muehlenhof-copies', prefix: 'site/' },
       last: null,
     });
     // Ключ API работает и на новой машине, сеанс того, кто там вошёл, не закрыт.
@@ -297,7 +301,7 @@ describe('cms backup --server и cms restore --server', () => {
         CMS_SETTINGS_PASSPHRASE: PASSPHRASE,
       })
     );
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expectMode(file, 0o600);
     expect(output.join('\n')).toContain('почтовый шлюз (токенов: 1)');
     expect(output.join('\n')).toContain('ключи API (2)');
 
@@ -315,9 +319,9 @@ describe('cms backup --server и cms restore --server', () => {
     expect(output.join('\n')).toContain('Настройки сервера применены');
     expect(output.join('\n')).toContain('/home/owner/backups');
     await server.fetch(new Request('http://localhost/'));
-    expect(server.notify.settings.status().email?.host).toBe(
-      'smtp.example.com'
-    );
+    expect(server.notify.settings.status().email).toMatchObject({
+      host: 'smtp.example.com',
+    });
     expect(server.upkeep.backups.schedule().every).toBe(6);
     server.close();
     target.app.close();

@@ -68,6 +68,14 @@ export type ApiTokenView = {
   readonly hint: string;
   readonly createdAt: string;
   readonly usedAt: string | null;
+  /** Правки ключом ждут проверки: см. ADR 0054. */
+  readonly review: boolean;
+};
+
+/** Ключ запроса и его владелец: вход по `Authorization: Bearer cms_…`. */
+export type TokenLogin = {
+  readonly user: UserView;
+  readonly token: ApiTokenView;
 };
 
 export type IssuedToken = ApiTokenView & { readonly token: string };
@@ -85,6 +93,7 @@ const _tokenView = (token: ApiToken): ApiTokenView => ({
   hint: token.hint,
   createdAt: token.createdAt,
   usedAt: token.usedAt,
+  review: token.review,
 });
 
 const _tokenEvent =
@@ -284,6 +293,26 @@ export var defineIdentityService = ({
         .then((ok) => (ok && user ? (forget(email, client), user) : _wrong()));
     };
 
+  // Ключ по заголовку; отметка «когда пользовались» — не чаще раза в пять минут.
+  const login = (token: string | null): TokenLogin | null =>
+    ((found) =>
+      found &&
+      ((user) =>
+        user && {
+          user:
+            (void (
+              (found.usedAt === null ||
+                clock().getTime() - Date.parse(found.usedAt) > _TOUCH_MS) &&
+              apiTokens.touch(found.id, clock().toISOString())
+            ),
+            _view(user)),
+          token: _tokenView(found),
+        })(users.get(found.userId)))(
+      token?.startsWith(_TOKEN_PREFIX)
+        ? apiTokens.byHash(tokens.hash(token))
+        : null
+    );
+
   const create = (input: NewUser & { password: string }): Promise<User> =>
     Promise.resolve(input.password).then(
       pipe(checkPassword, hasher.hash, (hash) =>
@@ -431,6 +460,7 @@ export var defineIdentityService = ({
                       hint: token.slice(-4),
                       createdAt: clock().toISOString(),
                       usedAt: null,
+                      review: false,
                     })
                   ))(`${_TOKEN_PREFIX}${tokens.issue()}`))(
           parseUserId(userId),
@@ -442,22 +472,17 @@ export var defineIdentityService = ({
               _tokenEvent('identity.token_revoked')(parseUserId(userId))
             )
           : fail('identity.token_not_found', `There is no token ${id}`),
+      /** Ключ и его владелец по заголовку `Authorization: Bearer cms_…`; чужой формат — null. */
+      login: (token: string | null): TokenLogin | null => login(token),
       /** Пользователь по заголовку `Authorization: Bearer cms_…`; чужой формат — null. */
       authenticate: (token: string | null): UserView | null =>
-        ((found) =>
-          found &&
-          ((user) =>
-            user &&
-            (void (
-              (found.usedAt === null ||
-                clock().getTime() - Date.parse(found.usedAt) > _TOUCH_MS) &&
-              apiTokens.touch(found.id, clock().toISOString())
-            ),
-            _view(user)))(users.get(found.userId)))(
-          token?.startsWith(_TOKEN_PREFIX)
-            ? apiTokens.byHash(tokens.hash(token))
-            : null
-        ),
+        login(token)?.user ?? null,
+      /** Ждут ли правки ключа проверки; ключа больше нет — нет. */
+      reviewed: (id: number): boolean => apiTokens.get(id)?.review === true,
+      setReview: (userId: number, id: number, on: boolean): ApiTokenView =>
+        apiTokens.setReview(id, parseUserId(userId), on === true)
+          ? _tokenView(apiTokens.get(id)!)
+          : fail('identity.token_not_found', `There is no token ${id}`),
     },
     sessions: {
       /**

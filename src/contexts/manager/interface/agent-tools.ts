@@ -537,6 +537,12 @@ export var AGENT_TOOLS: readonly AgentTool[] = [
         },
         subject: _string('Notification subject: {form} and {field name}'),
         goal: _string('Analytics goal in the cms:form-sent event'),
+        proof: {
+          type: 'string',
+          enum: ['off', 'light', 'standard', 'strong'],
+          description:
+            'Spam protection: a proof-of-work puzzle the browser solves while the form is filled in (about 0.05, 0.2 or 0.4 s on a mid-range phone); new forms use standard',
+        },
         confirmation: _object({
           enabled: _boolean('Send a confirmation email to the submitter'),
           field: _string(
@@ -744,6 +750,50 @@ export var AGENT_TOOLS: readonly AgentTool[] = [
       ),
     }),
     result: _statsPart,
+  },
+  {
+    name: 'list_proposals',
+    title: 'Your proposals',
+    description:
+      'When review mode is on, your changes of pages and elements become proposals in a change set that a person accepts or rejects. Lists your change sets, newest first, with the number of pending, accepted, rejected and withdrawn proposals; reviewed tells whether your changes need review now.',
+    access: 'user',
+    input: _object({}),
+    readOnly: true,
+    request: () => ({ method: 'GET', path: '/review/mine' }),
+  },
+  {
+    name: 'submit_changes',
+    title: 'Submit changes for review',
+    description:
+      'Hands your open change set to the people of the site for review and notifies them. Give it a short title and a description: what you changed and why. Later changes go to a new change set.',
+    access: 'content.edit',
+    input: _object({
+      title: _string('Short title, like a pull request'),
+      description: _string('What was changed and why'),
+      changeSet: _id(
+        'Change set id; without it — the open one of this session'
+      ),
+    }),
+    request: (_) => ({ method: 'POST', path: '/review/mine/submit', body: _ }),
+  },
+  {
+    name: 'withdraw_proposal',
+    title: 'Withdraw proposal',
+    description:
+      'Takes back your pending proposals: the whole change set or one proposal of it. Accepted and rejected ones stay as they are.',
+    access: 'content.edit',
+    input: _object(
+      {
+        changeSet: _id('Change set id from list_proposals'),
+        proposal: _id('Only this proposal'),
+      },
+      ['changeSet']
+    ),
+    request: (_) => ({
+      method: 'POST',
+      path: `/review/mine/${_.changeSet}/withdraw`,
+      body: _.proposal === undefined ? {} : { proposal: _.proposal },
+    }),
   },
   {
     name: 'run_diagnostics',

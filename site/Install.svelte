@@ -24,7 +24,9 @@ const book = link(
 <div class="install" class:centered>
   <div class="command" data-command>
     <span class="prompt" aria-hidden="true">$</span>
-    <code>{c.install}</code>
+    <!-- Строка прокручивается: фокус нужен, чтобы прокрутить её с клавиатуры. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <code tabindex="0">{c.install}</code>
     <Island name="CopyButton" props={{ text: c.install, label: t.copy, done: t.copied }} />
   </div>
   <div class="actions">
@@ -34,7 +36,7 @@ const book = link(
   </div>
   <p class="meta">
     <span class="part">{t.platforms}</span>
-    <span class="part">v{c.version} <em>{t.alpha}</em></span>
+    <span class="part">v{c.version}</span>
     <span class="part">GPL-3.0</span>
   </p>
 </div>
@@ -79,6 +81,16 @@ const book = link(
     white-space: nowrap;
     scrollbar-width: none;
     mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+  }
+
+  /* Маска у края гасит и кольцо фокуса, поэтому кольцо — у всей строки команды. */
+  code:focus-visible {
+    outline: none;
+  }
+
+  .command:has(code:focus-visible) {
+    outline: 2px solid var(--fill);
+    outline-offset: 2px;
   }
 
   .actions {
@@ -146,16 +158,6 @@ const book = link(
     justify-content: center;
   }
 
-  .meta em {
-    margin-left: 0.25rem;
-    padding: 0.1rem 0.45rem;
-    border-radius: 1rem;
-    background: var(--accent-soft);
-    color: var(--accent);
-    font-size: 0.75rem;
-    font-style: normal;
-    font-weight: 600;
-  }
 
   .part {
     white-space: nowrap;
@@ -168,10 +170,36 @@ const book = link(
   }
 
   /* На телефоне платформы — первой строкой, версия и лицензия — второй. */
+  /* На телефоне три кнопки не встают в строку: «Скачать» — во всю ширину, остальные — парой под ней. */
   @media (max-width: 34rem) {
+    .actions {
+      width: 100%;
+    }
+
+    .primary {
+      flex: 1 1 100%;
+    }
+
+    /* Пара под «Скачать»; если не помещается даже пара (крупный текст) — каждая своей строкой. */
+    .secondary {
+      flex: 1 1 8rem;
+    }
+
+    .primary,
+    .secondary {
+      justify-content: center;
+      min-width: 0;
+      height: auto;
+      min-height: 3rem;
+      padding: 0.5rem 0.75rem;
+      text-align: center;
+      overflow-wrap: anywhere;
+    }
+
     .part:first-child {
       flex-basis: 100%;
       text-align: center;
+      white-space: normal;
     }
 
     .part:nth-child(2)::before {

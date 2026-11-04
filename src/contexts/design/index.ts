@@ -71,6 +71,24 @@ export var defineDesign = ({
     check: (element) => checks[element.kind](element),
   };
   const loader = defineViewLoader({ elements, runtime, builtins, compile });
+  // Предпросмотр предложенных элементов: тот же рендер, но шаблон или компонент — из предложения.
+  // Своя память компиляций, чтобы предложение не вытесняло живую версию из общей.
+  let overrides: ReadonlyMap<string, string> = new Map();
+  const overlay = defineViewLoader({
+    elements: {
+      ...elements,
+      get: (kind, name) =>
+        ((source) =>
+          source === undefined
+            ? elements.get(kind, name)
+            : { kind, name, source, revision: 0 })(
+          overrides.get(`${kind}/${name}`)
+        ),
+    },
+    runtime,
+    builtins,
+    compile: defineServerCompiler(),
+  });
   const islands = defineClientViews({
     elements,
     runtime: defineClientRuntime(),
@@ -103,6 +121,23 @@ export var defineDesign = ({
       island: islands.url,
       hydrator: islands.hydrator,
       styles: styles.tags,
+      /**
+       * Виды, где шаблоны и компоненты из `sources` (`template/Base` → исходник) подменяют сохранённые:
+       * предпросмотр предложенных правок. Их CSS не в файлах сайта и встаёт в страницу `<style>`; острова
+       * и скрипты — живые.
+       */
+      withSources: (sources: ReadonlyMap<string, string>) =>
+        ((load) => ({
+          template: load('template'),
+          component: load('component'),
+          island: islands.url,
+          hydrator: islands.hydrator,
+          styles: styles.tags,
+        }))(
+          (kind: 'template' | 'component') => (name: string) => (
+            (overrides = sources), overlay.invalidate(), overlay.now(kind)(name)
+          )
+        ),
     },
     /** `/_cms/*`: скрипты и стили сайта, модули островов и рантайм Svelte для браузера. */
     assets: (request: Request): Promise<Response> =>

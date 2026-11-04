@@ -19,7 +19,10 @@ export type BodyBytes = {
   readonly close: () => void;
 };
 
-const _declared = (request: Request): number | null =>
+/** Тело с заголовками: запрос к серверу или ответ на скачивание (`fetch`). */
+export type Incoming = Pick<Request, 'headers' | 'body'>;
+
+const _declared = (request: Incoming): number | null =>
   ((raw) => (raw !== null && /^\d+$/.test(raw) ? Number(raw) : null))(
     request.headers.get('content-length')?.trim() ?? null
   );
@@ -64,7 +67,7 @@ const _fill = (
  * прихода. Больше `limit` — отказ `tooLarge()`: ни ложный Content-Length, ни chunked больше не протащат.
  */
 export var readBody = (
-  request: Request,
+  request: Incoming,
   limit: number,
   tooLarge: () => Error
 ): Promise<Uint8Array> =>
@@ -145,7 +148,7 @@ const _counting = (
  * сверяется после записи. Больше `limit` — отказ `tooLarge()`, файл удалён.
  */
 export var spoolBody = (
-  request: Request,
+  request: Incoming,
   limit: number,
   tooLarge: () => Error,
   path: string

@@ -102,7 +102,9 @@ export var code = (
 export var h2 = (id: string, text: string): string =>
   `<h2 id="${id}">${text}</h2>`;
 
-export var h3 = (text: string): string => `<h3>${text}</h3>`;
+/** Подраздел; с `id` он попадает и в «В этой главе». */
+export var h3 = (text: string, id = ''): string =>
+  id ? `<h3 id="${id}">${text}</h3>` : `<h3>${text}</h3>`;
 
 export var p = (...lines: readonly string[]): string =>
   lines.map((_) => `<p>${_}</p>`).join('\n');
@@ -113,13 +115,14 @@ export var steps = (...items: readonly string[]): string =>
 export var list = (...items: readonly string[]): string =>
   `<ul>${items.map((_) => `<li>${_}</li>`).join('')}</ul>`;
 
-/** Врезка: совет, предупреждение или «если что-то не так». Первое слово — заголовок врезки. */
+/** Врезка: совет, предупреждение или «если что-то не так». Первое слово — заголовок врезки. Не <aside>: на
+ * странице главы врезок много, а безымянных областей «дополнительно» читалке не нужно. */
 export var aside = (
   kind: 'tip' | 'warn' | 'trouble' | 'goal' | 'check',
   title: string,
   ...body: readonly string[]
 ): string =>
-  `<aside class="${kind}"><p class="aside-title">${literal(title)}</p>${body.join('')}</aside>`;
+  `<div class="callout ${kind}" role="note"><p class="aside-title">${literal(title)}</p>${body.join('')}</div>`;
 
 /** Подпись элемента интерфейса менеджера. */
 export var ui = (label: string): string => `<b class="ui">${label}</b>`;

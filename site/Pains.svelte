@@ -2,6 +2,7 @@
 Где обычно уходит время: шесть знакомых ситуаций и что Eile берёт на себя в каждой.
 -->
 <script lang="ts">
+import Rich from '$components/Rich';
 import { site } from '$core';
 
 const t = site().i18n;
@@ -19,7 +20,7 @@ const pairs = [
   {#each pairs as { 0: pain, 1: relief }}
     <li>
       <p class="pain">{pain}</p>
-      <p class="relief">{relief}</p>
+      <p class="relief"><Rich text={relief} /></p>
     </li>
   {/each}
 </ul>

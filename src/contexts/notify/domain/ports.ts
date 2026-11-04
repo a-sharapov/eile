@@ -82,7 +82,10 @@ export type TelegramApi = {
   ) => Promise<Chat[]>;
 };
 
-/** Почтовый сервер на связи: подключился и поздоровался кодом 220; без входа и без письма. */
+/**
+ * Почта на связи — без входа и без письма: сервер SMTP подключился и поздоровался кодом 220, HTTP API
+ * сервиса ответил по HTTPS.
+ */
 export type SmtpProbe = {
   readonly ok: boolean;
   readonly latencyMs: number;
@@ -93,16 +96,17 @@ export type SmtpProbe = {
     | 'unexpected_reply';
 };
 
-export type EmailSender = {
+/** Отправка почты; `S` — настройки одного способа отправки, у общего отправителя — любые. */
+export type EmailSender<S extends EmailSettings = EmailSettings> = {
   readonly send: (
-    settings: EmailSettings,
+    settings: S,
     to: readonly string[],
     message: Message,
     site: string
   ) => Promise<void>;
   /** Готовое письмо почтового шлюза: HTML, текст и вложения пришли от другого сервиса. */
-  readonly mail: (settings: EmailSettings, mail: Mail) => Promise<void>;
-  readonly probe: (settings: EmailSettings) => Promise<SmtpProbe>;
+  readonly mail: (settings: S, mail: Mail) => Promise<void>;
+  readonly probe: (settings: S) => Promise<SmtpProbe>;
 };
 
 /** Токены шлюза: выпуск, хэш для хранения и сравнение хэшей за постоянное время. */

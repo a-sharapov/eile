@@ -50,6 +50,7 @@ import {
 } from '../src/cli/systemd.ts';
 import { attempt, fail, isDomainError } from '../src/shared/kernel/errors.ts';
 import { DEMO } from './fixtures/demo.ts';
+import { WINDOWS } from './fixtures/platform.ts';
 
 const plain = definePaint(false);
 const BINARY = '/usr/local/bin/cms';
@@ -513,6 +514,7 @@ const fake = (overrides: Partial<Host> = {}): Fake => {
     memory: () => ({ total: 4 * LOW_MEMORY, swap: 0 }),
     addresses: () => ['203.0.113.10'],
     resolve: () => Promise.resolve(['203.0.113.10']),
+    mail: () => Promise.resolve(null),
     holder: () => Promise.resolve(null),
     restore: (binary, previous) =>
       void (calls.push(['restore', binary, previous]),
@@ -650,6 +652,17 @@ describe('cms service install', () => {
     ).rejects.toThrow('no systemd here');
   });
 
+  it('на Windows — любая подкоманда, даже --print: «не на Windows», ссылка на README', async () => {
+    const machine = fake({ platform: 'win32', systemd: () => false });
+    await expect(
+      run(machine, ['install', '--trust-proxy', '--print'])
+    ).rejects.toThrow('а это Windows');
+    await expect(run(machine, ['status'], 'en')).rejects.toThrow(
+      'README, “On Windows”'
+    );
+    expect(machine.calls).toEqual([]);
+  });
+
   it('бинарник, которого службе не видно или не запустить, — отказ с командой', async () => {
     await expect(
       run(fake({ binary: '/home/anna/.local/bin/cms' }), [
@@ -700,6 +713,28 @@ describe('cms service install', () => {
     expect(text).toContain('a.de указывает на 198.51.100.7');
     expect(text).toContain('Памяти 480 МБ');
     expect(text).toContain('sudo fallocate -l 1G /swapfile');
+    expect(text).toContain('Служба cms работает');
+  });
+
+  it('почта домена уедет вслед за сайтом — предупреждение со ссылкой на cms diagnose domain, установка идёт', async () => {
+    const asked: string[] = [];
+    const machine = fake({
+      mail: (domain) => (
+        asked.push(domain),
+        Promise.resolve(
+          domain === 'a.de'
+            ? { domain, mx: true, spf: true, already: false }
+            : { domain, mx: false, spf: false, already: false }
+        )
+      ),
+    });
+    await run(machine, ['install', '--domain', 'a.de,www.a.de']);
+    const text = machine.out.join('\n');
+    expect(asked).toEqual(['a.de', 'www.a.de']);
+    expect(text).toContain(
+      'Почта a.de уйдёт вслед за сайтом: MX указывает на сам домен, и письма для @a.de придут сюда, где почтового сервера нет; SPF через a и mx перестанет пропускать старый почтовый сервер. Что поправить в DNS — cms diagnose domain a.de'
+    );
+    expect(text).not.toContain('Почта www.a.de');
     expect(text).toContain('Служба cms работает');
   });
 
@@ -1196,7 +1231,8 @@ describe('cms update и служба', () => {
   });
 });
 
-describe('перенос базы в службу', () => {
+// Каталоги, права и владелец базы службы — Linux; на Windows cms service нет.
+describe.skipIf(WINDOWS)('перенос базы в службу', () => {
   let n = 0;
   const fresh = () => join(dir, `case-${++n}`);
 
@@ -1261,7 +1297,7 @@ describe('перенос базы в службу', () => {
   });
 });
 
-describe('база службы при обновлении', () => {
+describe.skipIf(WINDOWS)('база службы при обновлении', () => {
   const folder = () => mkdtempSync(join(dir, 'update-'));
 
   it('снимок работающей базы — рядом с ней, права 600, владелец базы; прежний снимок уходит', () => {

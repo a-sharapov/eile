@@ -333,8 +333,10 @@ describe('кэш медиатеки на диске', () => {
   });
 
   it('имя каталога по умолчанию: site.db → site.media-cache; у базы в памяти кэша нет', () => {
-    expect(mediaCacheDir('/srv/cms/site.db')).toBe('/srv/cms/site.media-cache');
-    expect(mediaCacheDir('data/blog')).toBe('data/blog.media-cache');
+    expect(mediaCacheDir('/srv/cms/site.db')).toBe(
+      join('/srv/cms', 'site.media-cache')
+    );
+    expect(mediaCacheDir('data/blog')).toBe(join('data', 'blog.media-cache'));
     expect(mediaCacheDir(':memory:')).toBeNull();
   });
 });

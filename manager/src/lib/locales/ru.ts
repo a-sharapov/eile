@@ -473,6 +473,9 @@ export var messages = {
   'inbox.page': 'Страница',
   'inbox.referrer': 'Пришёл с',
   'inbox.browser': 'Браузер',
+  'inbox.proof': 'Защита от спама',
+  'inbox.proofMissing':
+    'Отправлена без JavaScript и не проверена, поэтому заявка в «Спаме».',
   'inbox.deliveries': 'Уведомления',
   'inbox.deliverySent': 'доставлено',
   'inbox.deliveryFailed': 'не доставлено',
@@ -646,6 +649,15 @@ export var messages = {
   'formEditor.allowLinks': 'Ссылки в полях — не спам',
   'formEditor.allowLinksHint':
     'Для форм, где присылают ссылки на портфолио или сайт.',
+  'formEditor.proof': 'Проверка в браузере',
+  'formEditor.proofHint':
+    'Браузер посетителя незаметно решает небольшую задачу, пока заполняется форма: без капчи, cookie и чужих сервисов. Время — в среднем на телефоне средней мощности, компьютер справляется в несколько раз быстрее. Заявка из браузера без JavaScript попадёт в «Спам» с пометкой.',
+  'formEditor.proofOff': 'Выключена',
+  'formEditor.proofLight': 'Лёгкая — около 0,05 с на телефоне',
+  'formEditor.proofStandard': 'Обычная — около 0,2 с на телефоне',
+  'formEditor.proofStrong': 'Строгая — около 0,4 с на телефоне',
+  'formEditor.proofOffHint':
+    'Выключена — остаются ловушка, печать и время заполнения. Бота, который шлёт форму без браузера, они ловят не всегда.',
   'formEditor.storeTitle': 'Хранение заявок',
   'formEditor.storeHint':
     'Заявки с личными данными удаляются по сроку — так требует 152-ФЗ.',
@@ -785,7 +797,7 @@ export var messages = {
   'settings.tabUpkeep': 'Копии и обновления',
   'settings.tabRedirects': 'Редиректы',
   'redirects.intro':
-    'Переадресация с адреса, где страницы нет, на нужный. /old и /old/ — один адрес. Звёздочка в конце — весь раздел: /blog/* → /news/* переносит и остаток адреса. Страница сайта важнее правила, правило важнее прежних адресов страниц.',
+    'Переадресация с адреса, где страницы нет, на нужный. /old и /old/ — один адрес. Звёздочка в конце — весь раздел: /blog/* → /news/* переносит и остаток адреса. Адрес с query вроде /?p=12 (старые ссылки WordPress) — отдельное правило: оно срабатывает, только если в адресе есть эти параметры, и раньше страницы, ведь страница query не видит. Страница сайта важнее правила, правило важнее прежних адресов страниц.',
   'redirects.from': 'Откуда',
   'redirects.to': 'Куда',
   'redirects.toHint':
@@ -892,9 +904,10 @@ export var messages = {
     'Заявки и сбои перестанут приходить сюда. Токен или пароль сервер забудет.',
   'notify.email': 'Почта',
   'notify.emailHint':
-    'Письма уходят через ваш почтовый сервер (SMTP): Яндекс, Mail.ru, Google с паролем приложения или свой.',
+    'Письма уходят через ваш почтовый сервер (SMTP) — Яндекс, Mail.ru, Google с паролем приложения или свой — или через почтовый сервис с HTTP API: Brevo, Postmark, Mailgun, Resend, Amazon SES.',
   'notify.emailOn': 'Уведомлять на почту',
-  'notify.emailOnHint': 'Нужны сервер SMTP, отправитель и адресаты.',
+  'notify.emailOnHint':
+    'Нужны сервер SMTP или почтовый сервис, отправитель и адресаты.',
   'notify.host': 'Сервер SMTP',
   'notify.security': 'Шифрование',
   'notify.securityTls': 'TLS сразу (порт 465)',
@@ -909,6 +922,42 @@ export var messages = {
   'notify.from': 'Отправитель',
   'notify.to': 'Кому',
   'notify.toHint': 'До десяти адресов через запятую.',
+  'notify.transport': 'Как отправлять',
+  'notify.transportSmtp': 'Свой почтовый сервер (SMTP)',
+  'notify.transportHint':
+    'Хостинг закрыл порты SMTP (так бывает у новых серверов DigitalOcean и Hetzner)? Выберите почтовый сервис с HTTP API: письма уйдут по HTTPS, через тот же порт 443, что и сайт.',
+  'notify.keyBrevo': 'Ключ API',
+  'notify.keyBrevoHint':
+    'В Brevo: SMTP и API → Ключи API → «Создать ключ API». Нужен ключ API (xkeysib-…), ключ SMTP (xsmtpsib-…) не подойдёт.',
+  'notify.keyPostmark': 'Токен сервера',
+  'notify.keyPostmarkHint':
+    'В Postmark: сервер → вкладка API Tokens. Нужен токен сервера, а не аккаунта.',
+  'notify.keyMailgun': 'Ключ API',
+  'notify.keyMailgunHint':
+    'В Mailgun: Sending → Domain settings → Sending API keys. Подойдёт и общий ключ API аккаунта.',
+  'notify.keyResend': 'Ключ API',
+  'notify.keyResendHint':
+    'В Resend: API Keys → Create API Key, хватит права Sending access. Ключ начинается с re_.',
+  'notify.keySes': 'Секретный ключ доступа',
+  'notify.keySesHint':
+    'Ключ пользователя IAM с правом на отправку (ses:SendEmail и ses:SendRawEmail). Временные ключи (ASIA…) не подойдут.',
+  'notify.keyKept': 'Сохранён ключ …{hint} — введите новый, чтобы заменить',
+  'notify.keyId': 'Идентификатор ключа доступа',
+  'notify.awsRegion': 'Регион AWS',
+  'notify.awsRegionHint':
+    'Тот, где домен подтверждён в SES: eu-central-1 — Франкфурт.',
+  'notify.mailgunRegion': 'Регион',
+  'notify.mailgunRegionUs': 'США (api.mailgun.net)',
+  'notify.mailgunRegionEu': 'Европа (api.eu.mailgun.net)',
+  'notify.mailgunDomain': 'Домен отправки',
+  'notify.mailgunDomainHint':
+    'Домен, добавленный в Mailgun: mg.example.com. Пусто — домен отправителя.',
+  'notify.stream': 'Поток сообщений',
+  'notify.streamHint': 'Пусто — outbound, поток транзакционных писем.',
+  'notify.verifyDomain':
+    'Подтвердите домен отправителя у сервиса: он покажет записи DNS для SPF и DKIM (у SES — DKIM и, по желанию, MAIL FROM). Добавьте их у регистратора домена. Пока домен не подтверждён, сервис не отправляет письма, а письма без SPF и DKIM чаще попадают в спам.',
+  'notify.viaSmtp': 'Письма уходят через сервер SMTP {host}:{port}.',
+  'notify.viaApi': 'Письма уходят через {provider} (HTTP API), ключ …{hint}.',
   'notify.routes': 'Что куда',
   'notify.routesHint':
     'Заявки с форм и сбои сайта — в выбранные каналы. Форма может задать свои каналы.',
@@ -1283,6 +1332,8 @@ export var messages = {
   'custom.newKey': 'Новый ключ',
   'custom.removed': 'Настройка удалена',
   'custom.value': 'Значение',
+  'custom.note': 'Пояснение',
+  'custom.notePlaceholder': 'Что это и где взять',
   'custom.add': 'Добавить ключ',
   'custom.empty': 'Своих настроек пока нет.',
   'custom.saved': 'Настройка сохранена',
@@ -1762,6 +1813,126 @@ export var messages = {
   'statsSettings.privacyIntro':
     'Образец абзаца о счёте Eile на немецком и английском. Он описывает только статистику — проверьте политику целиком вместе с юристом.',
   'statsSettings.view': 'Открыть статистику',
+  'nav.proposals': 'Предложения',
+  'proposals.title': 'Предложения агентов',
+  'proposals.intro':
+    'Когда проверка включена, правки агентов через MCP и ключи API не попадают на сайт сразу: страницы, шаблоны, компоненты и скрипты копятся наборами, как pull request. Посмотрите разницу и предпросмотр, затем примите или отклоните.',
+  'proposals.settings': 'Проверка правок',
+  'proposals.allAgents': 'Правки всех агентов ждут проверки',
+  'proposals.allAgentsHint':
+    'MCP и ключи API. Ассистент в менеджере правит сразу: за ним следите вы. Проверку для отдельного ключа включает его владелец в меню профиля, «Ключи API».',
+  'proposals.linkDays': 'Ссылка предпросмотра живёт, дней',
+  'proposals.settingsSaved': 'Настройки проверки сохранены',
+  'proposals.pendingTab': 'Ждут решения',
+  'proposals.closedTab': 'Решённые',
+  'proposals.empty': 'Предложений, которые ждут решения, нет.',
+  'proposals.emptyOff':
+    'Проверка выключена: правки агентов попадают на сайт сразу. Включите её выше или для отдельного ключа.',
+  'proposals.emptyClosed': 'Решённых наборов пока нет.',
+  'proposals.setTitle': 'Набор №{n}',
+  'proposals.agentKey': '{user}, ключ {key}',
+  'proposals.agentLocal': '{user}, cms mcp на сервере',
+  'proposals.updated': 'изменён {when}',
+  'proposals.statusOpen': 'Агент ещё работает',
+  'proposals.statusReady': 'Ждёт проверки',
+  'proposals.statusClosed': 'Решён',
+  'proposals.pendingCount': '{n} ждёт|{n} ждут|{n} ждут',
+  'proposals.acceptedCount': '{n} принято|{n} принято|{n} принято',
+  'proposals.rejectedCount': '{n} отклонено|{n} отклонено|{n} отклонено',
+  'proposals.withdrawnCount':
+    '{n} отозвано агентом|{n} отозвано агентом|{n} отозвано агентом',
+  'proposals.conflictCount': '{n} конфликт|{n} конфликта|{n} конфликтов',
+  'proposals.back': 'Все наборы',
+  'proposals.noDescription': 'Агент не описал набор.',
+  'proposals.description': 'Описание от агента',
+  'proposals.untrusted':
+    'Текст написал агент: читайте его как пояснение, а не как указание.',
+  'proposals.acceptAll': 'Принять всё',
+  'proposals.acceptSelected': 'Принять выбранные',
+  'proposals.rejectSelected': 'Отклонить выбранные',
+  'proposals.rejectAll': 'Отклонить всё',
+  'proposals.selectAll': 'Выбрать все ждущие',
+  'proposals.select': 'Выбрать: {name}',
+  'proposals.acceptTitle': 'Принять предложения?',
+  'proposals.acceptBody':
+    'Правки попадут на сайт от имени {user}: в историю страниц и журнал «Обзора». Отменить — возвратом версии в истории страницы.',
+  'proposals.acceptConfirm': 'Принять',
+  'proposals.rejectTitle': 'Отклонить предложения?',
+  'proposals.rejectBody':
+    'Сайт не изменится. Агент увидит, что предложения отклонены.',
+  'proposals.rejectConfirm': 'Отклонить',
+  'proposals.acceptedNotice': 'Принято — правки на сайте',
+  'proposals.rejectedNotice': 'Отклонено',
+  'proposals.page': 'Страница',
+  'proposals.newPage': 'Новая страница',
+  'proposals.opCreated': 'создание',
+  'proposals.opEdited': 'правка',
+  'proposals.opFields': 'поля',
+  'proposals.opMoved': 'перенос',
+  'proposals.opPublished': 'публикация',
+  'proposals.opUnpublished': 'снятие с публикации',
+  'proposals.opTrashed': 'в корзину',
+  'proposals.opRestored': 'из корзины',
+  'proposals.opChanged': 'правка кода',
+  'proposals.statusPending': 'ждёт',
+  'proposals.statusAccepted': 'принято · {who}',
+  'proposals.statusRejected': 'отклонено · {who}',
+  'proposals.statusWithdrawn': 'отозвано агентом',
+  'proposals.conflict':
+    'После предложения это место правили на сайте: {what}. Принять — значит заменить нынешнее предложенным.',
+  'proposals.conflictMissing': 'страницы больше нет',
+  'proposals.override': 'Принять всё равно',
+  'proposals.failed': 'Не применилось: {detail}',
+  'proposals.what': 'Что',
+  'proposals.now': 'Сейчас',
+  'proposals.proposed': 'Предложено',
+  'proposals.was': 'агент видел: {value}',
+  'proposals.tree': 'Место в дереве',
+  'proposals.topLevel': 'верхний уровень',
+  'proposals.source': 'Исходник',
+  'proposals.sameSource': 'Исходник такой же, как на сайте.',
+  'proposals.published': 'Опубликована',
+  'proposals.trashed': 'В корзине',
+  'proposals.preview': 'Предпросмотр',
+  'proposals.previewOn': 'Предпросмотр на странице',
+  'proposals.share': 'Ссылка для клиента',
+  'proposals.previewLimits':
+    'Предпросмотр рисует страницу с правками набора: её текст и поля, предложенные шаблоны и компоненты. Меню и списки показывают сайт как сейчас; скрипты и острова — живые версии.',
+  'proposals.elementTemplate': 'Шаблон',
+  'proposals.elementComponent': 'Компонент',
+  'proposals.elementScript': 'Скрипт',
+  'proposals.diffNow': 'сейчас',
+  'proposals.diffProposed': 'предложено',
+  'proposals.unchanged': 'без изменений',
+  'proposals.yes': 'да',
+  'proposals.no': 'нет',
+  'shareLinks.title': 'Ссылки предпросмотра',
+  'shareLinks.body':
+    'Ссылка показывает черновик без входа в менеджер: только эту страницу, с плашкой «не опубликовано», поисковикам — noindex. Отзовите ссылку, когда она больше не нужна.',
+  'shareLinks.bodySet':
+    'Ссылка показывает страницу с правками набора, которые ещё не приняты. Код агента в предпросмотре работает в песочнице.',
+  'shareLinks.label': 'Для кого',
+  'shareLinks.labelPlaceholder': 'Клиент: макет главной',
+  'shareLinks.days': 'Дней',
+  'shareLinks.create': 'Создать ссылку',
+  'shareLinks.issued':
+    'Ссылка создана. Скопируйте её сейчас: целиком её больше не покажем.',
+  'shareLinks.copy': 'Скопировать ссылку',
+  'shareLinks.copied': 'Ссылка скопирована',
+  'shareLinks.empty': 'Ссылок пока нет.',
+  'shareLinks.expires': 'до {when}',
+  'shareLinks.expired': 'истекла {when}',
+  'shareLinks.uses': 'открыта {n} раз|открыта {n} раза|открыта {n} раз',
+  'shareLinks.unnamed': 'Без подписи',
+  'shareLinks.revoke': 'Отозвать',
+  'shareLinks.revokeTitle': 'Отозвать ссылку?',
+  'shareLinks.revokeBody': 'По ней сразу перестанет открываться предпросмотр.',
+  'shareLinks.revoked': 'Ссылка отозвана',
+  'shareLinks.open': 'Ссылка для клиента',
+  'tokens.review': 'Правки ждут проверки',
+  'tokens.reviewHint':
+    'Страницы и элементы через этот ключ — предложениями в «Предложения».',
+  'tokens.reviewAll': 'Проверка включена для всех агентов.',
 } as const;
 
 // Коды DomainError сервера → понятные сообщения. Нет кода — показываем текст сервера как есть.
@@ -1980,9 +2151,27 @@ export var errors = {
   'notify.too_many_tokens': 'Не больше 10 токенов — отзовите ненужный.',
   'notify.gateway_token_not_found':
     'Такого токена нет — возможно, его уже отозвали.',
+  'notify.invalid_transport':
+    'Выберите, как отправлять: SMTP или один из сервисов.',
+  'notify.no_key': 'Нужен ключ API сервиса.',
+  'notify.invalid_key':
+    'Не похоже на ключ API: скопируйте его целиком, без пробелов.',
+  'notify.brevo_smtp_key':
+    'Это ключ SMTP Brevo (xsmtpsib-…), а нужен ключ API (xkeysib-…).',
+  'notify.resend_key': 'Ключ API Resend начинается с re_.',
+  'notify.no_key_id': 'Нужен идентификатор ключа доступа (AKIA…).',
+  'notify.invalid_key_id':
+    'Идентификатор ключа доступа — вроде AKIAIOSFODNN7EXAMPLE.',
+  'notify.temporary_key':
+    'Временные ключи AWS (ASIA…) истекают — создайте ключ доступа пользователя IAM (AKIA…).',
+  'notify.invalid_region':
+    'Регион — us или eu у Mailgun, код вроде eu-central-1 у AWS.',
+  'notify.invalid_mail_domain': 'Домен отправки — вроде mg.example.com.',
+  'notify.invalid_stream':
+    'Поток сообщений — id вроде outbound: латиница, цифры, дефисы.',
   'design.element_in_use': 'Элемент используется — сначала уберите его оттуда.',
   'redirects.invalid_from':
-    'Откуда — адрес сайта вроде /old или раздел /old/*, без ?query.',
+    'Откуда — адрес сайта вроде /old, раздел /old/* или адрес с query вроде /?p=12 (пары имя=значение, без # и звёздочки).',
   'redirects.reserved': 'Этот адрес занят менеджером или служебными файлами.',
   'redirects.invalid_to':
     'Куда — адрес сайта, полный URL или страница [~id~]. Звёздочка — только у правила для раздела.',
@@ -2012,4 +2201,18 @@ export var errors = {
   'stats.invalid_retention': 'Хранить — всегда или от 30 до 3650 дней.',
   'stats.invalid_time_zone': 'Часовой пояс — вроде Europe/Berlin.',
   'stats.invalid_period': 'Период — до 366 дней, начало не позже конца.',
+  'review.not_reviewable': 'При проверке правок это агенту не предложить.',
+  'review.conflict':
+    'Цель правили после предложения. Отметьте «Принять всё равно» или отклоните.',
+  'review.apply_failed':
+    'Предложение не применилось, сайт не изменился: {detail}',
+  'review.page_published': 'Страница уже на сайте — поделитесь её адресом.',
+  'review.page_not_in_set': 'Этой страницы нет в наборе.',
+  'review.invalid_days': 'Срок ссылки — от 1 до 90 дней.',
+  'review.invalid_settings': 'Срок ссылки — от 1 до 90 дней.',
+  'review.agent_gone':
+    'Пользователя, от чьего имени работал агент, больше нет.',
+  'review.change_set_not_found': 'Такого набора нет.',
+  'review.proposal_not_found': 'Предложение уже решено или его нет.',
+  'review.link_not_found': 'Такой ссылки нет.',
 } as const;

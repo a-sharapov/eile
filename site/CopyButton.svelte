@@ -37,8 +37,19 @@ const copy = (): void =>
   <Icon name={copied ? 'check' : 'copy'} />
   <span class="word">{copied ? done : label}</span>
 </button>
+<!-- Смену надписи на кнопке читалка не объявит: «Скопировано» говорит отдельная живая строка. -->
+<span class="status" role="status">{copied ? done : ''}</span>
 
 <style>
+  .status {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
   .copy {
     display: inline-flex;
     align-items: center;

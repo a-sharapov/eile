@@ -11,10 +11,18 @@ import { SHOP } from './shop/index.ts';
 import { SHOWCASE_EN } from './showcase/en.ts';
 import { SHOWCASE } from './showcase/index.ts';
 
-export type { Scaffold, ScaffoldReport } from './scaffold.ts';
+export type {
+  Scaffold,
+  ScaffoldMedia,
+  ScaffoldPage,
+  ScaffoldReport,
+  ScaffoldServices,
+  ScaffoldSetting,
+} from './scaffold.ts';
 export {
   applyScaffold,
   clearWelcome,
+  settingValue,
   untouched,
 } from './scaffold.ts';
 export { WELCOME, WELCOME_EN } from './welcome.ts';
@@ -28,7 +36,10 @@ export var SCAFFOLDS: readonly Scaffold[] = [
   SHOP,
 ];
 
-/** Те же каркасы по-английски: имена, страницы и элементы те же, тексты — английские. */
+/**
+ * Те же каркасы по-английски: имена, страницы и элементы те же, тексты — английские. Каркас для одного
+ * рынка (`kuechenstudio` — немецкий) один на любом языке CLI.
+ */
 export var SCAFFOLDS_EN: readonly Scaffold[] = [
   BLOG_EN,
   PORTFOLIO_EN,

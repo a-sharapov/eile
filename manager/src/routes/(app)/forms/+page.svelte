@@ -409,6 +409,7 @@ const copyTag = (name: string) =>
           {/if}
           {#if detail.context.referrer}<div><dt>{t('inbox.referrer')}</dt><dd class="code">{detail.context.referrer}</dd></div>{/if}
           {#each Object.entries(detail.context.utm) as entry (entry[0])}<div><dt class="code">{entry[0]}</dt><dd>{entry[1]}</dd></div>{/each}
+          {#if detail.context.proof === 'missing'}<div><dt>{t('inbox.proof')}</dt><dd>{t('inbox.proofMissing')}</dd></div>{/if}
           <div><dt>IP</dt><dd class="code">{detail.ip || '—'}</dd></div>
           <div><dt>{t('inbox.browser')}</dt><dd class="muted">{detail.userAgent || '—'}</dd></div>
         </dl>

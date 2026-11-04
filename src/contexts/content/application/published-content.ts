@@ -1,5 +1,5 @@
 import type { FieldValue } from '../domain/field.ts';
-import type { Moment, PageKind } from '../domain/page.ts';
+import type { Moment, Page, PageKind } from '../domain/page.ts';
 
 /** Страница глазами посетителя. */
 export type PageView = {
@@ -75,6 +75,11 @@ export type DraftContent = {
   readonly tree: () => PageNode[];
   /** Страница как в шаблоне — для предпросмотра, даже неопубликованная. */
   readonly view: (id: number) => PageView | null;
+  /**
+   * Несохранённое состояние страницы как в шаблоне: предпросмотр предложенной правки. Путь и язык — от
+   * родителя из дерева, поля без своего значения — наследованием и умолчанием.
+   */
+  readonly viewOf: (page: Page) => PageView;
   /** Набор переводов страницы: исходная первой; у страницы без переводов — пусто. */
   readonly translations: (id: number) => TranslationNode[];
 };

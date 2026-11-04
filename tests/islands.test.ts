@@ -144,7 +144,7 @@ import Island from '$core/Island';
 let { base = 100 } = $props();
 const code = request()?.cookie('partner') ?? '';
 const extra = JSON.parse(request()?.cookie('cart') || '{}');
-const price = code === 'kuechenly' ? base * 0.9 : base;
+const price = code === 'muehlenhof' ? base * 0.9 : base;
 </script>
 <div class="partner"><Island name="Price" props={{ price, code, ...extra }} /></div>`;
 
@@ -171,22 +171,22 @@ describe('остров в некэшируемом регионе', () => {
   const fragment = /<div class="partner">[\s\S]*?<\/div>/;
 
   it('props острова считаются на запросе: cookie меняет только фрагмент региона', async () => {
-    const partner = await visit('partner=kuechenly');
+    const partner = await visit('partner=muehlenhof');
     const guest = await visit('partner=other');
     expect(partner.headers.get('x-cache')).toBe('miss');
     expect(guest.headers.get('x-cache')).toBe('hit');
     const first = await partner.text();
     const second = await guest.text();
     expect(islandOf(first)![2]).toBe(
-      '{&quot;price&quot;:90,&quot;code&quot;:&quot;kuechenly&quot;}'
+      '{&quot;price&quot;:90,&quot;code&quot;:&quot;muehlenhof&quot;}'
     );
     expect(islandOf(second)![2]).toBe(
       '{&quot;price&quot;:100,&quot;code&quot;:&quot;other&quot;}'
     );
     expect(first).toMatch(
-      /<p class="price svelte-[a-z0-9]+">90 kuechenly<\/p>/
+      /<p class="price svelte-[a-z0-9]+">90 muehlenhof<\/p>/
     );
-    expect(second).not.toContain('kuechenly');
+    expect(second).not.toContain('muehlenhof');
     expect(first.replace(fragment, '')).toBe(second.replace(fragment, ''));
   });
 
@@ -199,7 +199,7 @@ describe('остров в некэшируемом регионе', () => {
       );
     await compressed('partner=warmup');
     const answers = await Promise.all(
-      ['partner=kuechenly', 'partner=other', 'partner=kuechenly'].map(
+      ['partner=muehlenhof', 'partner=other', 'partner=muehlenhof'].map(
         compressed
       )
     );
@@ -214,9 +214,9 @@ describe('остров в некэшируемом регионе', () => {
         )
       )
     );
-    expect(bodies[0]).toContain('90 kuechenly');
-    expect(bodies[1]).not.toContain('kuechenly');
-    expect(bodies[2]).toContain('90 kuechenly');
+    expect(bodies[0]).toContain('90 muehlenhof');
+    expect(bodies[1]).not.toContain('muehlenhof');
+    expect(bodies[2]).toContain('90 muehlenhof');
     expect(answers[0]!.headers.get('etag')).toBe(
       answers[2]!.headers.get('etag')
     );
@@ -226,11 +226,11 @@ describe('остров в некэшируемом регионе', () => {
   });
 
   it('в кэш попадает только место региона: страница из кэша без props прошлого запроса', async () => {
-    await visit('partner=kuechenly');
+    await visit('partner=muehlenhof');
     const cached = await visit();
     expect(cached.headers.get('x-cache')).toBe('hit');
     const html = await cached.text();
-    expect(html).not.toContain('kuechenly');
+    expect(html).not.toContain('muehlenhof');
     expect(html).not.toContain('<!--cms:region:');
     expect(islandOf(html)![2]).toBe(
       '{&quot;price&quot;:100,&quot;code&quot;:&quot;&quot;}'
@@ -238,7 +238,7 @@ describe('остров в некэшируемом регионе', () => {
   });
 
   it('остров гидрируется как обычный: маркеры, стили, модуль и один загрузчик', async () => {
-    const html = await (await visit('partner=kuechenly')).text();
+    const html = await (await visit('partner=muehlenhof')).text();
     const island = islandOf(html)!;
     expect(island[1]).toMatch(/^\/_cms\/islands\/Price\.[a-z0-9]+\.js$/);
     expect(html).toMatch(
@@ -254,7 +254,7 @@ describe('остров в некэшируемом регионе', () => {
       'Base',
       '<script>import Island from \'$core/Island\'; import Uncached from \'$core/Uncached\'; let { page } = $props();</script><h1>{page.title}</h1><Island name="Counter" props={{ start: 2 }} /><Uncached name="PartnerPrice" />'
     );
-    const html = await (await visit('partner=kuechenly')).text();
+    const html = await (await visit('partner=muehlenhof')).text();
     expect(html.match(/<cms-island /g)?.length).toBe(2);
     expect(html.match(/<script type="module">/g)?.length).toBe(1);
   });

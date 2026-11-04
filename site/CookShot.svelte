@@ -4,7 +4,7 @@
 -->
 <script lang="ts">
 import Shot from '$components/Shot';
-import { image } from '$core';
+import { image, site } from '$core';
 
 let {
   /** Имя снимка: setup, manager, tree… */
@@ -14,6 +14,10 @@ let {
 }: { name?: string; caption?: string } = $props();
 
 const found = image(`screens/cook-${name}-light.webp`);
+// У экранов менеджера есть тёмный снимок, у страниц сайта студии — нет: по нему и заголовок окна.
+const manager = Boolean(image(`screens/cook-${name}-dark.webp`));
+const t = site().i18n;
+const title = manager ? t.winManager : t.winStudio;
 </script>
 
 {#if found}
@@ -21,7 +25,8 @@ const found = image(`screens/cook-${name}-light.webp`);
     <Shot
       name={`cook-${name}`}
       alt={caption}
-      sizes="(min-width: 64rem) 44rem, calc(100vw - 2.5rem)"
+      {title}
+      sizes="(min-width: 64rem) 44rem, calc(94vw - 1rem)"
     />
     {#if caption}<figcaption>{caption}</figcaption>{/if}
   </figure>
@@ -33,7 +38,8 @@ const found = image(`screens/cook-${name}-light.webp`);
   }
 
   figcaption {
-    margin-top: 0.75rem;
+    max-width: 60ch;
+    margin: 0.75rem auto 0;
     color: var(--muted);
     font-size: 0.875rem;
     line-height: 1.45;

@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "name": "beispiel",
+  "title": {
+    "de": "Beispiel",
+    "en": "Example",
+    "ru": "Пример"
+  },
+  "summary": {
+    "de": "zwei Seiten, eine Komponente und ein Bild: das kleinste Paket",
+    "en": "two pages, one component and one image: the smallest package",
+    "ru": "две страницы, компонент и картинка: самый маленький пакет"
+  },
+  "language": "de",
+  "siteName": "Beispiel",
+  "description": "Ein kleines Beispiel für ein Gerüstpaket.",
+  "settings": {
+    "kontaktSeite": {
+      "value": "@{kontakt}",
+      "note": "Seite, auf die der Link im Fuß führt"
+    }
+  },
+  "media": {
+    "bilder/sonne.png": {
+      "alt": "Eine Sonne über einem grünen Hügel"
+    }
+  },
+  "pages": [
+    {
+      "key": "start",
+      "title": "Start",
+      "longTitle": "Willkommen",
+      "template": "Seite",
+      "contentFile": "pages/start.html"
+    },
+    {
+      "key": "kontakt",
+      "title": "Kontakt",
+      "alias": "kontakt",
+      "template": "Seite",
+      "contentFile": "pages/kontakt.html"
+    }
+  ],
+  "home": "start"
+}

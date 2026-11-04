@@ -395,6 +395,16 @@ export type HostFacts = {
     readonly domain: string;
     readonly addresses: readonly string[];
   }[];
+  /** Почта доменов, которая уедет вместе с A (`cms diagnose domain`, только MX и SPF). */
+  readonly mail?: readonly MailRisk[];
+};
+
+/** Что станет с почтой домена: MX на сам домен, SPF через `a`/`mx`; already — A уже здесь. */
+export type MailRisk = {
+  readonly domain: string;
+  readonly mx: boolean;
+  readonly spf: boolean;
+  readonly already: boolean;
 };
 
 /** Что не так с машиной: занятый порт останавливает установку, остальное — предупреждение. */
@@ -412,13 +422,15 @@ export type Concern =
       readonly domain: string;
       readonly addresses: readonly string[];
     }
-  | { readonly kind: 'low_memory'; readonly total: number };
+  | { readonly kind: 'low_memory'; readonly total: number }
+  | ({ readonly kind: 'mail_moves' } & MailRisk);
 
 const _BLOCKING: Readonly<Record<Concern['kind'], boolean>> = {
   port_busy: true,
   dns_missing: false,
   dns_elsewhere: false,
   low_memory: false,
+  mail_moves: false,
 };
 
 export var blocking = (concern: Concern): boolean => _BLOCKING[concern.kind];
@@ -458,7 +470,7 @@ const _dns = (
       ? []
       : [{ kind: 'dns_elsewhere', domain, addresses }];
 
-/** Оценка машины перед установкой: порты, DNS доменов, память. */
+/** Оценка машины перед установкой: порты, DNS доменов, их почта, память. */
 export var assess = (facts: HostFacts): Concern[] =>
   ((local) => [
     ...facts.ports.flatMap(({ port, holder }): Concern[] =>
@@ -470,6 +482,9 @@ export var assess = (facts: HostFacts): Concern[] =>
     ...(facts.memory.total < LOW_MEMORY && facts.memory.swap === 0
       ? [{ kind: 'low_memory', total: facts.memory.total } as const]
       : []),
+    ...(facts.mail ?? [])
+      .filter((_) => _.mx || _.spf)
+      .map((_) => ({ kind: 'mail_moves' as const, ..._ })),
   ])(new Set(facts.local.map(_bare).filter(_public)));
 
 /** Файл подкачки на 1 ГиБ: команды для человека, сама установка подкачку не создаёт. */

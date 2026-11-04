@@ -15,6 +15,7 @@ import type {
   UploadedFile,
   WebhookRepository,
 } from '../domain/ports.ts';
+import { PROOF_DEFAULTS } from '../domain/proof.ts';
 import type { Value } from '../domain/schema.ts';
 import type {
   Submission,
@@ -33,10 +34,12 @@ type FormRow = {
   updated_at: string;
 };
 
-// Настройки форм со старых версий — без письма отправителю и вебхука: у них умолчания.
+// Настройки форм со старых версий — без письма отправителю, вебхука и доказательства работы: у них умолчания.
+// Защита сохранённой раньше формы выключена — сайт после обновления принимает заявки, как принимал.
 const _form = (row: FormRow): Form => ({
   confirmation: NO_CONFIRMATION,
   webhook: NO_WEBHOOK,
+  proof: PROOF_DEFAULTS.stored,
   ...(JSON.parse(row.settings) as Omit<
     Form,
     | 'name'
@@ -47,8 +50,9 @@ const _form = (row: FormRow): Form => ({
     | 'updatedAt'
     | 'confirmation'
     | 'webhook'
+    | 'proof'
   > &
-    Partial<Pick<Form, 'confirmation' | 'webhook'>>),
+    Partial<Pick<Form, 'confirmation' | 'webhook' | 'proof'>>),
   name: row.name as FormName,
   title: row.title,
   source: row.source,

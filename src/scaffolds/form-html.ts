@@ -9,6 +9,10 @@ export type FieldRules = {
   /** Свой текст ошибки. */
   readonly message?: string;
   readonly hint?: string;
+  /** Подсказка автозаполнения браузеру: `name`, `tel`, `email`… */
+  readonly autocomplete?: string;
+  /** Нижняя граница даты для скрипта форм: `today` — не раньше сегодняшнего дня. */
+  readonly minDate?: string;
 };
 
 const _attr = (name: string, value: string | number | undefined): string =>
@@ -22,6 +26,8 @@ const _rules = (rules: FieldRules): string =>
     _attr('placeholder', rules.placeholder),
     _attr('pattern', rules.pattern),
     _attr('maxlength', rules.maxLength),
+    _attr('autocomplete', rules.autocomplete),
+    _attr('data-min', rules.minDate),
   ].join('');
 
 const _star = (rules: FieldRules): string =>
@@ -66,15 +72,20 @@ export var select = (
     )
     .join('')}</select>${_hint(rules)}\n</div>`;
 
-/** Согласие: `{слова}` в подписи — ссылка на страницу `@{key}` каркаса. */
-export var consent = (name: string, label: string, page: string): string =>
-  `${_open('consent', label.replace(/[{}]/g, ''), {}, ' field-consent')}\n  <label><input type="checkbox" name="${name}" value="yes" required> ${Bun.escapeHTML(
+/** Согласие: `{слова}` в подписи — ссылка на страницу `@{key}` каркаса; обязательное — со звёздочкой, как другие. */
+export var consent = (
+  name: string,
+  label: string,
+  page: string,
+  message = ''
+): string =>
+  `${_open('consent', label.replace(/[{}]/g, ''), { message }, ' field-consent')}\n  <label><input type="checkbox" name="${name}" value="yes" required> ${Bun.escapeHTML(
     label
   ).replace(
     /\{([^}]+)\}/,
     (_match, words: string) =>
       `<a href="[~@{${page}}~]" target="_blank">${words}</a>`
-  )}</label>\n</div>`;
+  )}${_star({ required: true })}</label>\n</div>`;
 
 /** Скрытое поле: значение — из источника (`page.title`, `utm`…), сервер подставит сам. */
 export var hidden = (name: string, label: string, source: string): string =>

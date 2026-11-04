@@ -28,12 +28,18 @@ import { type Context, explain, RUN } from '../src/cli/commands.ts';
 import { definePaint } from '../src/cli/paint.ts';
 import { VERSION } from '../src/cli/version.ts';
 import { parseSchedule } from '../src/contexts/upkeep/domain/schedule.ts';
+import { isPrerelease } from '../src/contexts/upkeep/domain/version.ts';
 import { defineReleases, updateProgram } from '../src/contexts/upkeep/index.ts';
 import { startUpkeep } from '../src/contexts/upkeep/infrastructure/background.ts';
 import { isDomainError } from '../src/shared/kernel/errors.ts';
+import { expectMode, removeTemp, WINDOWS } from './fixtures/platform.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'cms-upkeep-'));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+afterAll(() => removeTemp(dir));
+
+// «Бинарники» в тестах обновления — скрипты sh, Windows их не запустит; замену там проверяет
+// src/contexts/upkeep/infrastructure/installer.test.ts с правилами Windows.
+const unixIt = it.skipIf(WINDOWS);
 
 let site = 0;
 // Своя база на тест и свои часы: `tick()` — минута вперёд, у следующей копии другое имя.
@@ -67,7 +73,7 @@ describe('автокопии', () => {
     expect(basename(run.file)).toBe('site-auto-20261031-0330.db');
     expect(run.file).toBe(join(folder, 'backups', basename(run.file)));
     expect(run.manual).toBe(true);
-    expect(statSync(run.file).mode & 0o777).toBe(0o600);
+    expectMode(run.file, 0o600);
     const copy = new Database(run.file, { readonly: true });
     const count = (table: string) =>
       copy.query<{ n: number }, []>(`SELECT count(*) AS n FROM ${table}`).get()!
@@ -286,50 +292,56 @@ describe('обновления', () => {
     return path;
   };
 
-  it('cms update: сверяет сумму, пробует запуск, заменяет и оставляет прежний', async () => {
-    const binary = installed();
-    const result = await updateProgram({
-      releases: releases(),
-      current: '0.1.0',
-      binary,
-      standalone: true,
-      target: 'linux-x64',
-    });
-    expect(result).toMatchObject({
-      status: 'updated',
-      release: { version: '0.2.0' },
-      previous: `${binary}.old`,
-      alias: join(binary, '..', 'eile'),
-    });
-    expect(readFileSync(binary, 'utf8')).toContain('Eile 0.2.0');
-    expect(statSync(binary).mode & 0o777).toBe(0o755);
-    expect(readFileSync(`${binary}.old`, 'utf8')).toBe('old');
-    expect(readdirSync(join(binary, '..')).toSorted()).toEqual([
-      'cms',
-      'cms.old',
-      'eile',
-    ]);
-    // Установка старше второго имени получила ссылку, она ведёт на новый файл.
-    expect(readlinkSync(join(binary, '..', 'eile'))).toBe('cms');
-  });
+  unixIt(
+    'cms update: сверяет сумму, пробует запуск, заменяет и оставляет прежний',
+    async () => {
+      const binary = installed();
+      const result = await updateProgram({
+        releases: releases(),
+        current: '0.1.0',
+        binary,
+        standalone: true,
+        target: 'linux-x64',
+      });
+      expect(result).toMatchObject({
+        status: 'updated',
+        release: { version: '0.2.0' },
+        previous: `${binary}.old`,
+        alias: join(binary, '..', 'eile'),
+      });
+      expect(readFileSync(binary, 'utf8')).toContain('Eile 0.2.0');
+      expect(statSync(binary).mode & 0o777).toBe(0o755);
+      expect(readFileSync(`${binary}.old`, 'utf8')).toBe('old');
+      expect(readdirSync(join(binary, '..')).toSorted()).toEqual([
+        'cms',
+        'cms.old',
+        'eile',
+      ]);
+      // Установка старше второго имени получила ссылку, она ведёт на новый файл.
+      expect(readlinkSync(join(binary, '..', 'eile'))).toBe('cms');
+    }
+  );
 
-  it('ссылка на месте cms.old удаляется, а не проходится насквозь', async () => {
-    const binary = installed();
-    const victim = join(binary, '..', 'victim');
-    writeFileSync(victim, 'keep');
-    symlinkSync(victim, `${binary}.old`);
-    await updateProgram({
-      releases: releases(),
-      current: '0.1.0',
-      binary,
-      standalone: true,
-      target: 'linux-x64',
-    });
-    expect(readFileSync(victim, 'utf8')).toBe('keep');
-    expect(readFileSync(`${binary}.old`, 'utf8')).toBe('old');
-  });
+  unixIt(
+    'ссылка на месте cms.old удаляется, а не проходится насквозь',
+    async () => {
+      const binary = installed();
+      const victim = join(binary, '..', 'victim');
+      writeFileSync(victim, 'keep');
+      symlinkSync(victim, `${binary}.old`);
+      await updateProgram({
+        releases: releases(),
+        current: '0.1.0',
+        binary,
+        standalone: true,
+        target: 'linux-x64',
+      });
+      expect(readFileSync(victim, 'utf8')).toBe('keep');
+      expect(readFileSync(`${binary}.old`, 'utf8')).toBe('old');
+    }
+  );
 
-  it('свой файл eile рядом обновление не трогает', async () => {
+  unixIt('свой файл eile рядом обновление не трогает', async () => {
     const binary = installed();
     writeFileSync(join(binary, '..', 'eile'), 'mine');
     const result = await updateProgram({
@@ -404,9 +416,10 @@ describe('обновления', () => {
     const before = listed;
     const status = await app.upkeep.updates.check();
     expect(listed).toBe(before + 1);
-    // Сама программа — пре-релиз: следующие альфы тоже в счёт.
+    // Программа на пре-релизе видит и следующие альфы, на стабильной — только стабильные выпуски.
+    const expected = isPrerelease(VERSION) ? '0.3.0-alpha.1' : '0.2.0';
     expect(status.current).toBe(VERSION);
-    expect(status.latest?.latest).toBe('0.3.0-alpha.1');
+    expect(status.latest?.latest).toBe(expected);
     const call = (path: string, init: RequestInit = {}) =>
       app.fetch(new Request(`http://localhost/manager/api${path}`, init));
     expect(((await (await call('/session')).json()) as any).update).toBeNull();
@@ -423,7 +436,7 @@ describe('обновления', () => {
     const session = (await (
       await call('/session', { headers: { cookie } })
     ).json()) as any;
-    expect(session.update).toMatchObject({ latest: '0.3.0-alpha.1' });
+    expect(session.update).toMatchObject({ latest: expected });
     app.upkeep.updates.configure(false);
     expect(app.upkeep.updates.latest()).toBeNull();
     app.close();
@@ -508,65 +521,71 @@ describe('CMS_RELEASES_URL', () => {
     expect(list[0]?.url).toBe('');
   });
 
-  it('обновление с зеркала по https: файлы оттуда же, сумма сверена', async () => {
-    const { asked, fetch } = mirror('https://mirror.example/files');
-    const binary = installed();
-    const result = await updateProgram({
-      releases: defineReleases({
+  unixIt(
+    'обновление с зеркала по https: файлы оттуда же, сумма сверена',
+    async () => {
+      const { asked, fetch } = mirror('https://mirror.example/files');
+      const binary = installed();
+      const result = await updateProgram({
+        releases: defineReleases({
+          base: 'https://mirror.example/api',
+          repository: 'owner/eile',
+          version: '0.1.0',
+          fetch,
+        }),
+        current: '0.1.0',
+        binary,
+        standalone: true,
+        target: 'linux-x64',
+        fetch,
+      });
+      expect(result.status).toBe('updated');
+      expect(readFileSync(binary, 'utf8')).toContain('Eile 0.2.0');
+      expect(asked.map((_) => _.url)).toContain(
+        'https://mirror.example/files/cms-linux-x64.gz'
+      );
+    }
+  );
+
+  unixIt(
+    'файл выпуска по http с чужой машины — отказ до скачивания; с CMS_RELEASES_INSECURE — можно',
+    async () => {
+      const { asked, fetch } = mirror('http://mirror.lan/files');
+      const releases = defineReleases({
         base: 'https://mirror.example/api',
         repository: 'owner/eile',
         version: '0.1.0',
         fetch,
-      }),
-      current: '0.1.0',
-      binary,
-      standalone: true,
-      target: 'linux-x64',
-      fetch,
-    });
-    expect(result.status).toBe('updated');
-    expect(readFileSync(binary, 'utf8')).toContain('Eile 0.2.0');
-    expect(asked.map((_) => _.url)).toContain(
-      'https://mirror.example/files/cms-linux-x64.gz'
-    );
-  });
-
-  it('файл выпуска по http с чужой машины — отказ до скачивания; с CMS_RELEASES_INSECURE — можно', async () => {
-    const { asked, fetch } = mirror('http://mirror.lan/files');
-    const releases = defineReleases({
-      base: 'https://mirror.example/api',
-      repository: 'owner/eile',
-      version: '0.1.0',
-      fetch,
-    });
-    const binary = installed();
-    expect(
-      await codeOf(
-        updateProgram({
-          releases,
-          current: '0.1.0',
-          binary,
-          standalone: true,
-          target: 'linux-x64',
-          fetch,
-        })
-      )
-    ).toBe('upkeep.insecure_download');
-    expect(asked.some((_) => _.url.startsWith('http://mirror.lan'))).toBe(
-      false
-    );
-    expect(readFileSync(binary, 'utf8')).toBe('old');
-    const allowed = await updateProgram({
-      releases,
-      current: '0.1.0',
-      binary,
-      standalone: true,
-      target: 'linux-x64',
-      fetch,
-      insecure: true,
-    });
-    expect(allowed.status).toBe('updated');
-  });
+      });
+      const binary = installed();
+      expect(
+        await codeOf(
+          updateProgram({
+            releases,
+            current: '0.1.0',
+            binary,
+            standalone: true,
+            target: 'linux-x64',
+            fetch,
+          })
+        )
+      ).toBe('upkeep.insecure_download');
+      expect(asked.some((_) => _.url.startsWith('http://mirror.lan'))).toBe(
+        false
+      );
+      expect(readFileSync(binary, 'utf8')).toBe('old');
+      const allowed = await updateProgram({
+        releases,
+        current: '0.1.0',
+        binary,
+        standalone: true,
+        target: 'linux-x64',
+        fetch,
+        insecure: true,
+      });
+      expect(allowed.status).toBe('updated');
+    }
+  );
 });
 
 describe('CMS_RELEASES_URL в cms update', () => {
@@ -615,7 +634,7 @@ describe('CMS_RELEASES_URL в cms update', () => {
         new URL(request.url).pathname.endsWith('/releases')
           ? Response.json([
               {
-                tag_name: 'v99.0.0-alpha.1',
+                tag_name: 'v99.0.0',
                 html_url: 'http://127.0.0.1/notes',
                 draft: false,
                 assets: [],
@@ -627,6 +646,6 @@ describe('CMS_RELEASES_URL в cms update', () => {
     const text = await run({ CMS_RELEASES_URL: `${base}/` }, ['--check']);
     server.stop(true);
     expect(text).toContain(`Релизы: ${base}`);
-    expect(text).toContain('Доступна Eile 99.0.0-alpha.1');
+    expect(text).toContain('Доступна Eile 99.0.0');
   });
 });

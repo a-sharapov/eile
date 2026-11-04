@@ -27,6 +27,34 @@ describe('HTML → Markdown', () => {
     );
   });
 
+  it('сноска на источник — [n] у слова, а не число, слипшееся с ним', () => {
+    expect(
+      htmlToMarkdown(
+        '<p>с версии 6.6<sup><a href="#source-5" aria-label="Источник 5">5</a></sup>. Степень x<sup>2</sup></p>'
+      )
+    ).toBe('с версии 6.6[5]. Степень x2');
+  });
+
+  it('таблица на ролях ARIA — таблица Markdown, оформление aria-hidden пропускается', () => {
+    const html = `<div role="table" aria-label="Сравнение">
+      <div role="row"><span role="columnheader">Тема</span><span role="columnheader">Eile</span></div>
+      <div role="rowgroup"><div role="row">
+        <div role="rowheader"><h3>Сервер</h3></div>
+        <div role="cell"><span aria-hidden="true">Eile</span><p>Один файл | база</p></div>
+      </div></div></div>`;
+    expect(htmlToMarkdown(html)).toBe(
+      '| Тема | Eile |\n| --- | --- |\n| Сервер | Один файл \\| база |'
+    );
+  });
+
+  it('врезка role="note" — цитата, окно в aria-hidden — не текст', () => {
+    expect(
+      htmlToMarkdown(
+        '<div class="callout tip" role="note"><p>Совет</p><p>Держите копию.</p></div><div aria-hidden="true">Eile — Менеджер</div><p>Дальше</p>'
+      )
+    ).toBe('> Совет\n>\n> Держите копию.\n\nДальше');
+  });
+
   it('незакрытые теги и голый текст не ломают разбор', () => {
     expect(htmlToMarkdown('Просто текст<p>абзац<p>ещё')).toBe(
       'Просто текст\n\nабзац\n\nещё'

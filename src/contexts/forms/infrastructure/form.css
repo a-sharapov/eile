@@ -158,6 +158,20 @@
   color: var(--t-on-accent, #fff);
 }
 
+/* Строка защиты от спама: тихая, как подсказка; высота строки занята сразу — текст появится без сдвига. */
+:where(.cms-form) :where(.cms-form-proof) {
+  min-height: 1.5em;
+  margin: -0.5rem 0 0;
+  color: var(--t-muted, #5b6472);
+  font-size: 0.8125em;
+  line-height: 1.5;
+}
+
+:where(.cms-form) :where(.cms-form-proof[data-state="done"])::before {
+  content: "✓\00a0" / "";
+  color: var(--t-success, #2f9e44);
+}
+
 /* Ловушка для ботов: вне экрана, не в порядке Tab, не для читалок. */
 .cms-trap {
   position: absolute !important;

@@ -46,32 +46,37 @@ const _trashed = (tree: Tree, node: PageNode): boolean =>
 export var redirectPages = (
   content: ContentService,
   site: SiteService
-): SitePages => ({
-  at: (path) =>
-    ((page) => page && { id: page.id, title: page.longTitle || page.title })(
-      path === '/'
-        ? ((home) => (home === null ? null : content.published.page(home)))(
-            site.settings.get().homePageId
-          )
-        : content.published.byPath(path)
-    ),
-  under: (base) =>
-    ((tree) =>
-      tree.nodes.filter(
-        (_) => _live(tree, _) && `${_pathOf(tree, _)}/`.startsWith(`${base}/`)
-      ).length)(_tree(content.drafts.tree())),
-  page: (id) =>
-    ((tree) =>
-      ((node) =>
-        node
-          ? {
-              title: node.title,
-              published: _live(tree, node),
-              trashed: _trashed(tree, node),
-            }
-          : null)(tree.byId.get(id)))(_tree(content.drafts.tree())),
-  movedFrom: content.pages.movedFrom,
-});
+): SitePages => {
+  const over = (tree: () => Tree): SitePages => ({
+    at: (path) =>
+      ((page) => page && { id: page.id, title: page.longTitle || page.title })(
+        path === '/'
+          ? ((home) => (home === null ? null : content.published.page(home)))(
+              site.settings.get().homePageId
+            )
+          : content.published.byPath(path)
+      ),
+    under: (base) =>
+      ((tree) =>
+        tree.nodes.filter(
+          (_) => _live(tree, _) && `${_pathOf(tree, _)}/`.startsWith(`${base}/`)
+        ).length)(tree()),
+    page: (id) =>
+      ((tree) =>
+        ((node) =>
+          node
+            ? {
+                title: node.title,
+                published: _live(tree, node),
+                trashed: _trashed(tree, node),
+              }
+            : null)(tree.byId.get(id)))(tree()),
+    movedFrom: content.pages.movedFrom,
+    snapshot: () =>
+      ((fixed) => over(() => fixed))(_tree(content.drafts.tree())),
+  });
+  return over(() => _tree(content.drafts.tree()));
+};
 
 const _IMPORT = /from\s+['"]\$components\/([A-Za-z0-9]+)['"]/g;
 // Список детей: `listing(`, `children(` с includeHidden или компонент набора, который это делает.

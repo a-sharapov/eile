@@ -132,7 +132,16 @@ describe('cms new', () => {
     expect(app.design.elements.get('template', 'Post')).not.toBeNull();
     app.close();
     expect(RUN.new!(context(['blog'], db))).rejects.toThrow('уже есть сайт');
-    expect(RUN.new!(context(['wiki'], db))).rejects.toThrow('Нет каркаса');
+    // Имени нет среди встроенных — cms ищет официальный пакет в своём выпуске; лента здесь без сети.
+    const feed = () =>
+      Promise.resolve(
+        Response.json([
+          { tag_name: 'v0.0.1', html_url: '', draft: false, assets: [] },
+        ])
+      );
+    expect(RUN.new!({ ...context(['wiki'], db), fetch: feed })).rejects.toThrow(
+      'Нет каркаса'
+    );
   });
 });
 
@@ -140,61 +149,63 @@ describe('cms new', () => {
 // И следы русского сайта без кириллицы: рубль и ёлочки.
 const _CYRILLIC = /[А-Яа-яЁё₽«»]/;
 
-describe.each(SCAFFOLDS_EN.map((_) => [_.name, _] as const))(
-  'каркас %s по-английски',
-  (name, scaffold) => {
-    it('сайт английский: страницы, элементы, формы, поля, настройки и готовый HTML', async () => {
-      const app = createApp({ scaffold });
-      const russian = SCAFFOLDS.find((_) => _.name === name)!;
-      expect(app.site.settings.get().language).toBe('en');
-      const tree = app.content.drafts.tree();
-      const twin = createApp({ scaffold: russian });
-      // То же дерево: страниц столько же, шаблоны те же.
-      expect(tree.map((_) => _.template)).toEqual(
-        twin.content.drafts.tree().map((_) => _.template)
-      );
-      twin.close();
-      const texts = [
-        app.site.settings.get().name,
-        app.site.settings.get().description,
-        scaffold.title,
-        scaffold.summary,
-        ...app.design.elements
-          .list()
-          .map((_) => app.design.elements.get(_.kind, _.name)!.source),
-        ...tree.map((_) =>
-          ((page) =>
-            [
-              page.title,
-              page.longTitle,
-              page.menuTitle,
-              page.description,
-              page.introText,
-              page.alias,
-              page.content,
-              JSON.stringify(page.fields),
-            ].join('\n'))(app.content.drafts.page(_.id))
-        ),
-        ...app.forms.forms
-          .list()
-          .map((_) => JSON.stringify(app.forms.forms.get(_.name))),
-        ...app.content.fields.list().map((_) => JSON.stringify(_)),
-        JSON.stringify(app.site.customSettings.list()),
-      ];
-      expect(texts.filter((_) => _CYRILLIC.test(_ ?? ''))).toEqual([]);
-      const home = app.site.settings.get().homePageId;
-      for (const page of tree.filter((_) => _.published && _.kind === 'page')) {
-        const path =
-          page.id === home ? '/' : app.content.drafts.view(page.id)!.path;
-        const response = await get(app, path);
-        const html = await response.text();
-        expect([path, response.status]).toEqual([path, 200]);
-        expect([path, html.match(_CYRILLIC)?.index ?? null]).toEqual([
-          path,
-          null,
-        ]);
-      }
-      app.close();
-    });
-  }
-);
+// Каркас для одного рынка (kuechenstudio — немецкий) не переводится: он один в обоих списках.
+describe.each(
+  SCAFFOLDS_EN.filter((_) => _.language === 'en').map(
+    (_) => [_.name, _] as const
+  )
+)('каркас %s по-английски', (name, scaffold) => {
+  it('сайт английский: страницы, элементы, формы, поля, настройки и готовый HTML', async () => {
+    const app = createApp({ scaffold });
+    const russian = SCAFFOLDS.find((_) => _.name === name)!;
+    expect(app.site.settings.get().language).toBe('en');
+    const tree = app.content.drafts.tree();
+    const twin = createApp({ scaffold: russian });
+    // То же дерево: страниц столько же, шаблоны те же.
+    expect(tree.map((_) => _.template)).toEqual(
+      twin.content.drafts.tree().map((_) => _.template)
+    );
+    twin.close();
+    const texts = [
+      app.site.settings.get().name,
+      app.site.settings.get().description,
+      scaffold.title,
+      scaffold.summary,
+      ...app.design.elements
+        .list()
+        .map((_) => app.design.elements.get(_.kind, _.name)!.source),
+      ...tree.map((_) =>
+        ((page) =>
+          [
+            page.title,
+            page.longTitle,
+            page.menuTitle,
+            page.description,
+            page.introText,
+            page.alias,
+            page.content,
+            JSON.stringify(page.fields),
+          ].join('\n'))(app.content.drafts.page(_.id))
+      ),
+      ...app.forms.forms
+        .list()
+        .map((_) => JSON.stringify(app.forms.forms.get(_.name))),
+      ...app.content.fields.list().map((_) => JSON.stringify(_)),
+      JSON.stringify(app.site.customSettings.list()),
+    ];
+    expect(texts.filter((_) => _CYRILLIC.test(_ ?? ''))).toEqual([]);
+    const home = app.site.settings.get().homePageId;
+    for (const page of tree.filter((_) => _.published && _.kind === 'page')) {
+      const path =
+        page.id === home ? '/' : app.content.drafts.view(page.id)!.path;
+      const response = await get(app, path);
+      const html = await response.text();
+      expect([path, response.status]).toEqual([path, 200]);
+      expect([path, html.match(_CYRILLIC)?.index ?? null]).toEqual([
+        path,
+        null,
+      ]);
+    }
+    app.close();
+  });
+});

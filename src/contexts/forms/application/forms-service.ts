@@ -28,6 +28,7 @@ import type {
   FormMarkup,
   FormRepository,
   InboxStats,
+  Proofs,
   Stamps,
   SubmissionFile,
   SubmissionQuery,
@@ -36,6 +37,13 @@ import type {
   WebhookPost,
   WebhookRepository,
 } from '../domain/ports.ts';
+import {
+  challengeText,
+  NO_SCRIPT_FIELD,
+  PROOF_FIELD,
+  type ProofCheck,
+  parseSolution,
+} from '../domain/proof.ts';
 import {
   assertLabels,
   checkValues,
@@ -101,6 +109,7 @@ export type FormsPorts = {
   readonly files: FileRepository;
   readonly markup: FormMarkup;
   readonly stamps: Stamps;
+  readonly proofs: Proofs;
   readonly bus: EventBus;
   readonly clock: () => Date;
   readonly site: () => {
@@ -160,7 +169,10 @@ export type SubmitInput = {
   readonly cookie?: (name: string) => string | null;
 };
 
-/** sent — принята (или тихо отброшена ловушкой), invalid — ошибки полей, stale — нужна новая печать, wait — не сейчас. */
+/**
+ * sent — принята (или тихо отброшена ловушкой), invalid — ошибки полей, stale — нужна новая печать (и задача
+ * защиты, если она у формы есть), wait — не сейчас.
+ */
 export type SubmitResult = { readonly back: string } & (
   | {
       readonly kind: 'sent';
@@ -177,6 +189,8 @@ export type SubmitResult = { readonly back: string } & (
       readonly kind: 'stale';
       readonly message: string;
       readonly stamp: { readonly token: string; readonly iat: number };
+      /** Задача, привязанная к печати из ответа; null — защита выключена. */
+      readonly proof: string | null;
     }
   | { readonly kind: 'wait'; readonly message: string }
   | { readonly kind: 'missing' }
@@ -242,6 +256,7 @@ export var defineFormsService = ({
   files,
   markup,
   stamps,
+  proofs,
   bus,
   clock,
   site,
@@ -281,6 +296,42 @@ export var defineFormsService = ({
 
   const publish = (events: readonly FormsEvent[]): void =>
     events.forEach((_) => void bus.publish(_ as FormsEvent & DomainEvent));
+
+  // Печать и задача защиты, подписанная вместе с ней: решение одной печати к другой не подходит. Без печати —
+  // новая; с действующей — новая задача к ней же, и время заполнения считается от прежнего показа.
+  const issue = (
+    form: Form,
+    stamp: { readonly token: string; readonly iat: number } = stamps.issue(
+      form.name
+    )
+  ) => ({
+    stamp,
+    proof:
+      form.proof === 'off'
+        ? null
+        : challengeText(proofs.issue(form.name, stamp.token, form.proof)),
+  });
+
+  // Решение из `_proof`. Пусто, а `<noscript>` прислал метку, — браузер без JS; пусто без метки — скрипт
+  // формы не отработал (старая вкладка, задача ещё не выдана). Защита выключена — проверять нечего.
+  const proofOf = (
+    form: Form,
+    input: SubmitInput,
+    token: string
+  ): ProofCheck =>
+    form.proof === 'off'
+      ? 'valid'
+      : ((raw) =>
+          raw === ''
+            ? _first(input.fields, NO_SCRIPT_FIELD) === '1'
+              ? 'nojs'
+              : 'missing'
+            : ((solution) =>
+                solution === null
+                  ? 'invalid'
+                  : proofs.verify(form.name, token, solution))(
+                parseSolution(raw)
+              ))(_first(input.fields, PROOF_FIELD));
 
   // Поля сохраняемой формы: служебную cookie CMS не взять в поле, подписи скрытых полей — `значение=подпись`,
   // письму отправителю нужно поле адреса.
@@ -424,11 +475,13 @@ export var defineFormsService = ({
       kick())
     );
 
+  // `unproven` — без доказательства работы из браузера без JS: заявка сохраняется спамом, ничего не теряется.
   const accept = (
     form: Form,
     input: SubmitInput,
     page: FormPage | null,
-    values: Value[]
+    values: Value[],
+    unproven: boolean
   ): SubmitResult => {
     const back = page?.path ?? '/';
     const fields = fieldsOf(form);
@@ -440,10 +493,12 @@ export var defineFormsService = ({
     );
     const final = withServerValues(fields, values, context);
     // Имя файла вроде «site.com.pdf» — не ссылка: файлы фильтр спама не смотрит.
-    const spam = looksLikeSpam(
-      final.filter((_) => _.kind !== 'file'),
-      form.allowLinks
-    );
+    const spam =
+      unproven ||
+      looksLikeSpam(
+        final.filter((_) => _.kind !== 'file'),
+        form.allowLinks
+      );
     const submission = {
       form: form.name,
       formTitle: form.title,
@@ -454,6 +509,7 @@ export var defineFormsService = ({
         url: page ? `${site().url}${page.path}` : '',
         referrer: _first(input.fields, '_ref').slice(0, 500),
         utm: parseUtm(_first(input.fields, '_utm')),
+        ...(unproven ? { proof: 'missing' as const } : {}),
       },
       // IPv4 за двойным стеком приходит как ::ffff:1.2.3.4 — храним привычный вид.
       ip: input.ip.replace(/^::ffff:/i, ''),
@@ -544,35 +600,47 @@ export var defineFormsService = ({
     const checked = form
       ? checkValues(fieldsOf(form), input.fields, language, input.files)
       : null;
+    const proof = form ? proofOf(form, input, token) : 'missing';
     return form === null || checked === null
       ? { kind: 'missing', back }
       : // Ловушку заполняют только боты: им — успех, в базу — ничего.
         _first(input.fields, HONEYPOT) !== ''
         ? sent(form, back)
-        : !stamps.valid(form.name, token, iat)
-          ? {
-              kind: 'stale',
-              back,
-              message: messages.stale,
-              stamp: stamps.issue(form.name),
-            }
-          : clock().getTime() - iat < form.minSeconds * 1000
-            ? { kind: 'wait', back, message: messages.fast }
-            : limited(`${input.ip}|${form.name}`)
-              ? { kind: 'wait', back, message: messages.many }
-              : Object.keys(checked.errors).length > 0
-                ? {
-                    kind: 'invalid',
-                    back,
-                    message: messages.invalid,
-                    errors: checked.errors,
-                  }
-                : !stamps.spend(token) ||
-                    duplicate(
-                      `${form.name}|${input.ip}|${JSON.stringify(checked.values)}`
-                    )
-                  ? sent(form, back)
-                  : accept(form, input, page, checked.values);
+        : !stamps.valid(form.name, token, iat) || proof === 'expired'
+          ? { kind: 'stale', back, message: messages.stale, ...issue(form) }
+          : // Неверное решение присылает только не наш скрипт, а без решения — не отработавший: отказ с новой
+            // задачей, скрипт формы решит её и отправит ещё раз. В базу — ничего.
+            proof === 'invalid' || proof === 'missing'
+            ? {
+                kind: 'stale',
+                back,
+                message: messages.proof,
+                ...issue(form, { token, iat }),
+              }
+            : clock().getTime() - iat < form.minSeconds * 1000
+              ? { kind: 'wait', back, message: messages.fast }
+              : limited(`${input.ip}|${form.name}`)
+                ? { kind: 'wait', back, message: messages.many }
+                : Object.keys(checked.errors).length > 0
+                  ? {
+                      kind: 'invalid',
+                      back,
+                      message: messages.invalid,
+                      errors: checked.errors,
+                    }
+                  : // Повтор той же печатью (и тем же решением) — тот же успех без второй записи.
+                    !stamps.spend(token) ||
+                      duplicate(
+                        `${form.name}|${input.ip}|${JSON.stringify(checked.values)}`
+                      )
+                    ? sent(form, back)
+                    : accept(
+                        form,
+                        input,
+                        page,
+                        checked.values,
+                        proof === 'nojs'
+                      );
   };
 
   /** Форма для одного посетителя: свежая печать, скрытые поля по источникам, флеш после отправки без JS. */
@@ -592,7 +660,7 @@ export var defineFormsService = ({
       ? { head: '', body: '' }
       : request.query.sent === name
         ? { head: markup.head, body: markup.sent(name, form.successText) }
-        : {
+        : ((fresh) => ({
             head: markup.head,
             body: markup.render({
               name: form.name,
@@ -601,7 +669,8 @@ export var defineFormsService = ({
               goal: form.goal,
               action: `/_cms/forms/${form.name}`,
               pageId: page?.id ?? null,
-              stamp: stamps.issue(form.name),
+              stamp: fresh.stamp,
+              proof: fresh.proof,
               utm: utmText(utmOf(request.query)),
               referrer: referrer.slice(0, 500),
               message: flash?.message ?? null,
@@ -614,7 +683,7 @@ export var defineFormsService = ({
               ),
               texts: formTextsFor(page?.language || site().language),
             }),
-          };
+          }))(issue(form));
   };
 
   const load = (id: number): Submission =>
@@ -765,6 +834,7 @@ export var defineFormsService = ({
           action: '#',
           pageId: null,
           stamp: { token: '', iat: 0 },
+          proof: null,
           utm: '',
           referrer: '',
           message: null,

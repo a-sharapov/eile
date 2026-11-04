@@ -7,6 +7,7 @@ import {
   type FormsPorts,
 } from './application/forms-service.ts';
 import { htmlMarkup } from './infrastructure/html-markup.ts';
+import { defineProofs } from './infrastructure/proofs.ts';
 import {
   defineFileRepository,
   defineFormRepository,
@@ -36,6 +37,7 @@ export type {
   Webhook,
 } from './domain/form.ts';
 export type { InboxStats, SubmissionQuery } from './domain/ports.ts';
+export type { ProofLevel } from './domain/proof.ts';
 export type { FieldSpec, Value } from './domain/schema.ts';
 export type { SourceChoice } from './domain/sources.ts';
 export type {
@@ -86,12 +88,14 @@ export var defineForms = ({
   report: Report;
 }) => {
   let kick = (): void => undefined;
+  const stampSecret = defineSecret(db);
   const service = defineFormsService({
     forms: defineFormRepository(db),
     submissions: defineSubmissionRepository(db),
     files: defineFileRepository(db),
     markup: htmlMarkup,
-    stamps: defineStamps(defineSecret(db), clock),
+    stamps: defineStamps(stampSecret, clock),
+    proofs: defineProofs(stampSecret, clock),
     bus,
     clock,
     site,

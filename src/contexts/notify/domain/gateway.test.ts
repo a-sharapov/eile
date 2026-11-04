@@ -199,8 +199,8 @@ describe('отправитель', () => {
 
   it('чужой адрес заменяется отправителем сайта, имя клиента остаётся', () => {
     expect(
-      senderOf({ name: 'Kuechenly', address: 'ceo@bank.example' }, _OWN, [])
-    ).toEqual({ address: 'site@example.com', name: 'Kuechenly' });
+      senderOf({ name: 'Muehlenhof', address: 'ceo@bank.example' }, _OWN, [])
+    ).toEqual({ address: 'site@example.com', name: 'Muehlenhof' });
   });
 
   it('разрешённый адрес и свой — как прислал клиент, регистр не важен', () => {
@@ -251,14 +251,14 @@ describe('вложения', () => {
         filename: 'logo.png',
         contentType: 'image/png',
         contentBase64: base64('png'),
-        contentId: '<logo@kuechenly>',
+        contentId: '<logo@muehlenhof>',
         inline: true,
       },
       { filename: 'a.png', content: 'x', content_id: 'a' },
       { filename: 'b.png', content: 'x', contentId: 'b', inline: false },
     ]);
     expect(files.map((_) => [_.contentId, _.inline])).toEqual([
-      ['logo@kuechenly', true],
+      ['logo@muehlenhof', true],
       ['a', true],
       ['b', false],
     ]);

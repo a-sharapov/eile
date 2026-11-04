@@ -46,3 +46,9 @@ export var promptHidden = (
     stdin.resume();
     stdin.on('data', onData);
   });
+
+/**
+ * Всё, что пришло в stdin. Через поток, а не `Bun.stdin.text()`: на Windows тот не держит цикл событий,
+ * и процесс выходил с кодом 0, не дочитав и ничего не сделав (ADR 0049).
+ */
+export var readStdin = (): Response => new Response(Bun.stdin.stream());

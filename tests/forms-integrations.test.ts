@@ -4,6 +4,7 @@ import { type App, createApp } from '../src/app.ts';
 import { defineAgentSession } from '../src/contexts/manager/index.ts';
 import type { Message, Transports } from '../src/contexts/notify/index.ts';
 import { DEMO } from './fixtures/demo.ts';
+import { proofOf } from './fixtures/proof.ts';
 
 // Заказ B2B на немецком сайте: письмо заказчику, код партнёра из cookie, передача заказа во внешний сервис.
 
@@ -79,10 +80,12 @@ afterEach(() => app.close());
 const get = (path: string, headers: Record<string, string> = {}) =>
   app.fetch(new Request(`https://site.test${path}`, { headers }));
 
+// Печать и решение задачи защиты первой формы страницы — как их пришлёт скрипт формы.
 const stampOf = (html: string) => ({
   _stamp: [/name="_stamp" value="([^"]+)"/.exec(html)![1]!],
   _iat: [/name="_iat" value="([^"]+)"/.exec(html)![1]!],
   _page: [String(page)],
+  ...proofOf(html),
 });
 
 const post = (
@@ -168,6 +171,9 @@ describe('немецкий сайт', () => {
           _stamp: stamp._stamp[0]!,
           _iat: stamp._iat[0]!,
           _page: String(page),
+          // Браузер без JS: решения нет, метку присылает <noscript>.
+          _proof: '',
+          _nojs: '1',
           name: '',
           mail: 'x',
         }),
@@ -187,7 +193,7 @@ describe('письмо отправителю', () => {
     app.forms.forms.save('order', {
       confirmation: {
         enabled: true,
-        subject: 'Ihre {form} bei Küchenly',
+        subject: 'Ihre {form} bei Mühlenhof',
         text: 'Guten Tag {name},\nvielen Dank für Ihre Bestellung.',
       },
     });
@@ -204,7 +210,7 @@ describe('письмо отправителю', () => {
     expect(letters).toHaveLength(1);
     expect(letters[0]!.to).toEqual(['anna@example.com']);
     expect(letters[0]!.item).toMatchObject({
-      title: 'Ihre Bestellung bei Küchenly',
+      title: 'Ihre Bestellung bei Mühlenhof',
       text: 'Guten Tag Anna Schmidt,\nvielen Dank für Ihre Bestellung.',
       replyTo: null,
     });

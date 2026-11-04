@@ -17,9 +17,11 @@ export type {
   UploadContent,
 } from './application/media-service.ts';
 export {
+  contentTypeOf,
   MAX_MEDIA_SIZE,
   type MediaEvent,
   type MediaFile,
+  parseMediaPath,
   stemOf,
 } from './domain/media.ts';
 export type { ImageResizer, MediaCache } from './domain/ports.ts';

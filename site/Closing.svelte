@@ -1,5 +1,5 @@
 <!-- @component
-Призыв в конце страницы: установка и честная пометка про альфу.
+Призыв в конце страницы: заголовок на ступень меньше героя, одна строка о главном и установка.
 -->
 <script lang="ts">
 import Install from '$components/Install';
@@ -8,9 +8,10 @@ import { site } from '$core';
 const t = site().i18n;
 </script>
 
-<section class="closing" id="download">
+<section class="closing" id="download" aria-labelledby="closing-title">
+  <h2 id="closing-title">{t.closeTitle}</h2>
+  <p class="recap">{t.closeRecap}</p>
   <Install />
-  <p class="alpha">{t.closeAlpha}</p>
 </section>
 
 <style>
@@ -29,10 +30,23 @@ const t = site().i18n;
     text-align: center;
   }
 
-  .alpha {
-    max-width: 34rem;
-    margin: 2rem 0 0;
-    color: var(--faint);
-    font-size: 0.875rem;
+  /* Рисунок заголовка героя, на ступень меньше. */
+  h2 {
+    max-width: 18ch;
+    margin: 0;
+    font: 700 clamp(2.25rem, 1.4rem + 3vw, 3.75rem) / 1.04 var(--display);
+    font-variation-settings: 'SHRP' 100;
+    letter-spacing: -0.035em;
+    text-wrap: balance;
+    overflow-wrap: anywhere;
+  }
+
+  .recap {
+    max-width: 38rem;
+    margin: 1.1rem 0 2rem;
+    color: var(--muted);
+    font-size: clamp(1.0625rem, 1rem + 0.3vw, 1.25rem);
+    line-height: 1.55;
+    text-wrap: pretty;
   }
 </style>

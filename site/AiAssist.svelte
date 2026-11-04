@@ -1,5 +1,5 @@
 <!-- @component
-ИИ-помощник: настоящее окно запроса в редакторе шаблона, три шага и что он умеет.
+ИИ-помощник: настоящее окно запроса в редакторе шаблона, три шага, что он умеет и как подключаются агенты.
 -->
 <script lang="ts">
 import Shot from '$components/Shot';
@@ -14,13 +14,18 @@ const facts = [
   [t.aiWrites, t.aiWritesText],
   [t.aiKnows, t.aiKnowsText],
   [t.aiModel, t.aiModelText],
-  [t.aiRules, t.aiRulesText],
+  [t.aiAgents, t.aiAgentsText],
 ];
 </script>
 
 <div class="ai">
   <figure class="screen">
-    <Shot name={shot} alt={t.aiShot} sizes="(min-width: 80rem) 44rem, calc(100vw - 2.5rem)" />
+    <Shot
+      name={shot}
+      alt={t.aiShot}
+      title={t.winManager}
+      sizes="(min-width: 80rem) 43rem, (min-width: 60rem) calc(54.6vw - 1.2rem), calc(94vw - 1rem)"
+    />
   </figure>
   <div class="how">
     <ol class="steps">
@@ -53,6 +58,7 @@ const facts = [
 
   .steps {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 0.9rem;
     margin: 0 0 2.25rem;
     padding: 0;

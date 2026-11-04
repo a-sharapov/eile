@@ -23,13 +23,18 @@ export type Translation = {
   readonly values: Readonly<Record<string, string>>;
 };
 
-/** Своя настройка: значение, которое `[@key]` подставляет в шаблоны и контент. */
+/**
+ * Своя настройка: значение, которое `[@key]` подставляет в шаблоны и контент. Пояснение — для людей в
+ * менеджере: что это за значение и где его взять; на сайт оно не попадает.
+ */
 export type CustomSetting = {
   readonly key: DictionaryKey;
   readonly value: string;
+  readonly note: string;
 };
 
 const _MAX_VALUE = 10_000;
+const _MAX_NOTE = 500;
 
 export var createTranslation = (
   key: string,
@@ -53,10 +58,28 @@ export var createTranslation = (
   ),
 });
 
-export var createCustomSetting = (key: string, value: unknown): CustomSetting =>
+// Пояснение — одна строка: менеджер показывает его под ключом.
+const _note = (key: string, note: unknown): string =>
+  ((text) =>
+    text.length <= _MAX_NOTE
+      ? text
+      : fail(
+          'site.invalid_setting',
+          `Note of setting "${key}" is over ${_MAX_NOTE} characters`
+        ))(
+    String(note ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
+
+export var createCustomSetting = (
+  key: string,
+  value: unknown,
+  note: unknown = ''
+): CustomSetting =>
   ((text) =>
     text.length <= _MAX_VALUE
-      ? { key: parseKey(key), value: text }
+      ? { key: parseKey(key), value: text, note: _note(key, note) }
       : fail(
           'site.invalid_setting',
           `Setting "${key}" is over ${_MAX_VALUE} characters`

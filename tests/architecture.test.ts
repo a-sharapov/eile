@@ -32,7 +32,8 @@ const _AREAS: Record<string, Location> = {
 };
 
 const locate = (path: string): Location => {
-  const { 0: top, 1: context, 2: layer } = relative(SRC, path).split('/');
+  // relative на Windows пишет «\».
+  const { 0: top, 1: context, 2: layer } = relative(SRC, path).split(/[\\/]/);
   return top === 'contexts' && context && layer
     ? {
         area: 'context',

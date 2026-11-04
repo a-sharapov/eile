@@ -58,6 +58,7 @@ import {
   type IdentityService,
   type Login,
   type Permission,
+  type TokenLogin,
   type UserView,
 } from '../../identity/index.ts';
 import type { MediaService, Upload } from '../../media/index.ts';
@@ -69,6 +70,7 @@ import {
   type NotifyStatus,
 } from '../../notify/index.ts';
 import type { RedirectsService } from '../../redirects/index.ts';
+import type { Review } from '../../review/index.ts';
 import type { SiteService, SiteSettings } from '../../site/index.ts';
 import type { StatsService } from '../../stats/index.ts';
 import type { UpkeepService } from '../../upkeep/index.ts';
@@ -81,7 +83,15 @@ import {
 import { inertType, isHtmlType } from '../domain/content-policy.ts';
 import { sanitizeHtml } from '../infrastructure/html-sanitizer.ts';
 import type { ToolRequest } from './agent-tools.ts';
-import { defineAgentSession, defineToolbox, type Toolbox } from './toolbox.ts';
+import { API_HEADERS, apiError, json } from './responses.ts';
+import { type Operations, reviewApi } from './review-api.ts';
+import {
+  type AgentKey,
+  type AgentSession,
+  defineAgentSession,
+  defineToolbox,
+  type Toolbox,
+} from './toolbox.ts';
 
 /** Копия сайта: снимок базы, записи текстом и восстановление — их даёт корень приложения. */
 export type SiteBackup = {
@@ -134,6 +144,8 @@ export type ManagerServices = {
   readonly redirects: RedirectsService;
   /** Статистика посещений: отчёт и настройки счёта. */
   readonly stats: Pick<StatsService, 'report' | 'settings'>;
+  /** Ссылки предпросмотра и проверка правок агентов. */
+  readonly review: Review;
   /** Диагностика сайта на языке менеджера; `again` — посчитать заново. */
   readonly diagnostics: {
     readonly report: (
@@ -160,7 +172,13 @@ type ApiServices = ManagerServices & {
   readonly activity: ActivityLog;
 };
 
-type Context = {
+/** Агент в запросе: ключ API (null у `cms mcp`) и сеанс или ключ, чьи правки копятся одним набором. */
+export type AgentChannel = {
+  readonly key: AgentKey | null;
+  readonly group: string;
+};
+
+export type Context = {
   readonly request: Request;
   /** Адрес посетителя: по нему считаются неудачные входы. */
   readonly client: string;
@@ -173,14 +191,18 @@ type Context = {
   readonly spooled: () => Promise<BodyBytes>;
   /** Запрос агента или скрипта (ключ API, инструмент): HTML от него чистится, как у редактора. */
   readonly agent: boolean;
+  /** Ключ API или сеанс MCP; у человека в менеджере и у ассистента в нём — null. */
+  readonly channel: AgentChannel | null;
+  /** Правки запроса не применяются, а предлагаются на проверку (ADR 0054). */
+  readonly reviewed: boolean;
 };
 
-type Handler = (context: Context) => Response | Promise<Response>;
+export type Handler = (context: Context) => Response | Promise<Response>;
 
 /** public — без входа; user — любой вошедший; иначе нужно право роли. */
-type Access = 'public' | 'user' | Permission;
+export type Access = 'public' | 'user' | Permission;
 
-type Route = readonly [method: string, pattern: string, Access, Handler];
+export type Route = readonly [method: string, pattern: string, Access, Handler];
 
 export var SESSION_COOKIE = 'cms_session';
 
@@ -245,6 +267,17 @@ const _STATUS: Readonly<Record<string, number>> = {
   offsite_timeout: 504,
   offsite_not_found: 404,
   no_disk_space: 507,
+  // Проверка правок: правку не предложить — запрет; цель правили после предложения — конфликт.
+  not_reviewable: 403,
+  conflict: 409,
+  apply_failed: 409,
+  not_open: 409,
+  nothing_open: 409,
+  page_published: 409,
+  page_not_in_set: 409,
+  agent_gone: 409,
+  not_agent: 403,
+  forbidden: 403,
   _: 422,
 };
 
@@ -349,11 +382,7 @@ const _mediaUpload = (body: BodyBytes, parts: readonly FormPart[]): Upload =>
           height: _number(_field(body, parts, 'height')),
         })(parts.find((_) => _.name === 'file'));
 
-// Ответы API — личные данные: ни прокси, ни браузер их не хранят.
-const _API_HEADERS = {
-  'cache-control': 'no-store',
-  'x-content-type-options': 'nosniff',
-};
+const _API_HEADERS = API_HEADERS;
 
 const _encoder = new TextEncoder();
 
@@ -376,15 +405,9 @@ const _ndjson = (
     }
   );
 
-const _json = (status: number, body: unknown, headers = {}): Response =>
-  Response.json(body, { status, headers: { ..._API_HEADERS, ...headers } });
+const _json = json;
 
-const _error = (
-  status: number,
-  code: string,
-  message: string,
-  at?: SourcePoint
-) => _json(status, { error: { code, message, at } });
+const _error = apiError;
 
 const _statusOf = (code: string): number =>
   code.endsWith('_not_found')
@@ -468,6 +491,19 @@ const _SESSION_ONLY: ReadonlySet<string> = new Set([
   'PUT /upkeep/offsite',
   'POST /upkeep/offsite/key',
   'POST /upkeep/offsite/restore',
+  // Проверку правок агентов не выключить и свои правки не принять тем же ключом, которым они предложены;
+  // ссылка предпросмотра выводит черновики наружу — её даёт только человек.
+  'PATCH /tokens/:id',
+  'PUT /review/settings',
+  // Наборы разбирают люди: агенту — только свои, через /review/mine.
+  'GET /review/sets',
+  'GET /review/sets/:id',
+  'GET /review/sets/:id/preview/:page',
+  'GET /review/links',
+  'POST /review/sets/:id/accept',
+  'POST /review/sets/:id/reject',
+  'POST /review/links',
+  'DELETE /review/links/:id',
 ]);
 
 export var sessionToken = (request: Request): string | null =>
@@ -570,10 +606,11 @@ const _routes = (
     redirects,
     diagnostics,
     stats,
+    review,
     version,
   }: ApiServices,
   toolbox: Toolbox
-): readonly Route[] => {
+) => {
   const searchOf = (request: Request) => new URL(request.url).searchParams;
   // Сброс пароля по почте — когда почта настроена и задан адрес сайта: ссылка в письме строится от него.
   const resetReady = (): boolean =>
@@ -953,7 +990,44 @@ const _routes = (
     elements: kind === 'template' ? [] : design.elements.importers(name, kind),
   });
 
-  return [
+  // Правки страниц и элементов: их зовут маршруты и принятие предложений агента (ADR 0054).
+  const ops: Operations = {
+    createPage: (actor, input, reserved) =>
+      content.pages.create(
+        guardPage(codeAllowed(actor), null, input),
+        reserved
+      ),
+    editPage: (actor, id, changes) =>
+      content.pages.edit(
+        id,
+        guardPage(codeAllowed(actor), content.drafts.page(id), changes),
+        authorOf(actor.user!)
+      ),
+    setFields: (actor, id, values) =>
+      content.pages.setFields(
+        id,
+        codeAllowed(actor) ? values : cleanFields(values),
+        authorOf(actor.user!)
+      ),
+    movePage: (id, parentId) => content.pages.move(id, parentId),
+    pageAction: (id, action) => content.pages[action](id),
+    saveElement: (kind, name, source) =>
+      design[_ELEMENT_KINDS[kind]].save(name, source),
+    guardPage,
+    cleanFields,
+  };
+
+  const reviewing = reviewApi({
+    review,
+    content,
+    design,
+    identity,
+    media,
+    activity,
+    ops,
+  });
+
+  const routes: readonly Route[] = [
     [
       'GET',
       '/session',
@@ -1192,34 +1266,36 @@ const _routes = (
       'content.edit',
       ({ user, body, request }) =>
         body().then((_: { messages?: unknown; place?: unknown }) =>
-          _ndjson((send, session = defineAgentSession()) =>
-            withQuota(user!.id, () =>
-              assistant.agent({
-                turns: _.messages,
-                user: { name: user!.name, role: user!.role },
-                language: languageOf(request),
-                place: typeof _.place === 'string' ? _.place : '',
-                tools: {
-                  specs: toolbox.list(user!).map((tool) => ({
-                    name: tool.name,
-                    description: tool.description,
-                    parameters: tool.input,
-                  })),
-                  execute: (name, args) =>
-                    ((tool) =>
-                      tool
-                        ? toolbox.run(user!, tool, args, session)
-                        : Promise.resolve({
-                            text: `Unknown tool "${name}"`,
-                            ok: false,
-                          }))(toolbox.find(name)),
-                },
-                onStep: (step) => send({ step }),
-              })
-            ).then(
-              (reply) => send({ reply }),
-              (error) => send({ error: aiError(user!)(error) })
-            )
+          // Ассистента ведёт человек в менеджере: его правки применяются сразу, проверка — для MCP и ключей.
+          _ndjson(
+            (send, session = defineAgentSession({ channel: 'assistant' })) =>
+              withQuota(user!.id, () =>
+                assistant.agent({
+                  turns: _.messages,
+                  user: { name: user!.name, role: user!.role },
+                  language: languageOf(request),
+                  place: typeof _.place === 'string' ? _.place : '',
+                  tools: {
+                    specs: toolbox.list(user!).map((tool) => ({
+                      name: tool.name,
+                      description: tool.description,
+                      parameters: tool.input,
+                    })),
+                    execute: (name, args) =>
+                      ((tool) =>
+                        tool
+                          ? toolbox.run(user!, tool, args, session)
+                          : Promise.resolve({
+                              text: `Unknown tool "${name}"`,
+                              ok: false,
+                            }))(toolbox.find(name)),
+                  },
+                  onStep: (step) => send({ step }),
+                })
+              ).then(
+                (reply) => send({ reply }),
+                (error) => send({ error: aiError(user!)(error) })
+              )
           )
         ),
     ],
@@ -1279,11 +1355,7 @@ const _routes = (
         () => 'created',
         ({ user, body, agent }) =>
           body().then((_: CreatePageInput) =>
-            _json(201, {
-              id: content.pages.create(
-                guardPage(codeAllowed({ user, agent }), null, _)
-              ),
-            })
+            _json(201, { id: ops.createPage({ user, agent }, _) })
           )
       ),
     ],
@@ -1303,17 +1375,7 @@ const _routes = (
           body().then((_: PageChanges) =>
             _json(
               200,
-              pageDetails(
-                content.pages.edit(
-                  Number(params.id),
-                  guardPage(
-                    codeAllowed({ user, agent }),
-                    content.drafts.page(Number(params.id)),
-                    _
-                  ),
-                  authorOf(user!)
-                )
-              )
+              pageDetails(ops.editPage({ user, agent }, Number(params.id), _))
             )
           )
       ),
@@ -1328,13 +1390,7 @@ const _routes = (
           body().then((_: FieldValues) =>
             _json(
               200,
-              pageDetails(
-                content.pages.setFields(
-                  Number(params.id),
-                  codeAllowed({ user, agent }) ? _ : cleanFields(_),
-                  authorOf(user!)
-                )
-              )
+              pageDetails(ops.setFields({ user, agent }, Number(params.id), _))
             )
           )
       ),
@@ -1349,9 +1405,7 @@ const _routes = (
           body().then((_: { parentId: number | null }) =>
             _json(
               200,
-              pageDetails(
-                content.pages.move(Number(params.id), _.parentId ?? null)
-              )
+              pageDetails(ops.movePage(Number(params.id), _.parentId ?? null))
             )
           )
       ),
@@ -1466,7 +1520,7 @@ const _routes = (
           const action =
             _PAGE_ACTIONS[params.action as keyof typeof _PAGE_ACTIONS];
           return action
-            ? _json(200, pageDetails(content.pages[action](Number(params.id))))
+            ? _json(200, pageDetails(ops.pageAction(Number(params.id), action)))
             : _error(
                 404,
                 'manager.not_found',
@@ -2149,7 +2203,11 @@ const _routes = (
                   'design.element_exists',
                   params.name!
                 ),
-                set.save(params.name!, String(_.source ?? '')),
+                ops.saveElement(
+                  elementKind(params.kind),
+                  params.name!,
+                  String(_.source ?? '')
+                ),
                 _json(
                   200,
                   design.elements.get(elementKind(params.kind), params.name!)
@@ -2207,9 +2265,9 @@ const _routes = (
       '/media',
       'content.edit',
       // Тип с границей — до чтения тела: у запроса из FormData Bun после чтения его уже не отдаёт.
-      ({ request, spooled }) =>
+      (context) =>
         ((type) =>
-          spooled().then((body) =>
+          context.spooled().then((body) =>
             Promise.resolve(body)
               .then(
                 pipe(
@@ -2217,12 +2275,13 @@ const _routes = (
                     _formParts(_, type) ??
                     fail('manager.invalid_form', 'Expected a multipart form'),
                   (parts) => _mediaUpload(body, parts),
+                  (_) => (reviewing.assertNewMedia(context, _.path), _),
                   (_) => media.files.save(_),
                   (_) => _json(201, _)
                 )
               )
               .finally(body.close)
-          ))(request.headers.get('content-type') ?? ''),
+          ))(context.request.headers.get('content-type') ?? ''),
     ],
     [
       'GET',
@@ -2320,8 +2379,8 @@ const _routes = (
       'site.edit',
       ({ params, body }) =>
         body().then(
-          (_: { value?: unknown }) => (
-            site.customSettings.save(params.key!, _.value ?? ''),
+          (_: { value?: unknown; note?: unknown }) => (
+            site.customSettings.save(params.key!, _.value ?? '', _.note),
             _json(200, site.customSettings.list())
           )
         ),
@@ -2349,6 +2408,23 @@ const _routes = (
       ({ user, body }) =>
         body().then((_: { name?: unknown }) =>
           _json(201, identity.apiTokens.issue(user!.id, _.name))
+        ),
+    ],
+    [
+      // Отметка ключа «правки ждут проверки» (ADR 0054): только своему ключу и только войдя в менеджер.
+      'PATCH',
+      '/tokens/:id',
+      'user',
+      ({ user, params, body }) =>
+        body().then((_: { review?: unknown }) =>
+          _json(
+            200,
+            identity.apiTokens.setReview(
+              user!.id,
+              Number(params.id),
+              _?.review === true
+            )
+          )
         ),
     ],
     [
@@ -2414,7 +2490,9 @@ const _routes = (
         identity.users.remove(Number(params.id)), _json(200, {})
       ),
     ],
+    ...reviewing.routes(() => site.settings.get().siteUrl),
   ];
+  return { routes, handlerOf: reviewing.handlerOf };
 };
 
 const _allowed = (access: Access, user: UserView | null): boolean =>
@@ -2497,24 +2575,52 @@ const _API_BASE = '/manager/api';
 /** JSON API менеджера под `/manager/api`. */
 export var defineManagerApi = (services: ApiServices) => {
   // Инструменты агента зовут те же маршруты от имени пользователя: права, чистка HTML и журнал — общие.
-  const toolbox = defineToolbox((user, request) => as(user, request));
-  const routes = _routes(services, toolbox);
+  const toolbox = defineToolbox((user, request, session) =>
+    as(user, request, session)
+  );
+  const { routes, handlerOf } = _routes(services, toolbox);
+
+  // Агент в запросе: ключ из заголовка или сеанс MCP; ассистента в менеджере ведёт человек — он не агент
+  // для проверки правок.
+  const channelOf = (
+    login: TokenLogin | null,
+    agent: AgentSession | null
+  ): AgentChannel | null =>
+    login
+      ? {
+          key: { id: login.token.id, name: login.token.name },
+          group: `key:${login.token.id}`,
+        }
+      : agent?.channel === 'mcp'
+        ? { key: agent.key, group: `session:${agent.id}` }
+        : null;
+
+  const reviewedFor = (channel: AgentChannel | null): boolean =>
+    channel !== null &&
+    services.review.required(
+      channel.key !== null &&
+        services.identity.apiTokens.reviewed(channel.key.id)
+    );
 
   const dispatch = (
     request: Request,
     path: string,
     client: string,
-    actor: UserView | null = null
+    actor: UserView | null = null,
+    agentSession: AgentSession | null = null
   ): Promise<Response> => {
     const session =
       actor === null
         ? services.identity.authenticate(sessionToken(request))
         : null;
-    const key =
+    const login =
       actor === null && session === null
-        ? services.identity.apiTokens.authenticate(bearerToken(request))
+        ? services.identity.apiTokens.login(bearerToken(request))
         : null;
+    const key = login?.user ?? null;
     const user = actor ?? session ?? key;
+    const channel = channelOf(login, agentSession);
+    const reviewed = reviewedFor(channel);
     const found = routes
       .filter(({ 0: method }) => method === request.method)
       .map((route) => ({ route, params: _match(route[1], path) }))
@@ -2553,8 +2659,16 @@ export var defineManagerApi = (services: ApiServices) => {
                     spooled: () =>
                       _spooled(buffered, limit, services.media.uploads.spool()),
                     agent: actor !== null || key !== null,
+                    channel,
+                    reviewed,
                   }),
-                  found.route[3]
+                  reviewed
+                    ? handlerOf(
+                        `${found.route[0]} ${found.route[1]}`,
+                        request.method,
+                        found.route[3]
+                      )
+                    : found.route[3]
                 )
               ))(_limitOf(found.route)).then(
               undefined,
@@ -2564,10 +2678,14 @@ export var defineManagerApi = (services: ApiServices) => {
 
   // Тот же маршрут от имени пользователя, без сеанса и cookie: так работают инструменты агента. Язык
   // ответов — английский: их читает модель.
-  const as = (user: UserView, tool: ToolRequest): Promise<Response> =>
+  const as = (
+    user: UserView,
+    tool: ToolRequest,
+    session: AgentSession | null = null
+  ): Promise<Response> =>
     ((request) =>
       Promise.resolve()
-        .then(() => dispatch(request, tool.path, '', user))
+        .then(() => dispatch(request, tool.path, '', user, session))
         .then(undefined, _failure(services.report, request, '')))(
       new Request(
         `${services.site.settings.get().siteUrl.replace(/\/$/, '') || 'http://localhost'}${_API_BASE}${tool.path}${tool.query && Object.keys(tool.query).length > 0 ? `?${new URLSearchParams(tool.query)}` : ''}`,
@@ -2601,6 +2719,9 @@ export var defineManagerApi = (services: ApiServices) => {
             .then(() => dispatch(request, path, client))
             .then(undefined, _failure(services.report, request, client)),
     toolbox,
+    /** Ждут ли правки сеанса MCP проверки: так агент узнаёт о режиме в instructions. */
+    reviewed: (session: AgentSession): boolean =>
+      reviewedFor(channelOf(null, session)),
   };
 };
 

@@ -50,11 +50,13 @@ export {
 } from './application/component-runtime.ts';
 export type {
   EditBar,
+  LoadedView,
   PageCacheStats,
   PageViews,
   RedirectRules,
   SearchHit,
   SiteSearch,
+  TemplateViews,
 } from './application/ports.ts';
 export {
   defineRenderScope,
@@ -199,7 +201,7 @@ export var defineDelivery = ({
     () => settings().pageCacheMb * 1024 * 1024
   );
   bus.onAny(_invalidate(cache));
-  const delivery = definePageDelivery({
+  const ports = {
     content,
     settings,
     dictionary,
@@ -213,7 +215,8 @@ export var defineDelivery = ({
     modules,
     redirects,
     beacon,
-  });
+  };
+  const delivery = definePageDelivery(ports);
   // Успешные ответы страниц по кэшу — с запуска или с ручного сброса: видно, работает ли кэш. 404 от
   // ботов, перебирающих адреса, долю не портят.
   const answers = { hit: 0, miss: 0, bypass: 0 };
@@ -272,9 +275,18 @@ export var defineDelivery = ({
         stats()
       ),
     },
-    /** Ответ для предпросмотра; `contentType` — готовый заголовок, с кодировкой. */
-    preview: (page: PageView): Promise<{ body: string; contentType: string }> =>
-      delivery
+    /**
+     * Ответ для предпросмотра; `contentType` — готовый заголовок, с кодировкой. `views` — свои виды:
+     * шаблоны и компоненты из предложенных правок (ADR 0054); кэш страниц предпросмотр не трогает.
+     */
+    preview: (
+      page: PageView,
+      options: { readonly views?: TemplateViews } = {}
+    ): Promise<{ body: string; contentType: string }> =>
+      (options.views
+        ? definePageDelivery({ ...ports, views: options.views })
+        : delivery
+      )
         .preview(_previewRequest(page.path), page)
         .then((_) => ({ ..._, contentType: responseType(_.contentType) })),
   };

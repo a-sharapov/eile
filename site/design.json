@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-31T02:11:12.709Z",
+  "generatedAt": "2026-11-04T18:30:00Z",
   "title": "Design System: Eile — промо-сайт",
   "extensions": {
     "scope": "Промо-сайт (site/). Система менеджера — корневой DESIGN.md и .impeccable/design.json.",
@@ -189,7 +189,7 @@
       "faint": {
         "role": "neutral",
         "displayName": "Бледный",
-        "canonical": "#7a828c",
+        "canonical": "#687079",
         "tonalRamp": [
           "oklch(15% 0.015 255)",
           "oklch(26% 0.015 255)",
@@ -331,7 +331,7 @@
       "refersTo": "command-line",
       "description": "Команда установки с кнопкой «Копировать».",
       "html": "<div class=\"ds-cmd\"><span class=\"ds-cmd-p\">$</span><code>curl -fsSL …/install.sh | bash</code><button class=\"ds-copy\" type=\"button\">Копировать</button></div>",
-      "css": ".ds-cmd{display:inline-flex;align-items:center;gap:.25rem;padding:.3rem .3rem .3rem 1rem;border:1px solid var(--line,#e3e6eb);border-radius:.75rem;background:var(--bg,#f2f4f7)}.ds-cmd-p{color:var(--faint,#7a828c);font:500 .9375rem/1 \"JetBrains Mono\",ui-monospace,monospace}.ds-cmd code{padding:.55rem .5rem .55rem .35rem;color:var(--text,#13171c);font:400 .9375rem \"JetBrains Mono\",ui-monospace,monospace;white-space:nowrap}.ds-copy{height:2.25rem;padding:0 .75rem;border:1px solid transparent;border-radius:.5rem;background:transparent;color:var(--muted,#59616b);font:600 .8125rem/1 Onest,system-ui,sans-serif;cursor:pointer;transition:color 140ms,background 140ms}.ds-copy:hover{background:var(--canvas,#fff);color:var(--text,#13171c)}.ds-copy:focus-visible{outline:2px solid var(--fill,#2f5c96);outline-offset:2px}"
+      "css": ".ds-cmd{display:inline-flex;align-items:center;gap:.25rem;padding:.3rem .3rem .3rem 1rem;border:1px solid var(--line,#e3e6eb);border-radius:.75rem;background:var(--bg,#f2f4f7)}.ds-cmd-p{color:var(--faint,#687079);font:500 .9375rem/1 \"JetBrains Mono\",ui-monospace,monospace}.ds-cmd code{padding:.55rem .5rem .55rem .35rem;color:var(--text,#13171c);font:400 .9375rem \"JetBrains Mono\",ui-monospace,monospace;white-space:nowrap}.ds-copy{height:2.25rem;padding:0 .75rem;border:1px solid transparent;border-radius:.5rem;background:transparent;color:var(--muted,#59616b);font:600 .8125rem/1 Onest,system-ui,sans-serif;cursor:pointer;transition:color 140ms,background 140ms}.ds-copy:hover{background:var(--canvas,#fff);color:var(--text,#13171c)}.ds-copy:focus-visible{outline:2px solid var(--fill,#2f5c96);outline-offset:2px}"
     },
     {
       "name": "Навигация шапки",
@@ -342,11 +342,11 @@
       "css": ".ds-nav{display:flex;align-items:center;gap:.25rem;height:4rem;border-bottom:1px solid var(--line,#e3e6eb)}.ds-nav a{padding:.4rem .7rem;border-radius:.5rem;color:var(--muted,#59616b);font:500 .9375rem Onest,system-ui,sans-serif;text-decoration:none;transition:color 140ms,background 140ms}.ds-nav a:hover{background:var(--bg,#f2f4f7);color:var(--text,#13171c)}.ds-nav a:focus-visible{outline:2px solid var(--fill,#2f5c96);outline-offset:2px}.ds-lang{display:inline-flex;align-items:center;height:2.375rem;margin-left:auto;padding:0 .85rem;border:1px solid var(--line,#e3e6eb);border-radius:.625rem;background:var(--raised,#fff);font:600 .8125rem/1 \"JetBrains Mono\",monospace;letter-spacing:.04em}"
     },
     {
-      "name": "Бирка альфы",
+      "name": "Бирка",
       "kind": "chip",
       "refersTo": "badge-alpha",
       "description": "Пометка версии в метаданных установки.",
-      "html": "<span class=\"ds-badge\">альфа</span>",
+      "html": "<span class=\"ds-badge\">новое</span>",
       "css": ".ds-badge{padding:.1rem .45rem;border-radius:1rem;background:var(--accent-soft,#e6eefa);color:var(--accent,#2f5c96);font:600 .75rem Onest,system-ui,sans-serif}"
     },
     {
@@ -361,9 +361,9 @@
       "name": "Скриншот",
       "kind": "custom",
       "refersTo": "panel",
-      "description": "Кадр менеджера: единственное, что носит тень.",
+      "description": "Кадр менеджера внутри окна (Window): тень носит окно, у самого кадра рамки и скругления нет.",
       "html": "<div class=\"ds-shot\"></div>",
-      "css": ".ds-shot{width:100%;aspect-ratio:16/10;border:1px solid var(--line,#e3e6eb);border-radius:1.125rem;background:var(--bg,#f2f4f7);box-shadow:0 1px 2px rgb(16 28 48/.06),0 2rem 4rem -1.5rem rgb(16 36 72/.28)}"
+      "css": ".ds-shot{width:100%;aspect-ratio:16/10;background:var(--bg,#f2f4f7)}"
     },
     {
       "name": "Строка кода",
@@ -372,6 +372,22 @@
       "description": "Команда в шаге или в переносе с Evo; тёмная в обеих схемах.",
       "html": "<code class=\"ds-code\">dist/cms new blog --db site.db</code>",
       "css": ".ds-code{display:block;padding:.75rem .9rem;border-radius:.6rem;background:var(--code-bg,#12161c);color:#e6ebf1;font:400 .8125rem/1.5 \"JetBrains Mono\",monospace}"
+    },
+    {
+      "name": "Окно",
+      "kind": "custom",
+      "refersTo": "window",
+      "description": "Окно в духе KDE Plasma (Breeze) вокруг вида интерфейса: значок программы и булавка слева, заголовок по центру, свернуть, развернуть и закрыть кружком справа. Строка — aria-hidden; уже 34rem — компактная; tone=code — тёмное окно кода без тени.",
+      "html": "<div class=\"ds-win\"><div class=\"ds-win-bar\" aria-hidden=\"true\"><span class=\"ds-win-l\"><i class=\"ds-win-app\"></i><i class=\"ds-win-g\"></i></span><span class=\"ds-win-t\">Eile — Менеджер</span><span class=\"ds-win-r\"><i class=\"ds-win-g\"></i><i class=\"ds-win-g\"></i><i class=\"ds-win-x\"></i></span></div><div class=\"ds-win-body\"></div></div>",
+      "css": ".ds-win{overflow:hidden;border:1px solid var(--line-strong,#cdd2d9);border-radius:.625rem;background:var(--raised,#fff);box-shadow:0 1px 2px rgb(16 28 48/.06),0 2rem 4rem -1.5rem rgb(16 36 72/.28)}.ds-win-bar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:.75rem;height:2.125rem;padding:0 .5rem;border-bottom:1px solid var(--line-strong,#cdd2d9);background:var(--bg,#f2f4f7);color:var(--muted,#59616b)}.ds-win-l,.ds-win-r{display:flex;align-items:center;gap:.6rem}.ds-win-r{justify-content:end}.ds-win-app{width:1.125rem;height:1.125rem;border-radius:.28rem;background:var(--fill,#2f5c96)}.ds-win-t{font:500 .8125rem/1 Onest,system-ui,sans-serif;color:var(--text,#13171c);white-space:nowrap}.ds-win-g{width:1rem;height:1rem;border-bottom:1.5px solid currentColor}.ds-win-x{width:1.125rem;height:1.125rem;border:1px solid currentColor;border-radius:50%}.ds-win-body{aspect-ratio:16/10;background:var(--bg,#f2f4f7)}"
+    },
+    {
+      "name": "Пилюля кода",
+      "kind": "custom",
+      "refersTo": "code-pill",
+      "description": "Команда внутри строки текста (Rich): моноширинный на подложке из line, скругление 0.3em.",
+      "html": "<span>Обновление одно: <code class=\"ds-pill\">cms update</code></span>",
+      "css": ".ds-pill{padding:.05em .2em;border-radius:.3em;background:color-mix(in oklab,var(--line,#e3e6eb) 60%,transparent);font:500 .875em \"JetBrains Mono\",monospace}"
     }
   ],
   "narrative": {

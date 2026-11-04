@@ -361,9 +361,18 @@ const shown = $derived(
   )
 );
 
-const saveSetting = (key: string, value: string): Promise<boolean> =>
+// Пояснение уходит только из формы добавления: правка значения в таблице его не трогает.
+const saveSetting = (
+  key: string,
+  value: string,
+  note?: string
+): Promise<boolean> =>
   api
-    .send<CustomSetting[]>('PUT', `/custom-settings/${key}`, { value })
+    .send<CustomSetting[]>(
+      'PUT',
+      `/custom-settings/${key}`,
+      note === undefined ? { value } : { value, note }
+    )
     .then((_) => ((custom = _), notify(t('custom.saved')), true))
     .then(undefined, (error) => (failed(error), false));
 
@@ -390,7 +399,7 @@ const removeSetting = (key: string) =>
     )
     .then(undefined, failed);
 
-let newSetting = $state({ key: '', value: '' });
+let newSetting = $state({ key: '', value: '', note: '' });
 
 const addSetting = (event: SubmitEvent): unknown => {
   event.preventDefault();
@@ -407,11 +416,11 @@ const _addSetting = (form: HTMLFormElement) => {
   ).then(
     (ok): unknown =>
       ok &&
-      saveSetting(key, newSetting.value).then(
+      saveSetting(key, newSetting.value, newSetting.note).then(
         (kept): unknown =>
           kept &&
           freshForm(form, () => {
-            newSetting = { key: '', value: '' };
+            newSetting = { key: '', value: '', note: '' };
           }).then(() => focusOn('#new-setting-key'))
       )
   );
@@ -739,6 +748,10 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
       {t('custom.value')}
       <input bind:value={newSetting.value} />
     </label>
+    <label>
+      {t('custom.note')}
+      <input bind:value={newSetting.note} maxlength="500" placeholder={t('custom.notePlaceholder')} />
+    </label>
     <button>{@html icons.plus}{t('custom.add')}</button>
   </form>
   {#if custom.length === 0}
@@ -752,8 +765,11 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
         <tbody>
           {#each custom as row (row.key)}
             <tr>
-              <td><code>[@{row.key}]</code></td>
-              <td><input aria-label={row.key} value={row.value} onchange={(e) => saveSetting(row.key, e.currentTarget.value)} /></td>
+              <td>
+                <code>[@{row.key}]</code>
+                {#if row.note}<small class="note" id="note-{row.key}">{row.note}</small>{/if}
+              </td>
+              <td><input aria-label={row.key} aria-describedby={row.note ? `note-${row.key}` : undefined} value={row.value} onchange={(e) => saveSetting(row.key, e.currentTarget.value)} /></td>
               <td class="row-actions">
                 <button type="button" class="icon" aria-label={`${t('common.copy')}: [@${row.key}]`} title={`[@${row.key}]`} onclick={() => copy(`[@${row.key}]`)}>{@html icons.copy}</button>
                 <button type="button" class="icon danger" aria-label={`${t('custom.remove')}: ${row.key}`} title={t('custom.remove')} onclick={() => removeSetting(row.key)}>{@html icons.trash}</button>
@@ -916,6 +932,16 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
 
   td input {
     min-width: 10rem;
+  }
+
+  /* Пояснение своей настройки — под ключом, мелко: что это и где взять значение. */
+  .note {
+    display: block;
+    max-width: 28rem;
+    margin-top: 0.25rem;
+    color: var(--muted);
+    font-size: 0.8125rem;
+    line-height: 1.4;
   }
 
   /* Текст перевода виден целиком: ячейка растёт по содержимому, Enter сохраняет, Shift+Enter — перенос. */

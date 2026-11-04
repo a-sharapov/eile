@@ -23,9 +23,10 @@ CMS — **модульный монолит** в духе DDD. Каждый ог
 | `certificates` | HTTPS без прокси: сертификат Let's Encrypt по ACME, его выпуск и продление                                     | `defineCertificates` → `status`, `current`, `ensure`, `challenge`, `start`; `defineHttpListener`                                                                                                                                                                                  |
 | `search`       | Поиск по опубликованным страницам: индекс FTS5, основы слов, отрывки                                           | `defineSearch` → `search`, `reindex`, `invalidate`, `rebuild`, `warm`, `handler`                                                                                                                                                                                                  |
 | `upkeep`       | Автокопии сайта по расписанию и в хранилище S3, проверка обновлений, `cms update`, ночная уборка и сжатие базы | `defineUpkeep` → `backups.{schedule,configure,run,status}`, `offsite.{status,configure,rotate,check,store,copies,fetch,key}`, `database.{status,compact,tidy}`, `updates.{enabled,configure,check,latest,status}`, `serverSettings`, `start`; `updateProgram`, `parseReleasesUrl` |
-| `redirects`    | Правила переадресации с адресов без страниц                                                                    | `defineRedirects` → `rules.{list,create,edit,remove,import,export}`, `match`, `hit`                                                                                                                                                                                               |
-| `diagnostics`  | Быстрая проверка сайта: ссылки, страницы, медиа, настройки; проверка старых адресов                            | `defineDiagnostics` → `report`, `register`; `checkRedirects`, `readUrlSource`                                                                                                                                                                                                     |
+| `redirects`    | Правила переадресации с адресов без страниц                                                                    | `defineRedirects` → `rules.{list,create,createMany,edit,remove,import,export}`, `match`, `matchQuery`, `hit`                                                                                                                                                                      |
+| `diagnostics`  | Быстрая проверка сайта: ссылки, страницы, медиа, настройки; проверка старых адресов и домена перед переездом   | `defineDiagnostics` → `report`, `register`; `checkRedirects`, `readUrlSource`; `checkDomain`, `defineDohResolver`, `defineSystemResolver`, `planOf`                                                                                                                               |
 | `stats`        | Статистика посещений без cookie: просмотры, посетители дня, источники, цели, маячок                            | `defineStats` → `settings.{get,save}`, `report`, `view`, `submission`, `link`, `beacon`, `handle`; `defineStatsRecorder` — счётчик процесса                                                                                                                                       |
+| `review`       | Ссылки предпросмотра черновиков, проверка правок агентов: наборы, сравнение, предпросмотр, решение             | `defineReview` → `settings.{get,save}`, `required`, `propose`, `changeSets.{list,get,mine,submit,withdraw,accept,reject,overlay,pending}`, `links.{create,list,revoke,resolve}`, `preview.{render,handle}`                                                                        |
 
 Все контексты — в таблице; что дальше — [roadmap.md](roadmap.md).
 
@@ -173,7 +174,7 @@ Svelte, миграции и каркасы сайтов. `NODE_ENV` зашит �
 Minimal; готовый сайт — `cms new <каркас>` (ADR 0022). При запуске печатается
 приветствие: адреса сайта и менеджера, база, сводка по страницам и ссылка первичной настройки, пока
 пользователей нет. Остальные команды — `cms help`: `new` (сайт из каркаса), `info` (сводка по базе), `users` (список, `add`,
-`password` — когда пароль забыт), `backup`, `import-evo`. Цвет — только в терминале; `NO_COLOR` его
+`password` — когда пароль забыт), `backup`, `import-evo`, `import-wp`. Цвет — только в терминале; `NO_COLOR` его
 выключает, `FORCE_COLOR=1` включает и в трубе.
 
 ## Каталоги
@@ -182,12 +183,14 @@ Minimal; готовый сайт — `cms new <каркас>` (ADR 0022). При
 src/
   app.ts                корень композиции: создаёт базу, шину и контексты и связывает их
   main.ts               точка входа CLI: вызов → команда, ошибка → stderr и код 1
-  cli/                  команды (serve, new, info, users, backup, import-evo, service), справка, цвет, MOTD
+  cli/                  команды (serve, new, info, users, backup, import-evo, import-wp, service), справка, цвет, MOTD
+  evo-import/, wp-import/  переезд с Evo и WordPress: разбор дампа и WXR, конвертация текста, отчёт
   ambient.d.ts          типы для модулей без деклараций
   shared/kernel/        pipe, Brand, fail/DomainError, Changed/chain, DomainEvent/EventBus
   platform/             SQLite и миграции, шина событий, копии сайта (archive.ts), пути импортов модулей
   contexts/<context>/   см. «Слои внутри контекста»
-  scaffolds/            каркасы сайтов (блог, портфолио, компания, витрина, магазин) и приветствие
+  scaffolds/            каркасы сайтов (блог, портфолио, компания, витрина, магазин) и приветствие;
+                        package/ — пакеты каркасов: zip с манифестом, проверка, установка (ADR 0056)
   kit/                  набор компонентов: меню, крошки, лента, окна — ставятся в элементы сайта
 tests/                  интеграционные тесты через app.fetch и тест архитектуры; fixtures/demo.ts — демо-сайт
 ```

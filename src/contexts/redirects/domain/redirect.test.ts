@@ -3,11 +3,14 @@ import { attempt, isDomainError } from '../../../shared/kernel/errors.ts';
 import { parseCsv, rulesToCsv } from './csv.ts';
 import {
   indexRules,
+  matchQuery,
   matchRule,
   pageTarget,
   parseFrom,
   parseRule,
   parseTo,
+  prefixOf,
+  queryOf,
   type RedirectRule,
   refuseChains,
 } from './redirect.ts';
@@ -39,9 +42,17 @@ describe('адрес «откуда»', () => {
     expect(parseFrom('/старая-страница')).toBe('/старая-страница');
   });
 
-  it('отказывает адресу без слеша, с query, со звёздочкой в середине и служебным', () => {
+  it('отказывает адресу без слеша, с query без пар и у раздела, со звёздочкой в середине и служебным', () => {
     expect(code(() => parseFrom('old'))).toBe('redirects.invalid_from');
-    expect(code(() => parseFrom('/old?x=1'))).toBe('redirects.invalid_from');
+    expect(code(() => parseFrom('/old?x'))).toBe('redirects.invalid_from');
+    expect(code(() => parseFrom('/old?'))).toBe('redirects.invalid_from');
+    expect(code(() => parseFrom('/old?a=1&a=2'))).toBe(
+      'redirects.invalid_from'
+    );
+    expect(code(() => parseFrom('/old/*?x=1'))).toBe('redirects.invalid_from');
+    expect(code(() => parseFrom('/old?x=1#top'))).toBe(
+      'redirects.invalid_from'
+    );
     expect(code(() => parseFrom('/bl*og'))).toBe('redirects.invalid_from');
     expect(code(() => parseFrom('/blog*'))).toBe('redirects.invalid_from');
     expect(code(() => parseFrom('//evil.example'))).toBe(
@@ -50,6 +61,56 @@ describe('адрес «откуда»', () => {
     expect(code(() => parseFrom('/a/../b'))).toBe('redirects.invalid_from');
     expect(code(() => parseFrom('/manager/x'))).toBe('redirects.reserved');
     expect(code(() => parseFrom('/media/*'))).toBe('redirects.reserved');
+  });
+});
+
+describe('правило с query', () => {
+  it('пары сортируются по имени и раскодируются, путь приводится к виду сайта', () => {
+    expect(parseFrom('/?p=12')).toBe('/?p=12');
+    expect(parseFrom('/index.php/?page_id=5&lang=de')).toBe(
+      '/index.php?lang=de&page_id=5'
+    );
+    expect(parseFrom('/?s=k%C3%BCche')).toBe('/?s=k%C3%BCche');
+    expect(prefixOf('/?a=*')).toBeNull();
+    expect(queryOf('/?p=12')).toEqual({ path: '/', params: [['p', '12']] });
+    expect(queryOf('/old')).toBeNull();
+  });
+
+  it('подходит, если все пары есть в query; лишние параметры не мешают, больше пар — точнее', () => {
+    const index = indexRules([
+      rule(1, '/?p=12', '[~12~]'),
+      rule(2, '/?lang=en&p=12', '/en/post'),
+      rule(3, '/old', '/new'),
+    ]);
+    expect(matchQuery(index, '/', { p: '12', utm_source: 'x' })).toEqual({
+      id: 1,
+      to: '[~12~]',
+      status: 301,
+      consumed: ['p'],
+    });
+    expect(matchQuery(index, '/', { p: '12', lang: 'en' })?.id).toBe(2);
+    expect(matchQuery(index, '/', { p: '13' })).toBeNull();
+    expect(matchQuery(index, '/', { toString: 'x' })).toBeNull();
+    expect(matchQuery(index, '/old', { p: '12' })).toBeNull();
+    expect(matchRule(index, '/')).toBeNull();
+  });
+
+  it('петля — цель с теми же парами; цель без них — не петля', () => {
+    expect(
+      code(() => refuseChains(parseRule({ from: '/?p=1', to: '/' }), []))
+    ).toBeNull();
+    expect(
+      code(() =>
+        refuseChains(parseRule({ from: '/?p=1', to: '/?p=1&x=2' }), [])
+      )
+    ).toBe('redirects.loop');
+    expect(
+      code(() =>
+        refuseChains(parseRule({ from: '/a', to: '/?p=1' }), [
+          rule(1, '/?p=1', '/b'),
+        ])
+      )
+    ).toBe('redirects.chain');
   });
 });
 

@@ -61,6 +61,11 @@ export var identityMigrations: readonly Migration[] = [
       CREATE INDEX identity_api_tokens_user ON identity_api_tokens (user_id);
     `,
   },
+  {
+    // Правки ключа ждут проверки владельца (ADR 0054).
+    id: 'identity/004_api_token_review',
+    sql: 'ALTER TABLE identity_api_tokens ADD COLUMN review INTEGER NOT NULL DEFAULT 0;',
+  },
 ];
 
 /** Таблицы этого сервера, а не сайта: в копию не попадают, при восстановлении остаются свои. */
@@ -204,6 +209,7 @@ type ApiTokenRow = {
   hint: string;
   created_at: string;
   used_at: string | null;
+  review: number;
 };
 
 const _apiToken = (row: ApiTokenRow): ApiToken => ({
@@ -214,6 +220,7 @@ const _apiToken = (row: ApiTokenRow): ApiToken => ({
   hint: row.hint,
   createdAt: row.created_at,
   usedAt: row.used_at,
+  review: row.review === 1,
 });
 
 export var defineApiTokenRepository = (db: Database): ApiTokenRepository => {
@@ -223,12 +230,18 @@ export var defineApiTokenRepository = (db: Database): ApiTokenRepository => {
   const of = db.query<ApiTokenRow, [number]>(
     'SELECT * FROM identity_api_tokens WHERE user_id = ? ORDER BY id DESC'
   );
+  const byId = db.query<ApiTokenRow, [number]>(
+    'SELECT * FROM identity_api_tokens WHERE id = ?'
+  );
   const insert = db.query<
     { id: number },
-    [number, string, string, string, string]
+    [number, string, string, string, string, number]
   >(
-    `INSERT INTO identity_api_tokens (user_id, name, token_hash, hint, created_at)
-     VALUES (?, ?, ?, ?, ?) RETURNING id`
+    `INSERT INTO identity_api_tokens (user_id, name, token_hash, hint, created_at, review)
+     VALUES (?, ?, ?, ?, ?, ?) RETURNING id`
+  );
+  const review = db.query(
+    'UPDATE identity_api_tokens SET review = ? WHERE id = ? AND user_id = ?'
   );
   const touch = db.query(
     'UPDATE identity_api_tokens SET used_at = ? WHERE id = ?'
@@ -240,14 +253,18 @@ export var defineApiTokenRepository = (db: Database): ApiTokenRepository => {
     byHash: (hash) =>
       ((row) => (row ? _apiToken(row) : null))(byHash.get(hash)),
     of: (userId) => of.all(userId).map(_apiToken),
+    get: (id) => ((row) => (row ? _apiToken(row) : null))(byId.get(id)),
     add: (token) =>
       insert.get(
         token.userId,
         token.name,
         token.tokenHash,
         token.hint,
-        token.createdAt
+        token.createdAt,
+        Number(token.review)
       )!.id,
+    setReview: (id, userId, on) =>
+      review.run(Number(on), id, userId).changes > 0,
     touch: (id, at) => void touch.run(at, id),
     remove: (id, userId) => remove.run(id, userId).changes > 0,
   };

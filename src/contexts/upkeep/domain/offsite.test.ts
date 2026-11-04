@@ -23,11 +23,11 @@ describe('настройки хранилища', () => {
     expect(
       parseOffsite({
         endpoint: 'https://fra1.digitaloceanspaces.com/',
-        prefix: '/kuechenly/daily/',
+        prefix: '/muehlenhof/daily/',
       })
     ).toMatchObject({
       endpoint: 'https://fra1.digitaloceanspaces.com',
-      prefix: 'kuechenly/daily/',
+      prefix: 'muehlenhof/daily/',
     });
     expect(
       parseOffsite({ endpoint: 'https://abc.supabase.co/storage/v1/s3' })

@@ -3,6 +3,7 @@
 -->
 <script lang="ts">
 import Icon from '$components/Icon';
+import Rich from '$components/Rich';
 import { current, link, site as settings } from '$core';
 
 const site = settings();
@@ -12,7 +13,7 @@ const en = current()?.language === 'en';
 const book = link(Number(en ? c.enCookbook : c.ruCookbook));
 
 const steps = [
-  [t.startInstall, 'curl -fsSL …/install.sh | bash', t.startInstallText],
+  [t.startInstall, c.install, t.startInstallText],
   [t.startNew, 'cms new blog --db site.db', t.startNewText],
   [t.startRun, 'cms --db site.db', t.startRunText],
 ];
@@ -23,8 +24,10 @@ const steps = [
     <li>
       <span class="n" aria-hidden="true">{index + 1}</span>
       <h3>{title}</h3>
-      <code>{command}</code>
-      <p>{text}</p>
+      <!-- Строка прокручивается: фокус нужен, чтобы прокрутить её с клавиатуры. -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <code tabindex="0">{command}</code>
+      <p><Rich {text} /></p>
     </li>
   {/each}
 </ol>
@@ -51,7 +54,7 @@ const steps = [
 
   .steps {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 1.25rem;
     width: min(100% - 2 * var(--gutter), var(--wide));
     margin: 3rem auto 0;
@@ -103,7 +106,7 @@ const steps = [
 
   @media (max-width: 56rem) {
     .steps {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
     }
   }
 </style>

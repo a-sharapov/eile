@@ -1,4 +1,4 @@
-// Собирает промо-сайт Eile в отдельную базу: `bun run site [--db eile.db] [--url https://…] [--force]`.
+// Собирает промо-сайт Eile в отдельную базу: `bun run site [--db eile.db] [--url https://eile.site] [--force]`.
 // Сайт сделан на самой Eile: каркас из site/index.ts, шрифты и скриншоты — в медиатеку.
 import { resolve } from 'node:path';
 import { createApp } from '../src/app.ts';
@@ -19,7 +19,7 @@ const _value = (args: readonly string[], flag: string): string | undefined =>
 
 const _options = (args: readonly string[]): Options => ({
   db: resolve(_value(args, '--db') ?? 'eile.db'),
-  url: (_value(args, '--url') ?? '').replace(/\/+$/, ''),
+  url: (_value(args, '--url') ?? 'https://eile.site').replace(/\/+$/, ''),
   force: args.includes('--force'),
 });
 
@@ -31,46 +31,22 @@ type Asset = {
   readonly alt?: string;
 };
 
-// Скриншоты — те же, что в README: один источник правды. Для телефона — крупные кадры из них
-// (site/assets/screens): весь менеджер на 390 px не прочитать.
-const _SCREENS: readonly Asset[] = (
-  [
-    [
-      'editor',
-      'Менеджер Eile: слева дерево страниц, справа редактор записи блога',
-    ],
-    ['overview', 'Обзор сайта в менеджере: все страницы таблицей'],
-  ] as const
-).flatMap(({ 0: name, 1: alt }) =>
-  (['light', 'dark'] as const).flatMap((scheme) => [
-    {
-      path: `screens/${name}-${scheme}.webp`,
-      from: `docs/assets/manager-${name}-${scheme}.webp`,
-      widths: [960, 1440],
-      alt,
-    },
-    {
-      path: `screens/${name}-m-${scheme}.webp`,
-      from: `site/assets/screens/${name}-m-${scheme}.webp`,
-      alt,
-    },
-  ])
-);
-
-// Те же снимки по-английски: английский менеджер над сайтом студии из английского кукбука.
-const _SCREENS_EN: readonly Asset[] = (['editor', 'overview'] as const).flatMap(
-  (name) =>
+// Снимки менеджера над сайтом студии «Фасад» из кукбука — на языке главной, светлый и тёмный. Для
+// телефона — крупные кадры из них (site/assets/screens): весь менеджер на 390 px не прочитать.
+const _SCREENS: readonly Asset[] = (['ru', 'en'] as const).flatMap((lang) =>
+  (['editor', 'overview'] as const).flatMap((name) =>
     (['light', 'dark'] as const).flatMap((scheme) => [
       {
-        path: `screens/${name}-en-${scheme}.webp`,
-        from: `site/assets/screens/${name}-en-${scheme}.webp`,
+        path: `screens/${name}-${lang}-${scheme}.webp`,
+        from: `site/assets/screens/${name}-${lang}-${scheme}.webp`,
         widths: [960, 1440],
       },
       {
-        path: `screens/${name}-en-m-${scheme}.webp`,
-        from: `site/assets/screens/${name}-en-m-${scheme}.webp`,
+        path: `screens/${name}-${lang}-m-${scheme}.webp`,
+        from: `site/assets/screens/${name}-${lang}-m-${scheme}.webp`,
       },
     ])
+  )
 );
 
 // Снимки кукбука: экраны менеджера (светлый и тёмный) и страницы сайта кухонной студии (только светлые).
@@ -96,7 +72,6 @@ const _FONTS: readonly Asset[] = [
 
 const _ASSETS: readonly Asset[] = [
   ..._SCREENS,
-  ..._SCREENS_EN,
   ..._COOKBOOK,
   ..._FONTS,
   { path: 'brand/favicon.svg', from: 'manager/static/favicon.svg' },
@@ -107,8 +82,12 @@ const _ASSETS: readonly Asset[] = [
       widths: [960, 1440],
     }))
   ),
-  { path: 'video/howto-ru.mp4', from: 'site/assets/video/howto-ru.mp4' },
-  { path: 'video/howto-en.mp4', from: 'site/assets/video/howto-en.mp4' },
+  ...(['ru', 'en'] as const).flatMap((lang) =>
+    (['mp4', 'webm', 'webp'] as const).map((ext) => ({
+      path: `video/howto-${lang}.${ext}`,
+      from: `site/assets/video/howto-${lang}.${ext}`,
+    }))
+  ),
   {
     path: 'brand/og.png',
     from: 'site/assets/og.png',

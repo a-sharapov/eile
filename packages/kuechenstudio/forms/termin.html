@@ -1,0 +1,39 @@
+<fieldset class="group"><legend><span class="group-title">Ihr Wunsch</span></legend><div class="group-fields">
+<div class="field" data-field="select" data-label="Worum geht es?">
+  <label for="f-topic">Worum geht es?</label>
+  <select id="f-topic" name="topic"><option value="">Bitte wählen</option><option value="Neue Küche">Neue Küche</option><option value="Küche umbauen oder erweitern">Küche umbauen oder erweitern</option><option value="Geräte tauschen">Geräte tauschen</option><option value="Etwas anderes">Etwas anderes</option></select>
+</div>
+<div class="field" data-field="date" data-label="Wunschtermin" data-message="Bitte wählen Sie einen Tag ab heute.">
+  <label for="f-date">Wunschtermin</label>
+  <input id="f-date" name="date" type="date" data-min="today">
+  <small class="hint">Passt der Tag nicht, schlagen wir einen anderen vor.</small>
+</div>
+<div class="field" data-field="select" data-label="Tageszeit">
+  <label for="f-time">Tageszeit</label>
+  <select id="f-time" name="time"><option value="">Bitte wählen</option><option value="Vormittag">Vormittag</option><option value="Nachmittag">Nachmittag</option><option value="Egal">Egal</option></select>
+</div>
+<div class="field" data-field="textarea" data-label="Ihre Nachricht">
+  <label for="f-message">Ihre Nachricht</label>
+  <textarea id="f-message" name="message" rows="4" maxlength="2000"></textarea>
+  <small class="hint">Zum Beispiel Raumgröße, Wünsche oder Fragen</small>
+</div>
+</div></fieldset>
+<fieldset class="group"><legend><span class="group-title">Wie erreichen wir Sie?</span></legend><div class="group-fields">
+<div class="field" data-field="text" data-label="Name">
+  <label for="f-name">Name <span class="required" aria-hidden="true">*</span></label>
+  <input id="f-name" name="name" type="text" required maxlength="100" autocomplete="name">
+</div>
+<div class="field" data-field="tel" data-label="Telefon" data-message="Bitte geben Sie eine Telefonnummer mit mindestens 6 Ziffern ein, z. B. 030 1234567.">
+  <label for="f-phone">Telefon <span class="required" aria-hidden="true">*</span></label>
+  <input id="f-phone" name="phone" type="tel" required pattern="\+?[0-9 \(\)\/\-]{6,}" autocomplete="tel">
+  <small class="hint">Wir rufen an, um den Termin zu bestätigen.</small>
+</div>
+<div class="field" data-field="email" data-label="E-Mail">
+  <label for="f-email">E-Mail</label>
+  <input id="f-email" name="email" type="email" autocomplete="email">
+  <small class="hint">Wenn Sie die Bestätigung lieber per E-Mail bekommen</small>
+</div>
+</div></fieldset>
+<div class="field field-consent" data-field="consent" data-label="Ich bin einverstanden, dass meine Angaben zur Terminvereinbarung verarbeitet werden. Mehr in der Datenschutzerklärung." data-message="Bitte stimmen Sie zu, damit wir Ihre Anfrage bearbeiten und Sie anrufen dürfen.">
+  <label><input type="checkbox" name="consent" value="yes" required> Ich bin einverstanden, dass meine Angaben zur Terminvereinbarung verarbeitet werden. Mehr in der <a href="[~@{datenschutz}~]" target="_blank">Datenschutzerklärung</a>. <span class="required" aria-hidden="true">*</span></label>
+</div>

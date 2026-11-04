@@ -1,10 +1,12 @@
 import { HONEYPOT } from '../domain/form.ts';
 import type { FormMarkup, FormView } from '../domain/ports.ts';
+import { NO_SCRIPT_FIELD, PROOF_FIELD } from '../domain/proof.ts';
 import {
   FILE_LIMITS,
   type FieldKind,
   type FieldSpec,
   type FormTexts,
+  MIN_TODAY,
   type Option,
   parseLabels,
   parseShowIf,
@@ -229,7 +231,11 @@ const _field = (
         : _labelOf(first, labelsFor),
     required: group.some((_) => 'required' in _.attributes),
     pattern: attributes.pattern ?? null,
-    min: attributes.min ?? null,
+    // data-min="today" у даты: «не раньше сегодня» считается при каждой проверке, а не при сохранении формы.
+    min:
+      kind === 'date' && attributes['data-min'] === 'today'
+        ? MIN_TODAY
+        : (attributes.min ?? null),
     max: attributes.max ?? null,
     step: attributes.step ?? null,
     minLength: _number(attributes.minlength),
@@ -287,25 +293,86 @@ const _errorHtml = (prefix: string, name: string, text: string): string =>
 const _hidden = (name: string, value: string): string =>
   `<input type="hidden" name="${Bun.escapeHTML(name)}" value="${Bun.escapeHTML(value)}">`;
 
+// Подсказка поля (`.hint` в обёртке [data-field]) связана с ним всегда, а не только при ошибке: экранный
+// диктор читает её вместе с полем. Подсказка обычно стоит после поля, а HTMLRewriter идёт потоком, поэтому
+// id подсказки каждой обёртки (по порядку обёрток) находит первый проход.
+const _hintsOf = (
+  source: string,
+  prefix: string
+): readonly (string | null)[] => {
+  const found: (string | null)[] = [];
+  const open: { index: number; name: string | null; id: string | null }[] = [];
+  new HTMLRewriter()
+    .on('[data-field]', {
+      element: (el) => {
+        open.push({ index: found.length, name: null, id: null });
+        found.push(null);
+        el.onEndTag(() => {
+          const done = open.pop()!;
+          found[done.index] = done.name ? done.id : null;
+        });
+      },
+    })
+    .on('input[name], select[name], textarea[name]', {
+      element: (el) => {
+        const wrapper = open.at(-1);
+        const type = (el.getAttribute('type') ?? '').toLowerCase();
+        void (
+          wrapper &&
+          wrapper.name === null &&
+          type !== 'hidden' &&
+          (wrapper.name = decodeEntities(el.getAttribute('name')!))
+        );
+      },
+    })
+    .on('.hint', {
+      element: (el) => {
+        const wrapper = open.at(-1);
+        void (
+          wrapper &&
+          wrapper.id === null &&
+          (wrapper.id = el.getAttribute('id')
+            ? prefix + el.getAttribute('id')
+            : `${prefix}hint-${found.length - 1}`)
+        );
+      },
+    })
+    .transform(source);
+  return found;
+};
+
 // Исходник с состоянием: значения после неудачной отправки, ошибки у полей, скрытые поля, id с префиксом.
 const _filled = (view: FormView, prefix: string): string => {
   const flash = Object.keys(view.values).length > 0;
-  const wrappers: { names: Set<string> }[] = [];
+  const hints = _hintsOf(view.source, prefix);
+  let wrapperCount = 0;
+  const wrappers: {
+    names: Set<string>;
+    hint: string | null;
+    placed: boolean;
+  }[] = [];
   // Выбранные значения текущего <select> при повторном показе формы.
   let select: readonly string[] | null = null;
   const postedOf = (name: string): readonly string[] => view.values[name] ?? [];
   const describe = (el: HTMLRewriterTypes.Element, name: string): void =>
-    void (
-      view.errors[name] &&
-      (el.setAttribute('aria-invalid', 'true'),
-      el.setAttribute(
-        'aria-describedby',
-        [el.getAttribute('aria-describedby'), `${prefix}err-${name}`]
-          .filter(Boolean)
-          .join(' ')
-      ),
-      wrappers.length === 0 &&
-        el.after(_errorHtml(prefix, name, view.errors[name]!), { html: true }))
+    ((hint, error) => {
+      void (error && el.setAttribute('aria-invalid', 'true'));
+      const ids = [el.getAttribute('aria-describedby'), hint, error].filter(
+        Boolean
+      );
+      void (
+        ids.length > 0 && el.setAttribute('aria-describedby', ids.join(' '))
+      );
+      void (
+        error &&
+        wrappers.length === 0 &&
+        el.after(_errorHtml(prefix, name, view.errors[name]!), { html: true })
+      );
+    })(
+      (el.getAttribute('type') ?? '').toLowerCase() === 'hidden'
+        ? null
+        : (wrappers.at(-1)?.hint ?? null),
+      view.errors[name] ? `${prefix}err-${name}` : null
     );
   return (
     new HTMLRewriter()
@@ -321,7 +388,11 @@ const _filled = (view: FormView, prefix: string): string => {
       })
       .on('[data-field]', {
         element: (el) => {
-          const wrapper = { names: new Set<string>() };
+          const wrapper = {
+            names: new Set<string>(),
+            hint: hints[wrapperCount++] ?? null,
+            placed: false,
+          };
           wrappers.push(wrapper);
           el.onEndTag((end) => {
             wrappers.pop();
@@ -334,6 +405,18 @@ const _filled = (view: FormView, prefix: string): string => {
                   })
               );
           });
+        },
+      })
+      // Первая подсказка обёртки получает id, на который ссылаются её поля (свой id уже с префиксом).
+      .on('.hint', {
+        element: (el) => {
+          const wrapper = wrappers.at(-1);
+          void (
+            wrapper?.hint &&
+            !wrapper.placed &&
+            ((wrapper.placed = true),
+            el.getAttribute('id') || el.setAttribute('id', wrapper.hint))
+          );
         },
       })
       .on('input[name], select[name], textarea[name]', {
@@ -387,8 +470,13 @@ const _hasFiles = (source: string): boolean =>
 
 const _hasSteps = (source: string): boolean => /\bdata-step\s*=/i.test(source);
 
-// Тексты для скрипта — атрибутами формы: ошибки отправки всегда, кнопки шагов — если шаги есть.
-const _data = (texts: FormTexts, steps: boolean): string =>
+// Тексты для скрипта — атрибутами формы: ошибки отправки всегда, кнопки шагов — если шаги есть, задача
+// защиты и её строка — если защита включена.
+const _data = (
+  texts: FormTexts,
+  steps: boolean,
+  proof: string | null
+): string =>
   [
     ['failed', texts.failed],
     ['offline', texts.offline],
@@ -400,12 +488,26 @@ const _data = (texts: FormTexts, steps: boolean): string =>
           ['progress', texts.progress],
         ]
       : []),
+    ...(proof === null
+      ? []
+      : [
+          ['proof', proof],
+          ['proof-working', texts.proofWorking],
+          ['proof-done', texts.proofDone],
+        ]),
   ]
     .map(({ 0: name, 1: value }) => ` data-${name}="${Bun.escapeHTML(value!)}"`)
     .join('');
 
 // Стили форм встраиваются в каждую страницу с формой: без комментариев — короче и без чужого языка.
 const _STYLES = (styles as unknown as string).replace(/\/\*[\s\S]*?\*\//g, '');
+
+// Строка защиты — в конце формы, место под неё занято сразу: текст появится без сдвига вёрстки. Без JS
+// вместо неё — честная строка и метка `_nojs`, которую браузер со скриптами не пришлёт.
+const _proofStatus = (view: FormView): string =>
+  view.proof === null
+    ? ''
+    : `<p class="cms-form-proof" role="status" aria-live="polite"><noscript>${_hidden(NO_SCRIPT_FIELD, '1')}${Bun.escapeHTML(view.texts.proofNoScript)}</noscript></p>`;
 
 const _hasSubmit = (source: string): boolean =>
   /<button\b(?![^>]*\btype\s*=\s*["']?(?:button|reset)\b)|<input\b[^>]*\btype\s*=\s*["']?submit\b/i.test(
@@ -418,12 +520,13 @@ export var htmlMarkup: FormMarkup = {
   render: (view) => {
     const body = _filled(view, `${view.name}-`);
     return [
-      `<form class="cms-form" id="form-${Bun.escapeHTML(view.name)}" data-cms-form="${Bun.escapeHTML(view.name)}" data-goal="${Bun.escapeHTML(view.goal)}" method="post" action="${Bun.escapeHTML(view.action)}"${_hasFiles(view.source) ? ' enctype="multipart/form-data"' : ''}${_data(view.texts, _hasSteps(view.source))}>`,
+      `<form class="cms-form" id="form-${Bun.escapeHTML(view.name)}" data-cms-form="${Bun.escapeHTML(view.name)}" data-goal="${Bun.escapeHTML(view.goal)}" method="post" action="${Bun.escapeHTML(view.action)}"${_hasFiles(view.source) ? ' enctype="multipart/form-data"' : ''}${_data(view.texts, _hasSteps(view.source), view.proof)}>`,
       _hidden('_page', view.pageId === null ? '' : String(view.pageId)),
       _hidden('_stamp', view.stamp.token),
       _hidden('_iat', String(view.stamp.iat)),
       _hidden('_utm', view.utm),
       _hidden('_ref', view.referrer),
+      view.proof === null ? '' : _hidden(PROOF_FIELD, ''),
       `<div class="cms-trap" aria-hidden="true"><label>${Bun.escapeHTML(view.texts.trap)} <input name="${HONEYPOT}" tabindex="-1" autocomplete="off"></label></div>`,
       view.message
         ? `<p class="cms-form-message" role="alert">${Bun.escapeHTML(view.message)}</p>`
@@ -432,6 +535,7 @@ export var htmlMarkup: FormMarkup = {
       _hasSubmit(view.source)
         ? ''
         : `<div class="field field-submit"><button type="submit">${Bun.escapeHTML(view.submitLabel)}</button></div>`,
+      _proofStatus(view),
       '</form>',
     ].join('');
   },

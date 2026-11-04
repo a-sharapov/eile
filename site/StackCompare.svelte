@@ -34,7 +34,9 @@ const pile = t.stackPile
         <dd>{t.stackDbHas}</dd>
       </div>
     </dl>
-    <p class="foot"><code>cms backup copy.db</code> {t.stackBackup}</p>
+    <p class="foot">
+      <code>cms backup copy.db</code> {t.stackBackup} <code>cms service install --from copy.db</code>{t.stackBackupEnd}
+    </p>
   </section>
 </div>
 

@@ -53,6 +53,12 @@ export type Options = {
   readonly releasesInsecure?: boolean;
   /** `cms diagnose redirects --base <адрес>`: проверять живой сайт по сети, а не базу. */
   readonly base?: string;
+  /** `cms diagnose domain --to <IP|имя>`: куда переезжает сайт; без него — адреса этой машины. */
+  readonly to?: string;
+  /** `cms diagnose domain --resolver doh|system`: чем спрашивать DNS; по умолчанию DoH, без сети — система. */
+  readonly resolver?: string;
+  /** `cms diagnose domain --dkim-selector <имя>`: свои селекторы DKIM, можно несколько. */
+  readonly dkimSelector?: readonly string[];
   /** `cms backup|restore --server`: файл настроек сервера, а не копия сайта. */
   readonly server?: boolean;
   /** `cms backup|restore --remote`: копия в хранилище S3. */
@@ -69,6 +75,18 @@ export type Options = {
   readonly passphrase?: string;
   /** Ключ восстановления копий — из CMS_RECOVERY_KEY, для скриптов. */
   readonly recoveryKey?: string;
+  /** `cms new <пакет> --sha256 <hex>`: сумма архива пакета, которую ждут. */
+  readonly sha256?: string;
+  /** `cms new <пакет> --allow-plugins`: ставить плагины пакета — код сервера. */
+  readonly allowPlugins?: boolean;
+  /** `cms scaffold pack -o <файл>`: куда записать архив. */
+  readonly output?: string;
+  /** `cms import-wp --dry-run`: перенос на снимке базы, живая база не меняется. */
+  readonly dryRun?: boolean;
+  /** `cms import-wp --media <папка|адрес>`: откуда брать файлы вложений. */
+  readonly media?: string;
+  /** `cms import-wp --into <id>`: перенос под эту страницу, а не в пустой сайт. */
+  readonly into?: string;
 };
 
 /** Разобранная строка вызова: команда, её аргументы и параметры; или ошибка для человека. */
@@ -107,6 +125,9 @@ const _OPTIONS = {
   follow: { type: 'boolean', short: 'f' },
   'no-restart': { type: 'boolean' },
   base: { type: 'string' },
+  to: { type: 'string' },
+  resolver: { type: 'string' },
+  'dkim-selector': { type: 'string', multiple: true },
   server: { type: 'boolean' },
   remote: { type: 'boolean' },
   endpoint: { type: 'string' },
@@ -114,6 +135,12 @@ const _OPTIONS = {
   bucket: { type: 'string' },
   prefix: { type: 'string' },
   'access-key': { type: 'string' },
+  sha256: { type: 'string' },
+  'allow-plugins': { type: 'boolean' },
+  output: { type: 'string', short: 'o' },
+  'dry-run': { type: 'boolean' },
+  media: { type: 'string' },
+  into: { type: 'string' },
 } as const;
 
 // parseArgs говорит длинно: «Unknown option '--prot'…» — самое частое говорим коротко и на языке CLI.
@@ -205,6 +232,24 @@ export var parseInvocation = (argv: readonly string[], env: Env): Invocation =>
             ...(parsed.values.follow ? { follow: true } : {}),
             ...(parsed.values['no-restart'] ? { noRestart: true } : {}),
             ...(parsed.values.base ? { base: parsed.values.base } : {}),
+            ...(parsed.values.sha256 ? { sha256: parsed.values.sha256 } : {}),
+            ...(parsed.values['allow-plugins'] ? { allowPlugins: true } : {}),
+            ...(parsed.values.output ? { output: parsed.values.output } : {}),
+            ...(parsed.values['dry-run'] ? { dryRun: true } : {}),
+            ...(parsed.values.media ? { media: parsed.values.media } : {}),
+            ...(parsed.values.into ? { into: parsed.values.into } : {}),
+            ...(parsed.values.to ? { to: parsed.values.to } : {}),
+            ...(parsed.values.resolver
+              ? { resolver: parsed.values.resolver }
+              : {}),
+            ...(parsed.values['dkim-selector']
+              ? {
+                  dkimSelector: parsed.values['dkim-selector']
+                    .flatMap((_) => _.split(','))
+                    .map((_) => _.trim())
+                    .filter(Boolean),
+                }
+              : {}),
             ...(env.CMS_RELEASES_URL
               ? { releasesUrl: env.CMS_RELEASES_URL }
               : {}),

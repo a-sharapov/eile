@@ -1,6 +1,7 @@
 import type { Brand } from '../../../shared/kernel/brand.ts';
 import { type Changed, changed } from '../../../shared/kernel/changed.ts';
 import { fail } from '../../../shared/kernel/errors.ts';
+import { PROOF_DEFAULTS, type ProofLevel, parseProofLevel } from './proof.ts';
 import { parseWebhookUrl } from './webhook.ts';
 
 /** Имя формы латиницей: в теге `[#Form:callback]` и в адресе приёма. */
@@ -60,6 +61,8 @@ export type Form = {
   readonly minSeconds: number;
   /** Ссылки в полях — не спам (форма для партнёров, портфолио). */
   readonly allowLinks: boolean;
+  /** Доказательство работы в браузере: выключено или сложность задачи (ADR 0053). */
+  readonly proof: ProofLevel;
   /** Метка для аналитики: уходит в событие `cms:form-sent`. */
   readonly goal: string;
   readonly confirmation: Confirmation;
@@ -270,6 +273,10 @@ const _settings = (input: FormInput, base: Form | null, setup: FormSetup) => ({
     'forms.invalid_seconds'
   ),
   allowLinks: Boolean(input.allowLinks ?? base?.allowLinks ?? false),
+  proof:
+    input.proof === undefined
+      ? (base?.proof ?? PROOF_DEFAULTS.created)
+      : parseProofLevel(input.proof),
   goal: _text(input.goal ?? base?.goal, 100, 'forms.invalid_text'),
   confirmation: _confirmation(
     input.confirmation,

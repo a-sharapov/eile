@@ -20,11 +20,11 @@ export var defineDictionaryRepository = (
   const insertTranslation = db.query(
     'INSERT INTO site_translations (key, language, value) VALUES (?, ?, ?)'
   );
-  const settings = db.query<{ key: string; value: string }, []>(
-    'SELECT key, value FROM site_custom_settings ORDER BY key'
+  const settings = db.query<{ key: string; value: string; note: string }, []>(
+    'SELECT key, value, note FROM site_custom_settings ORDER BY key'
   );
   const upsertSetting = db.query(
-    'INSERT INTO site_custom_settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value'
+    'INSERT INTO site_custom_settings (key, value, note) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value, note = excluded.note'
   );
   const removeSetting = db.query(
     'DELETE FROM site_custom_settings WHERE key = ?'
@@ -51,10 +51,11 @@ export var defineDictionaryRepository = (
         (_): CustomSetting => ({
           key: _.key as DictionaryKey,
           value: _.value,
+          note: _.note,
         })
       ),
     saveSetting: (setting) =>
-      void upsertSetting.run(setting.key, setting.value),
+      void upsertSetting.run(setting.key, setting.value, setting.note),
     removeSetting: (key) => void removeSetting.run(key),
   };
 };

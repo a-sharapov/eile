@@ -1,5 +1,6 @@
 import { chmodSync, rmSync } from 'node:fs';
 import { type App, createApp } from '../app.ts';
+import { PROVIDER_NAMES } from '../contexts/notify/index.ts';
 import {
   latestCopy,
   type RemoteCopy,
@@ -43,7 +44,7 @@ const _SAY = {
     inside: 'В файле',
     nothing: 'ничего: на этом сервере ничего не настраивали',
     parts: {
-      email: 'почта',
+      email: (via: string) => `почта (${via})`,
       telegram: 'Telegram',
       gateway: (n: number) => `почтовый шлюз (токенов: ${n})`,
       forms: 'секрет печатей форм',
@@ -54,7 +55,7 @@ const _SAY = {
       tokens: (n: number) => `ключи API (${n})`,
     },
     keepSafe:
-      'Храните файл как пароль: в нём пароль почты, ключ ИИ и ключ копий. Без пароля файла его не открыть.',
+      'Храните файл как пароль: в нём пароль или ключ API почты, ключ ИИ и ключ копий. Без пароля файла его не открыть.',
     applyWith: 'На новом сервере:',
     needSettings:
       'Нужен файл настроек: cms restore --server <файл> --db site.db',
@@ -114,7 +115,7 @@ const _SAY = {
     inside: 'Inside',
     nothing: 'nothing: this server has no settings of its own yet',
     parts: {
-      email: 'email',
+      email: (via: string) => `email (${via})`,
       telegram: 'Telegram',
       gateway: (n: number) => `mail gateway (${n} tokens)`,
       forms: 'form stamp secret',
@@ -125,7 +126,7 @@ const _SAY = {
       tokens: (n: number) => `API tokens (${n})`,
     },
     keepSafe:
-      'Keep the file like a password: it holds the mail password, the AI key and the backup key. Without its passphrase it cannot be opened.',
+      'Keep the file like a password: it holds the mail password or API key, the AI key and the backup key. Without its passphrase it cannot be opened.',
     applyWith: 'On the new server:',
     needSettings:
       'A settings file is needed: cms restore --server <file> --db site.db',
@@ -225,7 +226,13 @@ const _passphrase = (ctx: Context, twice: boolean): Promise<string> =>
 
 const _contents = (settings: ServerSettings, say: _Say): string[] =>
   [
-    settings.notify?.email ? say.parts.email : null,
+    settings.notify?.email
+      ? say.parts.email(
+          settings.notify.email.transport === 'smtp'
+            ? 'SMTP'
+            : PROVIDER_NAMES[settings.notify.email.transport]
+        )
+      : null,
     settings.notify?.telegram ? say.parts.telegram : null,
     settings.notify && settings.notify.gateway.tokens.length > 0
       ? say.parts.gateway(settings.notify.gateway.tokens.length)

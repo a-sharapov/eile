@@ -191,6 +191,24 @@ const _space = (text: string): string => text.replace(/\s+/g, ' ');
 const _inline = (nodes: readonly Node[], context: Context): string =>
   nodes.map((_) => _inlineNode(_, context)).join('');
 
+const _fragmentLink = (node: Element): boolean =>
+  node.children.some(
+    (_) =>
+      'tag' in _ &&
+      ((_.tag === 'a' && (_.attrs.href ?? '').startsWith('#')) ||
+        _fragmentLink(_))
+  );
+
+// Сноска «текст<sup><a href="#source-5">5</a></sup>» — «текст[5]», а не «текст5»: число не слипается со словом.
+const _sup = (node: Element, context: Context): string =>
+  ((text) => (text && _fragmentLink(node) ? `[${text}]` : text))(
+    _inline(node.children, context).trim()
+  );
+
+// Оформление для глаз (aria-hidden) — не текст страницы: его не слышит читалка, не нужно и в Markdown.
+const _hidden = (node: Element): boolean =>
+  node.attrs['aria-hidden'] === 'true';
+
 const _INLINE: Readonly<
   Record<string, (node: Element, context: Context) => string>
 > = {
@@ -199,6 +217,7 @@ const _INLINE: Readonly<
   em: (node, c) => _wrap('*', _inline(node.children, c)),
   i: (node, c) => _wrap('*', _inline(node.children, c)),
   code: (node) => `\`${_plain(node)}\``,
+  sup: _sup,
   br: () => '  \n',
   a: (node, c) =>
     ((text, href) =>
@@ -221,7 +240,7 @@ const _plain = (node: Node): string =>
 const _inlineNode = (node: Node, context: Context): string =>
   'text' in node
     ? _space(node.text)
-    : _SKIP.has(node.tag)
+    : _SKIP.has(node.tag) || _hidden(node)
       ? ''
       : (_INLINE[node.tag]?.(node, context) ?? _inline(node.children, context));
 
@@ -287,10 +306,33 @@ const _rows = (node: Element): Element[] =>
     'tag' in _ ? (_.tag === 'tr' ? [_] : _rows(_)) : []
   );
 
-const _table = (node: Element, context: Context): string => {
-  const rows = _rows(node).map((_) => _cells(_, context));
+const _table = (node: Element, context: Context): string =>
+  _markdownTable(_rows(node).map((_) => _cells(_, context)));
+
+// Таблица на ролях ARIA (role="table", "row", "cell"…) — та же таблица Markdown, что из <table>.
+const _ARIA_CELL = new Set(['cell', 'columnheader', 'rowheader', 'gridcell']);
+
+const _ariaRows = (node: Element): Element[] =>
+  node.children.flatMap((_) =>
+    'tag' in _ && !_hidden(_)
+      ? _.attrs.role === 'row'
+        ? [_]
+        : _ariaRows(_)
+      : []
+  );
+
+const _ariaCells = (row: Element, context: Context): string[] =>
+  row.children.flatMap((_) =>
+    'tag' in _ && !_hidden(_)
+      ? _ARIA_CELL.has(_.attrs.role ?? '')
+        ? [_inline(_.children, context).trim().replaceAll('|', '\\|')]
+        : _ariaCells(_, context)
+      : []
+  );
+
+const _markdownTable = (rows: readonly string[][]): string => {
   const width = Math.max(0, ...rows.map((_) => _.length));
-  const line = (cells: string[]) =>
+  const line = (cells: readonly string[]) =>
     `| ${[...cells, ...Array(width - cells.length).fill('')].join(' | ')} |`;
   return rows.length === 0
     ? ''
@@ -299,6 +341,23 @@ const _table = (node: Element, context: Context): string => {
         line(Array(width).fill('---')),
         ...rows.slice(1).map(line),
       ].join('\n');
+};
+
+const _ariaTable = (node: Element, context: Context): string =>
+  _markdownTable(_ariaRows(node).map((_) => _ariaCells(_, context)));
+
+const _quote = (text: string): string =>
+  text
+    .split('\n')
+    .map((_) => (_ ? `> ${_}` : '>'))
+    .join('\n');
+
+// Роль решает раньше тега: таблица из div — таблица, врезка (role="note") — цитата.
+const _ROLES: Readonly<
+  Record<string, (node: Element, context: Context) => string>
+> = {
+  table: _ariaTable,
+  note: (n, c) => _quote(_blocks(n.children, c)),
 };
 
 const _BLOCKS: Readonly<
@@ -315,16 +374,13 @@ const _BLOCKS: Readonly<
   ol: (n, c) => _list(n, c, 0),
   hr: () => '---',
   pre: (n) => `\`\`\`\n${_plain(n).replace(/\n$/, '')}\n\`\`\``,
-  blockquote: (n, c) =>
-    _blocks(n.children, c)
-      .split('\n')
-      .map((_) => (_ ? `> ${_}` : '>'))
-      .join('\n'),
+  blockquote: (n, c) => _quote(_blocks(n.children, c)),
   table: _table,
 };
 
 const _standalone = (node: Node): node is Element =>
-  _isBlock(node) || ('tag' in node && _SKIP.has(node.tag));
+  _isBlock(node) ||
+  ('tag' in node && (_SKIP.has(node.tag) || (node.attrs.role ?? '') in _ROLES));
 
 // Соседние строчные узлы — один абзац, блочные — каждый свой. Границы — по блочным узлам, за один проход:
 // тысячи соседей не копируются на каждом шаге.
@@ -353,9 +409,11 @@ const _blocks = (nodes: readonly Node[], context: Context): string =>
     .join('\n\n');
 
 const _block = (node: Element, context: Context): string =>
-  _SKIP.has(node.tag)
+  _SKIP.has(node.tag) || _hidden(node)
     ? ''
-    : (_BLOCKS[node.tag]?.(node, context) ?? _blocks(node.children, context));
+    : (_ROLES[node.attrs.role ?? '']?.(node, context) ??
+      _BLOCKS[node.tag]?.(node, context) ??
+      _blocks(node.children, context));
 
 /** Markdown из HTML: заголовки, абзацы, списки, ссылки (абсолютными), картинки, цитаты, код, таблицы. */
 export var htmlToMarkdown = (

@@ -99,6 +99,16 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
     </p>
     <p>Das Auge {@html icons.eye} in der Zeile der Seite öffnet die Vorschau: So sieht die Seite auf der Website aus, auch wenn sie noch nicht veröffentlicht ist. Die Vorschau zeigt die gespeicherte Version.</p>
   </section>
+  <section id="pages-share" data-topic hidden={!shown('pages-share')}>
+    <h3>Entwurf einem Kunden zeigen</h3>
+    <p>
+      Eine unveröffentlichte Seite hat in der Zeile darüber {@html icons.share} „Link für Kunden“. Erstellen Sie einen Link — für wen
+      er ist und wie lange er gilt (standardmäßig 7 Tage) — und schicken Sie ihn: Er öffnet die Seite ohne Anmeldung im Manager,
+      genau so, wie sie auf der Website aussehen wird, mit dem Hinweis „nicht veröffentlicht“. Formulare werden in der Vorschau
+      nicht gesendet, Suchmaschinen indexieren sie nicht, und der Link öffnet keine andere Seite und nicht den Manager. Der Link wird
+      einmal vollständig angezeigt; die Liste der Links mit Widerrufen ist im selben Fenster.
+    </p>
+  </section>
   <section id="pages-menu" data-topic hidden={!shown('pages-menu')}>
     <h3>Menü der Website</h3>
     <p>
@@ -274,6 +284,22 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         bleiben bei der Anfrage und lassen sich aus ihrer Karte herunterladen.
       </p>
     </section>
+    <section id="forms-spam" data-topic hidden={!shown('forms-spam')}>
+      <h3>Spamschutz ohne Captcha</h3>
+      <p>
+        Jedes Formular hat eine unsichtbare Bot-Falle, ein Einmal-Token, eine Mindestzeit zum Ausfüllen und ein Limit für Anfragen
+        von einer Adresse. Dazu kommt die <strong>Prüfung im Browser</strong>: Während jemand das Formular ausfüllt, löst sein Browser
+        unbemerkt eine kleine Rechenaufgabe, meist in Bruchteilen einer Sekunde, und unter der Schaltfläche erscheint „Spam-Schutz
+        bestätigt“. Captcha, Cookies oder fremde Dienste gibt es nicht. Die Stufe wählen Sie auf dem Tab „Schutz und Speicherung“
+        des Formulars: Neue Formulare nutzen „Standard“, bei Formularen aus früheren Versionen bleibt die Prüfung aus, bis Sie sie
+        einschalten.
+      </p>
+      <p>
+        Eine Anfrage aus einem Browser ohne JavaScript geht nicht verloren: Der Besucher sieht den Dankestext, die Anfrage landet
+        markiert mit „Ohne JavaScript gesendet“ im Spam, ohne Benachrichtigung. Schauen Sie dort ab und zu nach und verschieben Sie
+        echte Anfragen zu „Neu“.
+      </p>
+    </section>
     <section id="forms-notify" data-topic hidden={!shown('forms-notify')}>
       <h3>Benachrichtigungen per Telegram und E-Mail</h3>
       <p>
@@ -281,6 +307,13 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         von @BotFather, dann „Chats suchen“) und E-Mail (SMTP-Server). Dorthin kommen auch Meldungen über Störungen der Website – ab einer gewählten
         Stufe; Wiederholungen innerhalb von 15 Minuten werden zusammengefasst. Für ein Formular können Sie eigene Kanäle und einen eigenen Betreff festlegen.
         Dort legen Sie auch die Sprache der Benachrichtigungen fest; standardmäßig ist es die Sprache der Website.
+      </p>
+      <p>
+        Sperrt Ihr Hoster die SMTP-Ports (bei neuen Servern von DigitalOcean und Hetzner üblich), wählen Sie unter „Versand über“
+        einen Maildienst mit HTTP-API – Brevo, Postmark, Mailgun, Resend oder Amazon SES – und fügen Sie seinen Schlüssel ein:
+        Die E-Mails gehen dann per HTTPS über Port 443 raus. Verifizieren Sie die Absenderdomain beim Dienst mit SPF- und
+        DKIM-Einträgen im DNS, sonst versendet er nichts. Der Schlüssel bleibt auf dem Server, der Manager zeigt nur seine letzten
+        vier Zeichen. „Test senden“ schickt eine E-Mail auf dem gewählten Weg.
       </p>
       <p>
         Die <strong>E-Mail an den Absender</strong> auf dem Tab „Benachrichtigungen“ des Formulars bestätigt eine Anfrage an die Adresse
@@ -420,6 +453,23 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
       verwalten oder eine Kopie der Website herunterladen.
     </p>
   </section>
+  <section id="account-review" data-topic hidden={!shown('account-review')}>
+    <h3>Prüfung von Agenten-Änderungen</h3>
+    <p>
+      Ein Agent über MCP ändert die Website sofort. Wenn Sie erst prüfen möchten, schalten Sie die Prüfung ein: für alle Agenten —
+      der Administrator unter <a href={resolve('/(app)/proposals')}>„Vorschläge“</a>, für Ihren eigenen Schlüssel — „Änderungen
+      warten auf Prüfung“ unter „API-Schlüssel“. Dann gehen Änderungen an Seiten, Templates, Komponenten und Skripten nicht live,
+      sondern sammeln sich in einem Änderungssatz, wie ein Pull Request. Formulare, Felder und Einstellungen ändert ein Agent in
+      diesem Modus gar nicht.
+    </p>
+    <p>
+      Unter „Vorschläge“ hat jeder Satz die Beschreibung des Agenten und den Unterschied jeder Änderung: Text und Quelltext Zeile für
+      Zeile, Felder „jetzt → vorgeschlagen“, das Verschieben im Baum. {@html icons.eye} „Vorschau“ zeigt die Seite mit den
+      Änderungen, „Link für Kunden“ dasselbe ohne Anmeldung. Nehmen Sie alles, die Auswahl an oder lehnen Sie ab: Angenommenes geht
+      den normalen Weg, steht im Seitenverlauf im Namen des Agenten und lässt sich über eine Version zurücknehmen. Wurde die Seite nach
+      dem Vorschlag geändert, markiert der Satz einen Konflikt: trotzdem annehmen oder ablehnen.
+    </p>
+  </section>
 
   <!-- Для администратора -->
   {#if admin}
@@ -547,7 +597,7 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         lässt sich auch unter „Sicherungen“ wiederherstellen.
       </p>
       <p>
-        Mailpasswort, Telegram-Bot, Mail-Gateway, Speicher und KI-Schlüssel gehören zum Server, nicht zur Website: In einer Sicherung sind sie
+        Mailpasswort oder Mail-API-Schlüssel, Telegram-Bot, Mail-Gateway, Speicher und KI-Schlüssel gehören zum Server, nicht zur Website: In einer Sicherung sind sie
         nicht enthalten. Auf einen neuen Server bringt sie eine Einstellungsdatei mit Passphrase: <code>cms backup --server</code> hier und
         <code>cms restore --server</code> dort. Unter „Datenbankdatei“ sehen Sie, wie viel in der Datenbank frei ist, und können sie verdichten.
       </p>

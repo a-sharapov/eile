@@ -206,7 +206,7 @@ const fields: Chapter = {
         '.'
     ),
     p(
-      'Eile makes smaller copies at 480, 960 and 1920 pixels by itself. These are the copies that go into ' +
+      'The server makes smaller copies at 480, 960 and 1920 pixels by itself, a second or two after the upload. These are the copies that go into ' +
         c('srcset') +
         '.'
     ),

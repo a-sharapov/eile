@@ -5,7 +5,7 @@ import { mailMime, mailParts, plainOf } from './mime.ts';
 const _DATE = new Date('2026-11-03T10:00:00Z');
 
 const _MAIL: Mail = {
-  from: { address: 'site@example.com', name: 'Kuechenly' },
+  from: { address: 'site@example.com', name: 'Muehlenhof' },
   to: ['a@example.com', 'b@example.com'],
   subject: 'Ihr Termin',
   html: '<p>Hallo <b>Anna</b></p><img src="cid:logo@k">',
@@ -48,7 +48,7 @@ const partText = (mime: string, type: string): string =>
 describe('письмо почтового шлюза', () => {
   it('без вложений — multipart/alternative из текста и HTML', () => {
     const mime = build({});
-    expect(mime).toContain('From: "Kuechenly" <site@example.com>');
+    expect(mime).toContain('From: "Muehlenhof" <site@example.com>');
     expect(mime).toContain('To: <a@example.com>, <b@example.com>');
     expect(mime).toContain('Subject: Ihr Termin');
     expect(mime).toContain('Message-ID: <m1@example.com>');

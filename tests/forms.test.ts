@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { type App, createApp } from '../src/app.ts';
 import type { Message, Transports } from '../src/contexts/notify/index.ts';
 import { DEMO } from './fixtures/demo.ts';
+import { proofOf } from './fixtures/proof.ts';
 
 let app: App;
 let now: Date;
@@ -66,10 +67,12 @@ afterEach(() => app.close());
 const get = (path: string, headers: Record<string, string> = {}) =>
   app.fetch(new Request(`https://site.test${path}`, { headers }));
 
+// Печать и решение задачи защиты первой формы страницы — как их пришлёт скрипт формы.
 const stampOf = (html: string) => ({
   _stamp: [/name="_stamp" value="([^"]+)"/.exec(html)![1]!],
   _iat: [/name="_iat" value="([^"]+)"/.exec(html)![1]!],
   _page: [String(page)],
+  ...proofOf(html),
 });
 
 const post = (
@@ -611,6 +614,7 @@ describe('файлы, условия и шаги', () => {
         body.set('_stamp', /name="_stamp" value="([^"]+)"/.exec(html)![1]!);
         body.set('_iat', /name="_iat" value="([^"]+)"/.exec(html)![1]!);
         body.set('_page', String(docsPage));
+        body.set('_proof', proofOf(html)._proof![0]!);
         Object.entries(fields).forEach(
           ({ 0: name, 1: value }) => void body.set(name, value)
         );
@@ -672,6 +676,7 @@ describe('файлы, условия и шаги', () => {
           _stamp: [/name="_stamp" value="([^"]+)"/.exec(html)![1]!],
           _iat: [/name="_iat" value="([^"]+)"/.exec(html)![1]!],
           _page: [String(docsPage)],
+          ...proofOf(html),
           plan: ['nope'],
         }),
       }),

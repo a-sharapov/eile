@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { HONEYPOT } from '../domain/form.ts';
 import type { FormView } from '../domain/ports.ts';
-import { formTextsFor } from '../domain/schema.ts';
+import { checkValues, formTextsFor, MIN_TODAY } from '../domain/schema.ts';
 import { decodeEntities, fieldsOf, htmlMarkup } from './html-markup.ts';
 
 // Форма, какой её собирает редактор блоков: обёртки data-field, подписи, правила HTML5.
@@ -154,7 +154,34 @@ describe('форма для посетителя', () => {
     errors: {},
     hidden: { utm: 'utm_source=ya', 'page.title': 'Кухни & шкафы' },
     texts: formTextsFor('ru'),
+    proof: null,
     ...patch,
+  });
+
+  it('подсказка поля связана с ним всегда, а при ошибке — вместе с ошибкой', () => {
+    const source = [
+      '<div class="field" data-field="tel" data-label="Телефон">',
+      '  <label for="f-tel">Телефон</label>',
+      '  <input id="f-tel" name="tel" type="tel" required>',
+      '  <small class="hint">Wir rufen an</small>',
+      '</div>',
+      '<div class="field" data-field="email"><input name="mail" type="email"><small class="hint" id="own">Nur für Rückfragen</small></div>',
+      '<div class="field" data-field="text"><input name="plain"></div>',
+      '<input type="hidden" name="page" data-source="page.title">',
+    ].join('\n');
+    const html = htmlMarkup.render(view({ source }));
+    expect(html).toContain('aria-describedby="callback-hint-0"');
+    expect(html).toContain('<small class="hint" id="callback-hint-0">');
+    expect(html).toContain('aria-describedby="callback-own"');
+    expect(html).toContain('<small class="hint" id="callback-own">');
+    expect(html).toMatch(/<input name="plain">/);
+    expect(html).not.toMatch(/name="page"[^>]*aria-describedby/);
+    const failed = htmlMarkup.render(
+      view({ source, values: { tel: [''] }, errors: { tel: 'Nummer fehlt' } })
+    );
+    expect(failed).toContain(
+      'aria-invalid="true" aria-describedby="callback-hint-0 callback-err-tel"'
+    );
   });
 
   it('форма с файлами — multipart, с шагами — тексты кнопок шагов', () => {
@@ -190,6 +217,25 @@ describe('форма для посетителя', () => {
     expect(html).toContain(
       '<div class="field field-submit"><button type="submit">Отправить</button></div></form>'
     );
+  });
+
+  it('защита от спама: задача и строки — атрибутами, пустое поле решения, строка состояния и <noscript>', () => {
+    const task = `SHA-256.${'a'.repeat(16)}.200000.1000.${'0'.repeat(64)}.${'b'.repeat(43)}`;
+    const html = htmlMarkup.render(
+      view({ proof: task, texts: formTextsFor('de') })
+    );
+    expect(html).toContain(
+      `data-proof="${task}" data-proof-working="Spam-Schutz wird geprüft…" data-proof-done="Spam-Schutz bestätigt">`
+    );
+    expect(html).toContain('<input type="hidden" name="_proof" value="">');
+    // Строка — последней в форме, после кнопки: место занято сразу, читалка услышит смену текста.
+    expect(html).toEndWith(
+      '</button></div><p class="cms-form-proof" role="status" aria-live="polite"><noscript><input type="hidden" name="_nojs" value="1">Ohne JavaScript kann Ihre Anfrage nicht automatisch geprüft werden, daher kann die Bearbeitung länger dauern.</noscript></p></form>'
+    );
+    const plain = htmlMarkup.render(view());
+    expect(plain).not.toContain('data-proof');
+    expect(plain).not.toContain('_proof');
+    expect(plain).not.toContain('<noscript>');
   });
 
   it('id с префиксом формы: две формы на странице не спорят', () => {
@@ -260,4 +306,24 @@ it('сущности раскрываются', () => {
       'a &amp; b &lt;c&gt; &quot;d&quot; &#39;e&#x27; &nbsp;&unknown;'
     )
   ).toBe(`a & b <c> "d" 'e'  &unknown;`);
+});
+
+describe('data-min="today" у даты', () => {
+  const source =
+    '<div class="field" data-field="date"><label for="f-day">Wunschtermin</label><input id="f-day" name="day" type="date" data-min="today"></div>' +
+    '<div class="field" data-field="text"><input name="note" data-min="today"></div>';
+  const day = (offset: number): string =>
+    new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+
+  it('прошедший день — ошибка, сегодня и завтра — нет; у не-даты атрибут ничего не значит', () => {
+    const fields = fieldsOf(source);
+    expect(fields.find((_) => _.name === 'day')?.min).toBe(MIN_TODAY);
+    expect(fields.find((_) => _.name === 'note')?.min).toBeNull();
+    const errors = (value: string) =>
+      checkValues(fields, { day: [value], note: ['x'] }, 'de').errors;
+    expect(errors('2020-01-01').day).toBeDefined();
+    expect(errors(day(-5)).day).toBeDefined();
+    expect(errors(day(0)).day).toBeUndefined();
+    expect(errors(day(1)).day).toBeUndefined();
+  });
 });

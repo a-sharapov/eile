@@ -156,6 +156,67 @@ describe('правила переадресации на сайте', () => {
   });
 });
 
+describe('правила с query', () => {
+  it('/?p=12 ведёт на страницу, хоть по / живёт главная; узнанный параметр не идёт дальше, utm — идёт', async () => {
+    const contacts = pageId('/kontakty');
+    expect((await get('/?p=12')).status).toBe(200);
+    const { rule, warnings } = app.redirects.rules.create({
+      from: '/?p=12',
+      to: `[~${contacts}~]`,
+    });
+    expect(warnings).toEqual([]);
+    const moved = await get('/?p=12&utm_source=mail');
+    expect(moved.status).toBe(301);
+    expect(moved.headers.get('location')).toBe('/kontakty?utm_source=mail');
+    expect((await get('/?p=12')).headers.get('location')).toBe('/kontakty');
+    expect((await get('/?p=13')).status).toBe(200);
+    expect((await get('/')).status).toBe(200);
+    expect(app.redirects.rules.list().find((_) => _.id === rule.id)?.hits).toBe(
+      2
+    );
+  });
+
+  it('главная из кэша не перехватывает адрес с query; со слэшем и без страницы — тоже правило', async () => {
+    await get('/');
+    app.redirects.rules.create({ from: '/?page_id=5', to: '/kontakty' });
+    app.redirects.rules.create({
+      from: '/index.php?p=7',
+      to: '/o-proekte',
+    });
+    expect((await get('/?page_id=5')).headers.get('location')).toBe(
+      '/kontakty'
+    );
+    expect((await get('/index.php/?p=7')).headers.get('location')).toBe(
+      '/o-proekte'
+    );
+    expect((await get('/index.php')).status).toBe(404);
+  });
+});
+
+describe('пачка правил', () => {
+  it('createMany: те же проверки, одна транзакция; ошибочные и занятые — пропуск с причиной', async () => {
+    const contacts = pageId('/kontakty');
+    app.redirects.rules.create({ from: '/taken', to: '/kontakty' });
+    const report = app.redirects.rules.createMany([
+      { from: '/?p=1', to: `[~${contacts}~]` },
+      { from: '/old-a', to: '/kontakty' },
+      { from: '/old-b', to: '/old-a' },
+      { from: '/taken', to: '/blog' },
+      { from: 'nope', to: '/blog' },
+      { from: '/gone', to: '[~99999~]' },
+    ]);
+    expect(report.created).toBe(2);
+    expect(report.skipped.map((_) => `${_.from} ${_.code}`)).toEqual([
+      '/old-b redirects.chain',
+      '/taken redirects.rule_exists',
+      'nope redirects.invalid_from',
+      '/gone redirects.page_not_found',
+    ]);
+    expect((await get('/?p=1')).headers.get('location')).toBe('/kontakty');
+    expect((await get('/old-a')).headers.get('location')).toBe('/kontakty');
+  });
+});
+
 describe('старый адрес со слэшем на конце', () => {
   it('/old/ и /old ведут к цели правила одним 301, query сохраняется', async () => {
     app.redirects.rules.create({ from: '/old-page', to: '/kontakty' });

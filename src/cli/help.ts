@@ -36,7 +36,7 @@ const _RU: readonly CommandHelp[] = [
     details: [
       'Сайт и менеджер (/manager) отдаются одним процессом. На пустой базе создаются страница приветствия и пустой шаблон Minimal; готовый сайт — cms new.',
       'Пока пользователей нет, при запуске печатается ссылка первичной настройки — по ней создаётся администратор.',
-      'Остановить — Ctrl+C или SIGTERM: база закрывается аккуратно.',
+      'Остановить — Ctrl+C или SIGTERM, на Windows — Ctrl+C или Ctrl+Break: статистика дописывается, база закрывается аккуратно.',
       'За nginx или Caddy с HTTPS — --trust-proxy: протокол и адрес посетителя берутся из X-Forwarded-*, cookie входа получает Secure. Без прокси этот флаг не включайте: заголовки подделает любой. Прокси на этой же машине — слушайте только её: --host 127.0.0.1.',
       "HTTPS без прокси — --domain: сервер сам получает сертификат Let's Encrypt и продлевает его за 30 дней до конца. HTTP (порт 80) отвечает на проверку домена и ведёт на HTTPS (443); пока сертификата нет, сайт открывается по HTTP. DNS доменов должен указывать на этот сервер.",
       'На своём сервере проще всего — службой systemd: sudo cms service install --domain example.com берёт на себя порты, пользователя и перезапуск после сбоя (cms help service). Без неё порты 80 и 443 даёт root или sudo setcap cap_net_bind_service=+ep $(which cms).',
@@ -73,15 +73,27 @@ const _RU: readonly CommandHelp[] = [
   {
     name: 'new',
     summary: 'Готовый сайт из каркаса: блог, портфолио, магазин…',
-    usage: ['cms new', 'cms new <каркас> [--name <название>] [--db <файл>]'],
+    usage: [
+      'cms new',
+      'cms new <каркас> [--name <название>] [--db <файл>]',
+      'cms new <пакет.zip>|<папка>|<имя> [--check] [--allow-plugins]',
+      'cms new https://…/<пакет>.zip --sha256 <сумма>',
+    ],
     details: [
       'Каркас — готовый сайт для старта: шаблоны, компоненты, поля, формы и страницы с примерами текста. Дальше всё правится в менеджере, как свой код.',
-      `Каркасы: ${SCAFFOLDS.map((_) => `${_.name} — ${_.title.toLowerCase()}`).join(', ')}. Без имени — список с описаниями.`,
-      'Ложится на новую базу или на нетронутое приветствие первого запуска. Пользователи остаются. Сайт, где уже есть своя работа, каркас не трогает.',
-      'Сервер на этой базе перезапустите после команды.',
+      `Встроенные каркасы: ${SCAFFOLDS.map((_) => `${_.name} — ${_.title.toLowerCase()}`).join(', ')}. Без имени — список с описаниями.`,
+      'Пакет каркаса — тот же сайт отдельным файлом .zip: манифест, элементы в раскладке cms elements, тексты страниц и картинки медиатеки. Можно указать файл, распакованную папку (для авторов, путь с / или ./), адрес https или имя официального пакета — его cms берёт из своего выпуска на странице релизов (или с CMS_RELEASES_URL) и сверяет с SHA256SUMS.',
+      'Пакет по адресу ставится только с --sha256: сумму даёт автор. Без неё cms ничего не скачивает — по адресу может лежать что угодно. Шаблоны и компоненты пакета сервер исполняет при показе страниц, как свой код: ставьте пакеты, которым доверяете.',
+      'До записи пакет проверяется целиком: формат, пути и размеры в архиве, ссылки на страницы, шаблоны, компоненты и формы, типы файлов медиатеки, компиляция элементов — как cms elements check — и пробная установка на сайте в памяти. --check — только проверить. Плагины (код сервера) не ставятся без --allow-plugins; пакет из сети с плагинами не ставьте никогда.',
+      'kuechenstudio — официальный пакет: сайт кухонной студии в Германии, по-немецки на любом языке системы, с Impressum, Datenschutz, демо-фото и местами для онлайн-планера и чата другого сервиса. Адрес скрипта и атрибуты из инструкции сервиса вписываются в свои настройки сайта; пока их нет, сайт не грузит чужих скриптов.',
+      'Ложится на новую базу или на нетронутое приветствие первого запуска, всё или ничего. Пользователи остаются. Сайт, где уже есть своя работа, каркас не трогает. Варианты размеров картинок сервер делает сам.',
+      'Сервер на этой базе перезапустите после команды. Свой пакет собирает cms scaffold pack.',
     ],
     options: [
       ['--name <название>', 'Название сайта; по умолчанию — из каркаса'],
+      ['--sha256 <сумма>', 'SHA-256 архива пакета; для адреса — обязательно'],
+      ['--check', 'Только проверить пакет, ничего не записывать'],
+      ['--allow-plugins', 'Ставить плагины пакета — код сервера'],
       _DB,
     ],
     examples: [
@@ -94,6 +106,38 @@ const _RU: readonly CommandHelp[] = [
         'Магазин со своим названием',
         'cms new shop --name "Чайная лавка" --db shop.db',
       ],
+      [
+        'Сайт кухонной студии — официальный пакет',
+        'cms new kuechenstudio --name "Küchen Schmidt" --db studio.db',
+      ],
+      ['Пакет из файла', 'cms new ./studio.zip --db site.db'],
+      [
+        'Пакет по адресу, сумма — от автора',
+        'cms new https://example.com/studio.zip --sha256 9f2c…',
+      ],
+    ],
+  },
+  {
+    name: 'scaffold',
+    summary: 'Пакеты каркасов для авторов: собрать и выгрузить',
+    usage: [
+      'cms scaffold pack <папка> [-o <файл.zip>]',
+      'cms scaffold export <каркас> [<папка>] [--force]',
+    ],
+    details: [
+      'Пакет — папка: manifest.json (название, язык, дерево страниц, свои настройки, описания картинок), templates/, components/, scripts/, forms/, fields.json — как у cms elements, — плюс pages/ с текстами страниц и media/ с файлами медиатеки. Ссылки на страницы пакета — @{ключ}: [~@{kontakt}~], parent=@{blog}.',
+      'pack проверяет папку так же, как cms new перед установкой, и собирает архив: файлы по порядку путей, одно время, без сжатия — у одной папки всегда одна сумма. Печатает SHA-256: её дают вместе с адресом пакета. По умолчанию — <имя>.zip в текущем каталоге.',
+      'export выгружает встроенный каркас пакетом в папку (по умолчанию — с именем каркаса): начало для своего пакета. Непустая папка — только с --force.',
+      'Официальные пакеты лежат в packages/ репозитория и выходят с каждым выпуском рядом с бинарниками: <имя>.zip и строка в SHA256SUMS.',
+    ],
+    options: [
+      ['-o, --output <файл>', 'pack: куда записать архив'],
+      ['--force', 'export: писать в непустую папку'],
+    ],
+    examples: [
+      ['Каркас blog — в папку пакета', 'cms scaffold export blog'],
+      ['Собрать архив и узнать сумму', 'cms scaffold pack blog -o blog.zip'],
+      ['Проверить, что он ставится', 'cms new ./blog.zip --check'],
     ],
   },
   {
@@ -151,6 +195,7 @@ const _RU: readonly CommandHelp[] = [
     ],
     details: [
       'pull выкладывает шаблоны, компоненты, скрипты, плагины, формы и поля файлами: templates/, components/, scripts/, plugins/, forms/, fields.json. Рядом — AGENTS.md: правила CMS и что есть на сайте, для Claude Code, Codex, Cursor. Отличающиеся файлы переписываются — держите папку в git.',
+      'Файлы пишутся с переводами строк LF. CRLF (git с core.autocrlf на Windows) и BOM при чтении не в счёт: файл, который отличается только ими, не считается изменённым, а в сайт уходит LF.',
       'check компилирует всё (скрипт scripts/имя.js — разбирает как ES-модуль) и печатает ошибки как файл:строка:столбец. Ничего не сохраняет.',
       'push сохраняет изменённые файлы в сайт — все или ни одного. Сервер на этой базе подхватывает правку сам, перезапуск не нужен.',
       '--prune удаляет из сайта то, чего нет в папке (поля — никогда), --watch отправляет каждый сохранённый файл. Папка по умолчанию — текущая.',
@@ -169,11 +214,13 @@ const _RU: readonly CommandHelp[] = [
   },
   {
     name: 'diagnose',
-    summary: 'Диагностика сайта: ссылки, страницы, медиа, переадресации',
+    summary: 'Диагностика: ссылки, страницы, медиа, переадресации, домен',
     usage: [
       'cms diagnose [--db <файл>] [--json]',
       'cms diagnose redirects [<список>|<sitemap>|-] [--db <файл>] [--json]',
       'cms diagnose redirects <список> --base <адрес сайта>',
+      'cms diagnose domain <домен> [--to <IP|имя>] [--json]',
+      'cms diagnose domain <домен> [--resolver doh|system] [--dkim-selector <имя>]',
     ],
     details: [
       'То же, что вкладка «Диагностика» в менеджере: битые ссылки, страницы без описания, пропавшие файлы медиатеки, настройки и сервер.',
@@ -182,11 +229,16 @@ const _RU: readonly CommandHelp[] = [
       'Список — файл текстом: по адресу в строке, путь или URL (хост старого сайта не в счёт, проверяются путь и query), # — комментарий. Второе слово строки — куда адрес должен вести: /uber-uns/ /ueber-uns. Подойдёт и sitemap.xml или индекс sitemap — файлом или по адресу, можно .gz. Без файла или с - список читается из stdin.',
       'Без --base проверка идёт прямо в процессе, без сети: на снимке базы --db во временной папке, поэтому счётчики переходов и статистика сайта не меняются. С --base — по сети, на живом сайте, например на новом сервере до переключения домена.',
       'В таблице видно, что стало со слэшем на конце и с query: /kontakt/ → 301 /kontakt. Адрес с query, на который сайт отвечает 200 сам (/?p=12 — главная), — тоже ошибка: страницу выбирает путь, а query она не видит.',
+      'domain проверяет домен до правки DNS: что сломается, если перевести A на новый сервер (--to, без него — адреса этой машины). Почта с MX на сам домен, SPF через a и mx, www и wildcard, AAAA без IPv6 у нового сервера, CAA против Let’s Encrypt, TTL, DKIM и DMARC. В конце — что сделать до переключения: по шагам, записями зоны для панели DNS. Ошибки — код выхода 1.',
+      'DNS спрашивается поверх HTTPS (Cloudflare, затем Google): видны все типы записей, TTL и DNSSEC. Если они недоступны — резолвер этой машины (--resolver system): он не видит TTL, кроме A и AAAA, и DNSSEC. Селекторы DKIM угадываются по провайдерам; свой — --dkim-selector, можно несколько раз.',
     ],
     options: [
       ['--json', 'Отчёт в JSON'],
       _DB,
       ['--base <адрес>', 'redirects: живой сайт по сети вместо базы'],
+      ['--to <IP|имя>', 'domain: новый сервер, можно через запятую'],
+      ['--resolver doh|system', 'domain: чем спрашивать DNS'],
+      ['--dkim-selector <имя>', 'domain: свой селектор DKIM'],
     ],
     examples: [
       ['Проверить сайт', 'cms diagnose --db site.db'],
@@ -201,6 +253,10 @@ const _RU: readonly CommandHelp[] = [
       [
         'Sitemap старого сайта — на новый сервер',
         'cms diagnose redirects old/sitemap.xml --base https://new.a.ru',
+      ],
+      [
+        'Перед переездом: что сломается и что поправить в DNS',
+        'cms diagnose domain a.ru --to 203.0.113.10',
       ],
     ],
   },
@@ -339,6 +395,51 @@ const _RU: readonly CommandHelp[] = [
     ],
   },
   {
+    name: 'import-wp',
+    summary: 'Перенос сайта WordPress из экспорта WXR или дампа MySQL',
+    usage: [
+      'cms import-wp <export.xml|dump.sql[.gz]> [--db <файл>] [--media <папка|адрес>]',
+      'cms import-wp <файл> --into <id> [--dry-run] [--json]',
+    ],
+    details: [
+      'Читает экспорт WordPress («Инструменты → Экспорт», XML) или дамп mysqldump (.sql, .sql.gz; приставка таблиц находится сама) и переносит в пустую базу: страницы с деревом, порядком, ярлыками и статусами (личные и с паролем — черновиками, отложенные — по расписанию), записи — в раздел с лентой, как в каркасе blog. Сайт получает шаблоны каркаса blog; id страниц сохраняются.',
+      'Рубрики и метки — поля categories и tags у записей; архивы рубрик, меток, авторов и годов ведут в раздел. Заголовки и описания Yoast, Rank Math, SEOPress и AIOSEO — в длинный заголовок и описание страницы, noindex — «не показывать поисковикам».',
+      'Текст: блоки Gutenberg и классический HTML становятся разрешённым текстом страницы — h1 опускается до h2, ссылки на свои страницы становятся [~id~], картинки, галереи и видео — блоками Figure, Gallery и Video из набора компонентов. Шорткоды caption, gallery, embed, video переносятся, формы плагинов и неизвестные шорткоды — в отчёт. Вёрстку Elementor, Divi, WPBakery и ACF не перенести: их текст сохраняется, страницы перечислены в отчёте.',
+      '--media — папка wp-content/uploads (или корень сайта WordPress) либо адрес старого сайта: вложения и обложки ложатся в медиатеку, файлы больше 25 МБ пропускаются, уменьшенные копии сервер делает сам. Без --media файлы не переносятся.',
+      'Главное меню задаёт порядок и видимость страниц в меню; пункты со своим адресом становятся страницами-ссылками. Старые адреса — постоянные, по дате, с рубрикой, страницы вложений, /?p=12 и /?page_id=5 — становятся правилами переадресации на новые страницы. Пользователи не переносятся, в отчёте — авторы.',
+      'Существующее не перезаписывается: база пуста (или с нетронутым приветствием), а --into кладёт перенос под пустую страницу уже живого сайта. --dry-run делает всё на снимке базы и печатает отчёт, сама база не меняется; --json — отчёт целиком.',
+    ],
+    options: [
+      _DB,
+      _MEDIA_CACHE,
+      [
+        '--media <папка|адрес>',
+        'Файлы вложений: wp-content/uploads или https://старый-сайт',
+      ],
+      ['--into <id>', 'Под эту пустую страницу, а не в пустой сайт'],
+      ['--dry-run', 'Пробный прогон на снимке: база не меняется'],
+      ['--json', 'Отчёт в JSON'],
+    ],
+    examples: [
+      [
+        'Экспорт из админки WordPress',
+        'cms import-wp site.WordPress.2026-11-03.xml --db site.db',
+      ],
+      [
+        'Дамп с файлами из папки',
+        'cms import-wp wp.sql.gz --media /var/www/wp/wp-content/uploads --db site.db',
+      ],
+      [
+        'Сначала посмотреть отчёт',
+        'cms import-wp wp.sql --dry-run --db site.db',
+      ],
+      [
+        'Блог — в раздел готового сайта',
+        'cms import-wp blog.xml --into 12 --db site.db',
+      ],
+    ],
+  },
+  {
     name: 'service',
     summary: 'Сайт на сервере службой systemd: установка одной командой',
     usage: [
@@ -357,6 +458,7 @@ const _RU: readonly CommandHelp[] = [
       'Что служба поднялась, install, restart и cms update узнают по /_cms/health на её HTTP-порту: 200 — сервер работает и читает базу, 503 — базу не прочесть. Ждут до 30 секунд. Версии до 0.1.0-alpha.9 этого адреса не знают — им, как раньше, хватает любого ответа.',
       'Тот же адрес — для мониторов вроде проверок DigitalOcean: https://example.com/_cms/health, без входа и кэша. Версию он называет только запросу с этой же машины.',
       'cms update перезапускает службу на новой версии и проверяет её; не поднялась — возвращает cms.old.',
+      'На Windows systemd нет, и команда об этом скажет. Как держать сайт запущенным — планировщиком заданий или обёрткой служб вроде WinSW — README, раздел «На Windows».',
     ],
     options: [
       ['--domain <домены>', 'HTTPS без прокси: example.com,www.example.com'],
@@ -399,6 +501,7 @@ const _RU: readonly CommandHelp[] = [
       'Службу из cms service install команда под root перезапускает сама: ждёт, пока сайт ответит, и проверяет, что работает новая версия. Не вышло — возвращает cms.old, перезапускает службу снова и говорит об этом; --no-restart — службу не трогать. Сервер, запущенный иначе, работает на старой версии до перезапуска.',
       'Перед перезапуском команда снимает согласованную копию базы каждой службы рядом с ней: site.db.before-<прежняя версия>, остаётся одна, последняя. Копия не снялась (например, кончилось место) — ни одна служба не перезапускается, на место встаёт cms.old.',
       'Новая версия может перевести базу на свою схему. Если она при этом не поднялась, откат возвращает базу к копии, а базу, на которой она упала, со всем, что сайт записал после копии, кладёт рядом: site.db.failed-<версия>. Базу, которую новая версия не меняла, откат не трогает. Прежняя версия на базе, которую уже вела более новая, не запускается и говорит об этом.',
+      'На Windows запущенный cms.exe не перезаписать, поэтому он сам становится cms.old.exe, а новый встаёт на его место; второе имя eile.exe — жёсткая ссылка — ставится заново. Прав администратора не нужно, служб нет: сервер перезапустите сами. Что Windows не дала удалить, потому что оно ещё запущено, удалит следующее обновление.',
       'С альфы и беты обновление идёт и на следующие пре-релизы, со стабильной версии — только на стабильные.',
       'В менеджере о новой версии говорит меню профиля; проверку выключают в настройках или CMS_NO_UPDATE_CHECK=1.',
       'CMS_RELEASES_URL — свой адрес API релизов вместо https://api.github.com: зеркало, сеть без выхода наружу или проверка обновления и отката без пересборки. По нему cms update и проверка в менеджере спрашивают <адрес>/repos/<владелец>/<имя>/releases — ответ в формате GitHub. Адрес и файлы выпуска — только https; http — на этой машине (localhost, 127.0.0.1) или вместе с CMS_RELEASES_INSECURE=1 для своего зеркала в своей сети. Сумма SHA256SUMS сверяется так же. Файлы установщика берёт CMS_DOWNLOAD_URL.',
@@ -462,7 +565,7 @@ const _EN: readonly CommandHelp[] = [
     details: [
       'One process serves the site and the manager (/manager). An empty database gets a welcome page and a blank Minimal template; for a ready-made site, run cms new.',
       'While there are no users, startup prints a setup link: open it to create the administrator.',
-      'Stop with Ctrl+C or SIGTERM: the database closes cleanly.',
+      'Stop with Ctrl+C or SIGTERM, on Windows with Ctrl+C or Ctrl+Break: the statistics are written out and the database closes cleanly.',
       'Behind nginx or Caddy with HTTPS, use --trust-proxy: the protocol and the visitor address come from X-Forwarded-*, and the sign-in cookie gets Secure. Do not turn it on without a proxy: anyone can forge those headers. With the proxy on the same machine, listen on it only: --host 127.0.0.1.',
       "HTTPS without a proxy: --domain. The server gets a Let's Encrypt certificate itself and renews it 30 days before it expires. HTTP (port 80) answers the domain check and redirects to HTTPS (443); until the certificate arrives, the site opens over HTTP. The DNS of the domains must point at this server.",
       'On your own server the easiest is a systemd service: sudo cms service install --domain example.com takes care of the ports, the user and restarts after a failure (cms help service). Without it, ports 80 and 443 need root or sudo setcap cap_net_bind_service=+ep $(which cms).',
@@ -502,15 +605,30 @@ const _EN: readonly CommandHelp[] = [
   {
     name: 'new',
     summary: 'A ready-made site from a scaffold: blog, portfolio, shop…',
-    usage: ['cms new', 'cms new <scaffold> [--name <name>] [--db <file>]'],
+    usage: [
+      'cms new',
+      'cms new <scaffold> [--name <name>] [--db <file>]',
+      'cms new <package.zip>|<folder>|<name> [--check] [--allow-plugins]',
+      'cms new https://…/<package>.zip --sha256 <hash>',
+    ],
     details: [
       'A scaffold is a ready site to start from: templates, components, fields, forms and pages with sample text. After that you edit everything in the manager as your own code.',
-      `Scaffolds: ${SCAFFOLDS.map((_) => _.name).join(', ')}. Without a name, cms new lists them with descriptions. On an English system they come in English, on a Russian one in Russian.`,
-      'A scaffold goes onto a new database or onto the untouched welcome page of the first run. Users stay. A site with your own work on it is left alone.',
-      'Restart the server running on this database after the command.',
+      `Built-in scaffolds: ${SCAFFOLDS.map((_) => _.name).join(', ')}. Without a name, cms new lists them with descriptions. On an English system they come in English, on a Russian one in Russian.`,
+      'A scaffold package is the same kind of site as a separate .zip file: a manifest, elements laid out as in cms elements, page texts and media files. Give a file, an unpacked folder (for authors, a path with / or ./), an https address, or the name of an official package: cms takes it from its own release on the releases page (or CMS_RELEASES_URL) and checks it against SHA256SUMS.',
+      'A package from an address installs only with --sha256: the author gives the hash. Without it cms downloads nothing, since the address could serve anything. The server runs package templates and components when it shows pages, like your own code: install packages you trust.',
+      'Before anything is written the whole package is checked: the format, paths and sizes in the archive, links to pages, templates, components and forms, media file types, element compilation as in cms elements check, and a trial install on a site in memory. --check only checks. Plugins (server code) are not installed without --allow-plugins; never install a package with plugins from the network.',
+      'kuechenstudio is an official package: a site for a kitchen studio in Germany, German on any system, with Impressum, Datenschutz, demo photos and slots for an online planner and a chat from another service. The script address and attributes from the service’s instructions go into the site’s custom settings; until then the site loads no third-party scripts.',
+      'A scaffold goes onto a new database or onto the untouched welcome page of the first run, all or nothing. Users stay. A site with your own work on it is left alone. The server makes the image size variants itself.',
+      'Restart the server running on this database after the command. Build your own package with cms scaffold pack.',
     ],
     options: [
       ['--name <name>', 'Site name; the scaffold’s own by default'],
+      [
+        '--sha256 <hash>',
+        'SHA-256 of the package archive; required for an address',
+      ],
+      ['--check', 'Only check the package, write nothing'],
+      ['--allow-plugins', 'Install the package plugins: server code'],
       _DB_EN,
     ],
     examples: [
@@ -523,6 +641,41 @@ const _EN: readonly CommandHelp[] = [
         'A shop with your own name',
         'cms new shop --name "Tea Corner" --db shop.db',
       ],
+      [
+        'A kitchen studio site, an official package',
+        'cms new kuechenstudio --name "Küchen Schmidt" --db studio.db',
+      ],
+      ['A package from a file', 'cms new ./studio.zip --db site.db'],
+      [
+        'A package from an address, hash from the author',
+        'cms new https://example.com/studio.zip --sha256 9f2c…',
+      ],
+    ],
+  },
+  {
+    name: 'scaffold',
+    summary: 'Scaffold packages for authors: pack and export',
+    usage: [
+      'cms scaffold pack <folder> [-o <file.zip>]',
+      'cms scaffold export <scaffold> [<folder>] [--force]',
+    ],
+    details: [
+      'A package is a folder: manifest.json (title, language, page tree, custom settings, image descriptions), templates/, components/, scripts/, forms/, fields.json as in cms elements, plus pages/ with page texts and media/ with media files. Links to package pages are @{key}: [~@{contact}~], parent=@{blog}.',
+      'pack checks the folder the same way cms new does before installing and builds the archive: files in path order, one timestamp, no compression, so one folder always gives one hash. It prints the SHA-256: hand it out with the package address. The default is <name>.zip in the current directory.',
+      'export writes a built-in scaffold as a package folder (named after the scaffold by default): a start for your own package. A folder that is not empty only with --force.',
+      'Official packages live in packages/ of the repository and ship with every release next to the binaries: <name>.zip and a line in SHA256SUMS.',
+    ],
+    options: [
+      ['-o, --output <file>', 'pack: where to write the archive'],
+      ['--force', 'export: write into a folder that is not empty'],
+    ],
+    examples: [
+      ['The blog scaffold as a package folder', 'cms scaffold export blog'],
+      [
+        'Build the archive and get its hash',
+        'cms scaffold pack blog -o blog.zip',
+      ],
+      ['Check that it installs', 'cms new ./blog.zip --check'],
     ],
   },
   {
@@ -589,6 +742,7 @@ const _EN: readonly CommandHelp[] = [
     ],
     details: [
       'pull writes templates, components, scripts, plugins, forms and fields as files: templates/, components/, scripts/, plugins/, forms/, fields.json. Next to them goes AGENTS.md: the CMS rules and what the site has, for Claude Code, Codex and Cursor. Files that differ are overwritten, so keep the folder in git.',
+      'Files are written with LF line endings. CRLF (git with core.autocrlf on Windows) and a BOM do not count when reading: a file that differs only in them is not changed, and LF goes to the site.',
       'check compiles everything (a script scripts/name.js is parsed as an ES module) and prints problems as file:line:column. Nothing is saved.',
       'push saves the changed files to the site, all of them or none. A server on this database picks the change up by itself, no restart needed.',
       '--prune deletes from the site what has no file (never fields), --watch sends every saved file. The folder is the current one by default.',
@@ -607,11 +761,13 @@ const _EN: readonly CommandHelp[] = [
   },
   {
     name: 'diagnose',
-    summary: 'Site diagnostics: links, pages, media, redirects',
+    summary: 'Diagnostics: links, pages, media, redirects, the domain',
     usage: [
       'cms diagnose [--db <file>] [--json]',
       'cms diagnose redirects [<list>|<sitemap>|-] [--db <file>] [--json]',
       'cms diagnose redirects <list> --base <site address>',
+      'cms diagnose domain <domain> [--to <IP|name>] [--json]',
+      'cms diagnose domain <domain> [--resolver doh|system] [--dkim-selector <name>]',
     ],
     details: [
       'The same as the Diagnostics tab in the manager: broken links, pages without a description, missing media files, settings and the server.',
@@ -620,11 +776,16 @@ const _EN: readonly CommandHelp[] = [
       'The list is a text file: one address per line, a path or a URL (the old host does not count, the path and query are checked), # starts a comment. A second word on the line says where the address must lead: /about-us/ /about. A sitemap.xml or a sitemap index also works, as a file or an address, .gz too; no file or - reads stdin.',
       'Without --base the check runs in the process, with no network: on a snapshot of the --db database in a temporary folder, so redirect hit counters and site statistics stay as they are. With --base it goes over the network to a live site, for example the new server before the domain moves.',
       'The table shows what happened to a trailing slash and a query: /contact/ → 301 /contact. An address with a query that the site answers with 200 as is (/?p=12 is the home page) is a problem too: the path picks the page, and the page does not see the query.',
+      'domain checks the domain before DNS changes: what breaks if A moves to the new server (--to, or the addresses of this machine). Mail with MX on the domain itself, SPF through a and mx, www and the wildcard, AAAA with no IPv6 on the new server, CAA against Let’s Encrypt, TTL, DKIM and DMARC. Then what to do before the switch: step by step, as zone records for the DNS panel. With errors, the exit code is 1.',
+      'DNS is asked over HTTPS (Cloudflare, then Google): every record type, TTL and DNSSEC are visible. When they are unreachable, the resolver of this machine is used (--resolver system): it sees no TTL except for A and AAAA and no DNSSEC. DKIM selectors are guessed by provider; give your own with --dkim-selector, several times if needed.',
     ],
     options: [
       ['--json', 'The report as JSON'],
       _DB_EN,
       ['--base <address>', 'redirects: a live site over the network'],
+      ['--to <IP|name>', 'domain: the new server, comma-separated'],
+      ['--resolver doh|system', 'domain: how to ask DNS'],
+      ['--dkim-selector <name>', 'domain: a DKIM selector of your own'],
     ],
     examples: [
       ['Check the site', 'cms diagnose --db site.db'],
@@ -639,6 +800,10 @@ const _EN: readonly CommandHelp[] = [
       [
         'The old sitemap against the new server',
         'cms diagnose redirects old/sitemap.xml --base https://new.a.com',
+      ],
+      [
+        'Before a move: what breaks and what to fix in DNS',
+        'cms diagnose domain a.com --to 203.0.113.10',
       ],
     ],
   },
@@ -777,6 +942,48 @@ const _EN: readonly CommandHelp[] = [
     ],
   },
   {
+    name: 'import-wp',
+    summary: 'Move a WordPress site from a WXR export or a MySQL dump',
+    usage: [
+      'cms import-wp <export.xml|dump.sql[.gz]> [--db <file>] [--media <folder|url>]',
+      'cms import-wp <file> --into <id> [--dry-run] [--json]',
+    ],
+    details: [
+      'Reads a WordPress export (“Tools → Export”, XML) or a mysqldump (.sql, .sql.gz; the table prefix is found by itself) and moves it into an empty database: pages with their tree, order, slugs and statuses (private and password-protected ones become drafts, scheduled ones stay scheduled), and posts into a section with a post list, as in the blog scaffold. The site gets the blog scaffold templates; page ids are kept.',
+      'Categories and tags become the categories and tags fields of posts; category, tag, author and year archives lead to the section. Yoast, Rank Math, SEOPress and AIOSEO titles and descriptions go into the page long title and description, noindex into “hide from search engines”.',
+      'Text: Gutenberg blocks and classic HTML become allowed page text — h1 moves down to h2, links to own pages become [~id~], images, galleries and videos become Figure, Gallery and Video blocks from the component kit. The caption, gallery, embed and video shortcodes are mapped; plugin forms and unknown shortcodes go into the report. Elementor, Divi, WPBakery and ACF layouts cannot be mapped: their text is kept and the pages are listed in the report.',
+      '--media is the wp-content/uploads folder (or the WordPress root) or the old site address: attachments and featured images go into the media library, files over 25 MB are skipped, the server makes the smaller copies itself. Without --media no files are imported.',
+      'The main menu sets the menu order and visibility of pages; items with their own address become link pages. Old addresses — pretty, date-based, with a category, attachment pages, /?p=12 and /?page_id=5 — become redirect rules to the new pages. Users are not imported; the report lists the authors.',
+      'Nothing is overwritten: the database is empty (or holds the untouched welcome page), and --into puts the import under an empty page of a live site. --dry-run does everything on a snapshot of the database and prints the report, the database itself does not change; --json prints the whole report.',
+    ],
+    options: [
+      _DB_EN,
+      _MEDIA_CACHE_EN,
+      [
+        '--media <folder|url>',
+        'Attachment files: wp-content/uploads or https://old-site',
+      ],
+      ['--into <id>', 'Under this empty page instead of an empty site'],
+      ['--dry-run', 'Dry run on a snapshot: the database does not change'],
+      ['--json', 'The report as JSON'],
+    ],
+    examples: [
+      [
+        'An export from the WordPress admin',
+        'cms import-wp site.WordPress.2026-11-03.xml --db site.db',
+      ],
+      [
+        'A dump with files from a folder',
+        'cms import-wp wp.sql.gz --media /var/www/wp/wp-content/uploads --db site.db',
+      ],
+      ['See the report first', 'cms import-wp wp.sql --dry-run --db site.db'],
+      [
+        'A blog into a section of a live site',
+        'cms import-wp blog.xml --into 12 --db site.db',
+      ],
+    ],
+  },
+  {
     name: 'service',
     summary: 'The site on a server as a systemd service, in one command',
     usage: [
@@ -795,6 +1002,7 @@ const _EN: readonly CommandHelp[] = [
       'install, restart and cms update learn that the service is up from /_cms/health on its HTTP port: 200 means the server runs and reads its database, 503 means it cannot. They wait up to 30 seconds. Versions before 0.1.0-alpha.9 do not know this address, and any answer is enough for them, as before.',
       'Uptime monitors such as DigitalOcean checks can use the same address: https://example.com/_cms/health, no sign-in, no cache. It names the version only to a request from this machine.',
       'cms update restarts the service on the new version and checks it; if it does not come up, cms.old goes back.',
+      'Windows has no systemd, and the command says so. To keep the site running there, use Task Scheduler or a service wrapper such as WinSW: README, “On Windows”.',
     ],
     options: [
       [
@@ -843,6 +1051,7 @@ const _EN: readonly CommandHelp[] = [
       'Run as root, the command restarts the service from cms service install itself: it waits until the site answers and checks that the new version runs. If not, cms.old goes back, the service restarts again and the command says so; --no-restart leaves the service alone. A server started some other way keeps the old version until a restart.',
       'Before the restart the command takes a consistent copy of each service database next to it: site.db.before-<previous version>, only the latest one stays. If the copy fails (for example, the disk is full), no service restarts and cms.old goes back in place.',
       'A new version may move the database to its own schema. If it then does not come up, the rollback puts the copy back and keeps the database it failed on, with everything the site wrote after the copy, next to it as site.db.failed-<version>. A database the new version did not change is left alone. An older version refuses to start on a database a newer one has run, and says so.',
+      'On Windows a running cms.exe cannot be overwritten, so it becomes cms.old.exe itself and the new one takes its place; the second name eile.exe, a hard link, is made again. No administrator rights are needed, and there are no services: restart the server yourself. Whatever Windows would not delete because it still runs, the next update removes.',
       'From an alpha or beta, updates follow the next pre-releases too; from a stable version, only stable ones.',
       'In the manager the profile menu tells you about a new version; turn the check off in settings or with CMS_NO_UPDATE_CHECK=1.',
       'CMS_RELEASES_URL replaces https://api.github.com with your own releases API address: a mirror, a network without a way out, or a trial update and rollback without a rebuild. cms update and the manager check ask <address>/repos/<owner>/<name>/releases there, the answer in the GitHub format. The address and the release files are https only; http works on this machine (localhost, 127.0.0.1) or with CMS_RELEASES_INSECURE=1 for your own mirror on your own network. SHA256SUMS is checked the same way. The installer takes its files from CMS_DOWNLOAD_URL.',
@@ -916,6 +1125,7 @@ const _TEXT = {
     overviewExamples: [
       ['Запустить сайт; менеджер — /manager', 'cms --db site.db'],
       ['Перенести сайт с Evo', 'cms import-evo evo.sql --db site.db'],
+      ['Перенести сайт с WordPress', 'cms import-wp wp.xml --db site.db'],
       ['Бэкап на работающем сайте', 'cms backup --db site.db'],
       ['Забыт пароль администратора', 'cms users password anna@example.com'],
     ] as _Pairs,
@@ -948,6 +1158,7 @@ const _TEXT = {
     overviewExamples: [
       ['Run the site; the manager is at /manager', 'cms --db site.db'],
       ['Move a site from Evo', 'cms import-evo evo.sql --db site.db'],
+      ['Move a site from WordPress', 'cms import-wp wp.xml --db site.db'],
       ['Back up a running site', 'cms backup --db site.db'],
       [
         'Administrator password forgotten',

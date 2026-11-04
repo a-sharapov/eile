@@ -21,6 +21,7 @@ import { type Context, cliError } from './context.ts';
 import type { Language } from './language.ts';
 import { type Paint, padEnd } from './paint.ts';
 import { named, PROGRAM } from './program.ts';
+import { readStdin } from './prompt.ts';
 import { VERSION } from './version.ts';
 
 /** Сеть для `--base`, sitemap по адресу и файлов индекса sitemap; тесты подставляют свою. */
@@ -162,7 +163,7 @@ const _source = (ctx: Context, net: Network): Promise<Uint8Array> =>
     source === undefined && ctx.tty
       ? _reject(say.needList)
       : source === undefined || source === '-'
-        ? Bun.stdin.bytes()
+        ? readStdin().bytes()
         : /^https?:\/\//i.test(source)
           ? _load(ctx, net)(source)
           : Bun.file(source)
@@ -178,9 +179,11 @@ const _origin = (raw: string): string | null =>
     ? new URL(raw).origin
     : null;
 
-// Проверка ходит по сайту, как посетитель, а сайт при этом пишет: переходы по правилам, отложенные публикации,
-// статистику. Поэтому она идёт на снимке базы (VACUUM INTO, как у cms backup) в папке 700 — живая база не меняется.
-const _onSnapshot = <T>(
+/**
+ * Работа на снимке базы (VACUUM INTO, как у cms backup) в папке 700: живая база не меняется. Так идут проверка
+ * редиректов — она ходит по сайту, а сайт при этом пишет счётчики, — и пробный перенос `cms import-wp --dry-run`.
+ */
+export var onSnapshot = <T>(
   db: string,
   run: (app: App) => Promise<T>
 ): Promise<T> =>
@@ -358,7 +361,7 @@ export var runRedirects = (ctx: Context, net: Network = fetch): Promise<void> =>
               .exists()
               .then((exists) =>
                 exists
-                  ? _onSnapshot(ctx.options.db, (app) =>
+                  ? onSnapshot(ctx.options.db, (app) =>
                       checkRedirects({
                         probe: _inProcess(app),
                         origin: _siteOrigin(app),

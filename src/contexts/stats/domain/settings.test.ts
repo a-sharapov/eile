@@ -25,8 +25,8 @@ describe('настройки статистики', () => {
       change({
         enabled: true,
         goalLinks: [
-          ' https://app.kuechenly.de/projects/new ',
-          'https://app.kuechenly.de/projects/new',
+          ' https://app.muehlenhof.example/projects/new ',
+          'https://app.muehlenhof.example/projects/new',
           '/kontakt',
           'tel:',
           'mailto:info@',
@@ -38,7 +38,7 @@ describe('настройки статистики', () => {
       ...DEFAULT_STATS_SETTINGS,
       enabled: true,
       goalLinks: [
-        'https://app.kuechenly.de/projects/new',
+        'https://app.muehlenhof.example/projects/new',
         '/kontakt',
         'tel:',
         'mailto:info@',
@@ -49,7 +49,7 @@ describe('настройки статистики', () => {
   it('ссылка-цель не того вида — отказ', () => {
     for (const link of [
       'javascript:alert(1)',
-      'app.kuechenly.de',
+      'app.muehlenhof.example',
       'https://a b',
       'https://"><script>',
       `https://example.com/${'x'.repeat(300)}`,

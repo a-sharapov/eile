@@ -131,15 +131,15 @@ describe('письмо отправителю формы', () => {
   it('тема — как её написал владелец сайта, без названия сайта; текст экранирован в HTML', () => {
     const item = message({
       topic: 'confirmation',
-      title: 'Ihre Bestellung bei Küchenly',
+      title: 'Ihre Bestellung bei Mühlenhof',
       text: 'Hallo <b>Anna</b>',
     });
-    expect(subjectOf(item, 'Küchenly')).toBe('Ihre Bestellung bei Küchenly');
+    expect(subjectOf(item, 'Mühlenhof')).toBe('Ihre Bestellung bei Mühlenhof');
     const mime = mimeMessage({
       from: 'shop@example.com',
       to: ['anna@example.com'],
       item,
-      site: 'Küchenly',
+      site: 'Mühlenhof',
       id: 'x',
     });
     expect(mime).not.toContain('Reply-To');

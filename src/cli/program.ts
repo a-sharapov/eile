@@ -1,11 +1,16 @@
-import { basename } from 'node:path';
-
-// Имена команды: `cms` и второе имя `eile` — ссылка на него рядом (install.sh, ADR 0023).
+// Имена команды: `cms` и второе имя `eile` — ссылка на него рядом (install.sh, ADR 0023), на Windows —
+// жёсткая ссылка `eile.exe` (ADR 0049).
 const _NAMES: ReadonlySet<string> = new Set(['cms', 'eile']);
 
-/** Имя, под которым запустили программу; из исходников (`bun src/main.ts`) и под чужим именем — cms. */
+/**
+ * Имя, под которым запустили программу; из исходников (`bun src/main.ts`) и под чужим именем — cms.
+ * На Windows argv0 — набранное `eile` или `C:\…\eile.exe`: каталог отрезается по обоим разделителям,
+ * `.exe` и регистр не в счёт.
+ */
 export var programName = (argv0: string): string =>
-  ((name) => (_NAMES.has(name) ? name : 'cms'))(basename(argv0));
+  ((name) => (_NAMES.has(name) ? name : 'cms'))(
+    (argv0.split(/[\\/]/).pop() ?? '').replace(/\.exe$/i, '').toLowerCase()
+  );
 
 export var PROGRAM = programName(process.argv0);
 

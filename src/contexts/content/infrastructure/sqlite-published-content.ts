@@ -8,7 +8,7 @@ import type {
   TranslationNode,
 } from '../application/published-content.ts';
 import { type Field, type FieldValue, fitsField } from '../domain/field.ts';
-import type { PageKind } from '../domain/page.ts';
+import type { Page, PageKind } from '../domain/page.ts';
 import { type FieldRow, toField } from './sqlite-field-repository.ts';
 import {
   type FieldValueRow,
@@ -281,6 +281,61 @@ export var definePublishedContent = (
     fields: fieldsOf(row),
   });
 
+  // Своё значение — из самой страницы, наследуемое — от родителя по базе, как у сохранённой.
+  const fieldsOfPage = (page: Page): Record<string, FieldValue | null> => {
+    const values = memoized();
+    return definitions()
+      .filter((_) => _.templates.includes(page.template))
+      .reduce<Record<string, FieldValue | null>>(
+        (all, field) => ({
+          ...all,
+          [field.name]:
+            (fitsField(field)(page.fields[field.name])
+              ? page.fields[field.name]
+              : undefined) ??
+            (field.inherit && page.parentId !== null
+              ? (own(values)(field, page.parentId) ??
+                inherited(values)(field, page.parentId))
+              : undefined) ??
+            field.defaultValue,
+        }),
+        {}
+      );
+  };
+
+  const viewOf = (page: Page): PageView =>
+    ((stored, now) => ({
+      id: page.id,
+      parentId: page.parentId,
+      kind: page.kind,
+      title: page.title,
+      longTitle: page.longTitle,
+      menuTitle: page.menuTitle,
+      description: page.description,
+      introText: page.introText,
+      alias: page.alias,
+      path: `${page.parentId === null ? '' : (indexed().pathOf.get(page.parentId) ?? '')}/${page.alias}`,
+      template: page.template,
+      contentType: page.contentType,
+      content: page.content,
+      linkTo: page.linkTo,
+      menuIndex: page.menuIndex,
+      hiddenFromMenu: page.hiddenFromMenu,
+      cacheable: page.cacheable,
+      searchable: page.searchable,
+      socialImage: page.socialImage,
+      language:
+        page.language ||
+        (page.parentId === null
+          ? ''
+          : (indexed().languageOf.get(page.parentId) ?? '')),
+      translationOf: page.translationOf,
+      createdAt: stored?.created_at ?? now,
+      updatedAt: now,
+      publishedAt: page.publishedAt,
+      fields: fieldsOfPage(page),
+    }))(anyById.get(page.id), new Date().toISOString());
+
   // Страница без пути в индексе лежит в ветке, чей предок в корзине.
   const reachable = (row: PageRow | null): row is PageRow =>
     row !== null && indexed().pathOf.has(row.id);
@@ -382,6 +437,7 @@ export var definePublishedContent = (
         const row = anyById.get(id);
         return row && view(row);
       },
+      viewOf,
       translations: (id) =>
         ((rows) =>
           rows.length < 2 ? [] : rows.map(translationNode(hubOf(id)!)))(

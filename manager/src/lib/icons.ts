@@ -42,6 +42,7 @@ import fileType from 'lucide-static/icons/file-type.svg?raw';
 import folder from 'lucide-static/icons/folder.svg?raw';
 import folderInput from 'lucide-static/icons/folder-input.svg?raw';
 import folderTree from 'lucide-static/icons/folder-tree.svg?raw';
+import gitPullRequest from 'lucide-static/icons/git-pull-request.svg?raw';
 import gripVertical from 'lucide-static/icons/grip-vertical.svg?raw';
 import hash from 'lucide-static/icons/hash.svg?raw';
 import image from 'lucide-static/icons/image.svg?raw';
@@ -72,6 +73,7 @@ import refreshCw from 'lucide-static/icons/refresh-cw.svg?raw';
 import search from 'lucide-static/icons/search.svg?raw';
 import send from 'lucide-static/icons/send.svg?raw';
 import settings from 'lucide-static/icons/settings.svg?raw';
+import share from 'lucide-static/icons/share-2.svg?raw';
 import shieldCheck from 'lucide-static/icons/shield-check.svg?raw';
 import squareChevronDown from 'lucide-static/icons/square-chevron-down.svg?raw';
 import sun from 'lucide-static/icons/sun.svg?raw';
@@ -172,6 +174,7 @@ export var icons = {
   panelClose: _icon(panelLeftClose),
   panelOpen: _icon(panelLeftOpen),
   pencil: _icon(pencil),
+  proposals: _icon(gitPullRequest),
   phone: _icon(phone),
   plug: _icon(plug),
   plus: _icon(plus),
@@ -184,6 +187,7 @@ export var icons = {
   select: _icon(squareChevronDown),
   send: _icon(send),
   settings: _icon(settings),
+  share: _icon(share),
   slider: _icon(slider),
   template: _icon(layoutTemplate),
   text: _icon(type),

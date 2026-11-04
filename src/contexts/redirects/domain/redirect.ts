@@ -39,6 +39,8 @@ export type RuleMatch = {
   readonly id: number;
   readonly to: string;
   readonly status: RedirectStatus;
+  /** Параметры query, которые узнало правило с query: в адрес цели они не переходят. */
+  readonly consumed?: readonly string[];
 };
 
 export type RedirectsEvent = {
@@ -64,31 +66,67 @@ const _canonical = (path: string): string | null =>
     _segments(path)
   );
 
-/** Префикс правила `/blog/*` → `/blog`; у точного адреса префикса нет. */
+/** Префикс правила `/blog/*` → `/blog`; у точного адреса и у правила с query префикса нет. */
 export var prefixOf = (from: string): string | null =>
-  from.endsWith('*') ? from.slice(0, -2) : null;
+  from.endsWith('*') && !from.includes('?') ? from.slice(0, -2) : null;
 
 const _reserved = (path: string): boolean =>
   _RESERVED.some((_) => path === _ || path.startsWith(`${_}/`));
 
-/** Адрес «откуда»: путь сайта без query; звёздочка — только целым последним сегментом. */
+/** Пара query `name=value`: имя и значение уже раскодированы. */
+export type QueryParam = [string, string];
+
+const _MAX_PARAMS = 5;
+
+// `p=12&x=` → пары по имени, без повторов; null — это не query правила.
+const _params = (raw: string): QueryParam[] | null =>
+  ((pairs) =>
+    pairs.length > 0 &&
+    pairs.length <= _MAX_PARAMS &&
+    pairs.every(({ 0: name }) => name !== '') &&
+    new Set(pairs.map(({ 0: name }) => name)).size === pairs.length &&
+    raw.split('&').every((_) => _.includes('='))
+      ? pairs.toSorted((a, b) => (a[0] < b[0] ? -1 : 1))
+      : null)([...new URLSearchParams(raw)] as QueryParam[]);
+
+/** Правило с query `/?p=12`: путь и пары, которые должны быть в адресе посетителя; null — query нет. */
+export var queryOf = (
+  from: string
+): { readonly path: string; readonly params: QueryParam[] } | null =>
+  ((mark) =>
+    mark < 0
+      ? null
+      : {
+          path: from.slice(0, mark),
+          params: [...new URLSearchParams(from.slice(mark + 1))],
+        })(from.indexOf('?'));
+
+/**
+ * Адрес «откуда»: путь сайта; звёздочка — только целым последним сегментом. Точный адрес может требовать
+ * query (`/?p=12`, `/index.php?page_id=5`): пары сортируются по имени, другие параметры адреса не мешают.
+ */
 export var parseFrom = (raw: string): string => {
   const text = raw.trim();
-  const star = text.endsWith('*');
-  const base = star ? text.slice(0, -1) : text;
+  const mark = text.indexOf('?');
+  const bare = mark < 0 ? text : text.slice(0, mark);
+  const params = mark < 0 ? null : _params(text.slice(mark + 1));
+  const star = bare.endsWith('*');
+  const base = star ? bare.slice(0, -1) : bare;
   const path =
-    text.startsWith('/') &&
-    !text.startsWith('//') &&
-    !/[?#\s]/.test(text) &&
+    bare.startsWith('/') &&
+    !bare.startsWith('//') &&
+    !/[?#\s]/.test(bare) &&
+    !/[#\s]/.test(text) &&
     !base.includes('*') &&
     text.length <= _MAX_PATH &&
-    (!star || base.endsWith('/'))
+    (!star || base.endsWith('/')) &&
+    (mark < 0 || (params !== null && !star))
       ? _canonical(base)
       : null;
   return path === null
     ? fail(
         'redirects.invalid_from',
-        'From is a site path like /old or a prefix like /old/*'
+        'From is a site path like /old, a prefix like /old/* or a path with a query like /?p=12'
       )
     : _reserved(path)
       ? fail(
@@ -97,7 +135,9 @@ export var parseFrom = (raw: string): string => {
         )
       : star
         ? `${path === '/' ? '' : path}/*`
-        : path;
+        : params
+          ? `${path}?${new URLSearchParams(params)}`
+          : path;
 };
 
 const _invalidTo = (): never =>
@@ -161,25 +201,60 @@ export var pageTarget = (to: string): number | null =>
 
 export var isExternal = (to: string): boolean => _URL.test(to);
 
-/** Правила для быстрого поиска: точные адреса — таблицей, префиксы — от длинного к короткому. */
+type QueryRule = {
+  readonly params: readonly QueryParam[];
+  readonly rule: RedirectRule;
+};
+
+/**
+ * Правила для быстрого поиска: точные адреса — таблицей, префиксы — от длинного к короткому, правила с
+ * query — по пути, от большего числа пар к меньшему.
+ */
 export type RuleIndex = {
   readonly exact: ReadonlyMap<string, RedirectRule>;
   readonly prefixes: readonly {
     readonly base: string;
     readonly rule: RedirectRule;
   }[];
+  readonly queries: ReadonlyMap<string, readonly QueryRule[]>;
 };
 
-export var indexRules = (rules: readonly RedirectRule[]): RuleIndex => ({
-  exact: new Map(
-    rules.filter((_) => prefixOf(_.from) === null).map((_) => [_.from, _])
-  ),
-  prefixes: rules
-    .flatMap((rule) =>
-      ((base) => (base === null ? [] : [{ base, rule }]))(prefixOf(rule.from))
-    )
-    .toSorted((a, b) => b.base.length - a.base.length),
-});
+/**
+ * Индекс, который пополняется по правилу: пачка новых правил (перенос сайта) проверяется без пересборки
+ * индекса на каждое. Таблицы живут в замыкании и растут на месте — снаружи индекс только читают.
+ */
+export var growingIndex = (
+  rules: readonly RedirectRule[]
+): {
+  readonly index: () => RuleIndex;
+  readonly add: (rule: RedirectRule) => void;
+} => {
+  const exact = new Map<string, RedirectRule>();
+  const queries = new Map<string, QueryRule[]>();
+  let prefixes: { readonly base: string; readonly rule: RedirectRule }[] = [];
+  const add = (rule: RedirectRule): void =>
+    ((base, query) =>
+      void (base !== null
+        ? (prefixes = [...prefixes, { base, rule }].toSorted(
+            (a, b) => b.base.length - a.base.length
+          ))
+        : query !== null
+          ? ((list) =>
+              void queries.set(query.path, [
+                ...list.filter((_) => _.params.length >= query.params.length),
+                { params: query.params, rule },
+                ...list.filter((_) => _.params.length < query.params.length),
+              ]))(queries.get(query.path) ?? [])
+          : exact.set(rule.from, rule)))(
+      prefixOf(rule.from),
+      queryOf(rule.from)
+    );
+  rules.forEach(add);
+  return { index: () => ({ exact, prefixes, queries }), add };
+};
+
+export var indexRules = (rules: readonly RedirectRule[]): RuleIndex =>
+  growingIndex(rules).index();
 
 // `/blog` подходит к `/blog/*` с пустым остатком, `/blogger` — нет.
 const _rest = (base: string, path: string): string | null =>
@@ -218,6 +293,32 @@ export var matchRule = (index: RuleIndex, path: string): RuleMatch | null =>
           null
         ))(index.exact.get(path));
 
+/**
+ * Правило с query для адреса посетителя: все его пары есть в query (лишние параметры вроде utm не мешают),
+ * правило с большим числом пар важнее.
+ */
+export var matchQuery = (
+  index: RuleIndex,
+  path: string,
+  query: Readonly<Record<string, string>>
+): RuleMatch | null =>
+  ((found) =>
+    found
+      ? {
+          id: found.rule.id,
+          to: found.rule.to,
+          status: found.rule.status,
+          consumed: found.params.map(({ 0: name }) => name),
+        }
+      : null)(
+    (index.queries.get(path) ?? []).find(({ params }) =>
+      params.every(
+        ({ 0: name, 1: value }) =>
+          Object.hasOwn(query, name) && query[name] === value
+      )
+    )
+  );
+
 /** Адрес, по которому проверяется цель-префикс: `*` заменяется сегментом. */
 export var sampleOf = (to: string): string =>
   to.endsWith('*') ? `${to.slice(0, -1)}x` : to;
@@ -225,17 +326,31 @@ export var sampleOf = (to: string): string =>
 // Адрес цели без query и якоря — с ним сравниваются правила.
 const _pathOf = (to: string): string => to.replace(/[?#].*$/, '') || '/';
 
+// Query цели — с ним сравниваются правила с query.
+const _queryOf = (to: string): Record<string, string> =>
+  ((mark) =>
+    mark < 0
+      ? {}
+      : Object.fromEntries(
+          new URLSearchParams(to.slice(mark + 1).replace(/#.*$/, ''))
+        ))(to.indexOf('?'));
+
+// Куда отправит адрес цели одно из правил: с query или по пути.
+const _matchTarget = (index: RuleIndex, to: string): RuleMatch | null =>
+  ((target) =>
+    matchQuery(index, _pathOf(target), _queryOf(target)) ??
+    matchRule(index, _pathOf(target)))(sampleOf(to));
+
 /**
  * Петли и цепочки: цель правила сама переадресуется, или на адрес правила ведёт другое правило.
  * Каждый переход — лишний запрос посетителю и поисковику, петля — ошибка в браузере.
  */
 export var refuseChains = (
   draft: RuleDraft,
-  others: readonly RedirectRule[]
+  others: readonly RedirectRule[],
+  index: RuleIndex = indexRules(others)
 ): void => {
-  const index = indexRules(others);
   const internal = !isExternal(draft.to) && pageTarget(draft.to) === null;
-  const target = internal ? _pathOf(sampleOf(draft.to)) : null;
   const self = indexRules([
     {
       ...draft,
@@ -246,16 +361,16 @@ export var refuseChains = (
       updatedAt: '',
     },
   ]);
-  const next = target === null ? null : matchRule(index, target);
+  const next = internal ? _matchTarget(index, draft.to) : null;
   const into = others.find(
     (_) =>
       !isExternal(_.to) &&
       pageTarget(_.to) === null &&
-      matchRule(self, _pathOf(sampleOf(_.to))) !== null
+      _matchTarget(self, _.to) !== null
   );
   void (
-    target !== null &&
-    matchRule(self, target) !== null &&
+    internal &&
+    _matchTarget(self, draft.to) !== null &&
     fail('redirects.loop', `${draft.from} leads to itself`)
   );
   void (

@@ -259,30 +259,32 @@ describe('GET /_cms/search', () => {
   });
 });
 
-describe.each(SCAFFOLDS.map((_) => [_.name, _] as const))(
-  'поиск в каркасе %s',
-  (_name, scaffold) => {
-    it('поле в шапке и страница выдачи находят текст каркаса', async () => {
-      const site = createApp({ scaffold });
-      const html = await site
-        .fetch(new Request('http://localhost/'))
-        .then((_) => _.text());
-      expect(html).toContain('role="search"');
-      const action = html.match(/role="search"[^>]*action="([^"]+)"/)?.[1];
-      expect(action).toBeTruthy();
-      // Длинное слово из текста главной: его каркас точно содержит.
-      const word = site.content.drafts
-        .view(site.site.settings.get().homePageId!)!
-        .content.replace(/<[^>]*>|\[\[[^\]]*\]\]/g, ' ')
-        .match(/[а-яё]{6,}/i)![0];
-      const found = await site
-        .fetch(
-          new Request(`http://localhost${action}?q=${encodeURIComponent(word)}`)
-        )
-        .then((_) => _.text());
-      expect(found).toContain('<mark>');
-      expect(found).not.toMatch(/\[\[|\[#|@\{/);
-      site.close();
-    });
-  }
-);
+// Поиск — у каркасов со страницей выдачи; у сайта студии из девяти страниц его нет.
+describe.each(
+  SCAFFOLDS.filter((_) => _.settings?.searchPage !== undefined).map(
+    (_) => [_.name, _] as const
+  )
+)('поиск в каркасе %s', (_name, scaffold) => {
+  it('поле в шапке и страница выдачи находят текст каркаса', async () => {
+    const site = createApp({ scaffold });
+    const html = await site
+      .fetch(new Request('http://localhost/'))
+      .then((_) => _.text());
+    expect(html).toContain('role="search"');
+    const action = html.match(/role="search"[^>]*action="([^"]+)"/)?.[1];
+    expect(action).toBeTruthy();
+    // Длинное слово из текста главной: его каркас точно содержит.
+    const word = site.content.drafts
+      .view(site.site.settings.get().homePageId!)!
+      .content.replace(/<[^>]*>|\[\[[^\]]*\]\]/g, ' ')
+      .match(/[а-яё]{6,}/i)![0];
+    const found = await site
+      .fetch(
+        new Request(`http://localhost${action}?q=${encodeURIComponent(word)}`)
+      )
+      .then((_) => _.text());
+    expect(found).toContain('<mark>');
+    expect(found).not.toMatch(/\[\[|\[#|@\{/);
+    site.close();
+  });
+});

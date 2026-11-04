@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:net';
 import { TLSSocket } from 'node:tls';
 import type { TCPSocketListener } from 'bun';
 import { message } from '../domain/message.ts';
-import type { EmailSettings } from '../domain/settings.ts';
+import type { SmtpEmailSettings } from '../domain/settings.ts';
 import { defineSmtpSender, dotStuffed } from './smtp-client.ts';
 
 type Script = Readonly<Record<string, string>>;
@@ -73,8 +73,9 @@ afterEach(() => server?.stop());
 
 const settingsFor = (
   port: number,
-  patch: Partial<EmailSettings> = {}
-): EmailSettings => ({
+  patch: Partial<SmtpEmailSettings> = {}
+): SmtpEmailSettings => ({
+  transport: 'smtp',
   host: '127.0.0.1',
   port,
   security: 'none',
@@ -229,7 +230,7 @@ describe('письмо почтового шлюза по SMTP', () => {
   it('конверт — почта сайта, адресаты — из письма, тело — с вложением', async () => {
     server = fakeServer();
     await defineSmtpSender().mail(settingsFor(server.port), {
-      from: { address: 'site@example.com', name: 'Kuechenly' },
+      from: { address: 'site@example.com', name: 'Muehlenhof' },
       to: ['a@example.com', 'b@example.com'],
       subject: 'Termin',
       html: '<p>Hallo</p>',
@@ -249,7 +250,7 @@ describe('письмо почтового шлюза по SMTP', () => {
       'RCPT TO:<a@example.com>',
       'RCPT TO:<b@example.com>',
     ]);
-    expect(server.mail()).toContain('From: "Kuechenly" <site@example.com>');
+    expect(server.mail()).toContain('From: "Muehlenhof" <site@example.com>');
     expect(server.mail()).toContain('Content-Type: multipart/mixed');
     expect(server.mail()).toContain('filename="a.pdf"');
   });
@@ -260,7 +261,7 @@ describe('письмо почтового шлюза по SMTP', () => {
       new Uint8Array(size).map((_, i) => (i * (k + 3)) % 256)
     );
     await defineSmtpSender().mail(settingsFor(server.port), {
-      from: { address: 'site@example.com', name: 'Kuechenly' },
+      from: { address: 'site@example.com', name: 'Muehlenhof' },
       to: ['a@example.com'],
       subject: 'Angebot',
       html: '<p>Hallo</p>',

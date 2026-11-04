@@ -2,7 +2,7 @@ import type { Socket, SocketHandler } from 'bun';
 import { pipe } from '../../../shared/kernel/pipe.ts';
 import type { SendFailure } from '../domain/delivery.ts';
 import type { EmailSender, SmtpProbe } from '../domain/ports.ts';
-import type { EmailSettings } from '../domain/settings.ts';
+import type { SmtpEmailSettings } from '../domain/settings.ts';
 import { mailParts, mimeMessage } from './mime.ts';
 
 /** Ответ сервера: код и строки текста (многострочный ответ — `250-…` и последняя `250 …`). */
@@ -79,7 +79,7 @@ const _rejected = (reply: Reply, line: string): SendFailure & Error =>
  * пропускается, а отказ проверки ловит `handshake`. `socket.timeout` — срок, а не простой: взводится
  * заново на каждую команду. Своего срока на подключение у `Bun.connect` нет — он свой.
  */
-const _open = (settings: EmailSettings): Promise<Session> =>
+const _open = (settings: SmtpEmailSettings): Promise<Session> =>
   new Promise((resolve, reject) => {
     const decoder = new TextDecoder();
     const waiting: {
@@ -287,7 +287,7 @@ const _base64 = (text: string): string => _utf8.encode(text).toBase64();
 
 const _login = (
   session: Session,
-  settings: EmailSettings,
+  settings: SmtpEmailSettings,
   hello: Reply
 ): Promise<unknown> =>
   settings.user === ''
@@ -302,11 +302,18 @@ const _login = (
           .then(() => session.command(_base64(settings.user), [334]))
           .then(() => session.command(_base64(settings.password), [235]));
 
-const _hello = (session: Session, settings: EmailSettings): Promise<Reply> =>
+const _hello = (
+  session: Session,
+  settings: SmtpEmailSettings
+): Promise<Reply> =>
   session.command(`EHLO ${settings.from.split('@')[1] ?? 'localhost'}`, [250]);
 
 // После STARTTLS сервер забывает прежний EHLO: здороваемся заново уже по TLS.
-const _secure = (session: Session, settings: EmailSettings, hello: Reply) =>
+const _secure = (
+  session: Session,
+  settings: SmtpEmailSettings,
+  hello: Reply
+) =>
   settings.security !== 'starttls'
     ? Promise.resolve(hello)
     : _has(hello, 'STARTTLS')
@@ -320,7 +327,7 @@ const _secure = (session: Session, settings: EmailSettings, hello: Reply) =>
 
 // Разговор целиком: приветствие, вход, конверт, письмо, QUIT; письмо собирается, когда сервер его ждёт.
 const _transmit = (
-  settings: EmailSettings,
+  settings: SmtpEmailSettings,
   to: readonly string[],
   body: () => Iterable<string | Uint8Array>
 ): Promise<void> =>
@@ -371,7 +378,7 @@ const _probeError = (error: unknown): NonNullable<SmtpProbe['error']> =>
     _PROBE_ERRORS.find(({ 0: start }) => text.startsWith(start))?.[1] ??
     'unexpected_reply')(error instanceof Error ? error.message : String(error));
 
-const _greet = (settings: EmailSettings): Promise<void> =>
+const _greet = (settings: SmtpEmailSettings): Promise<void> =>
   _open(settings).then((session) =>
     session
       .greeting([220])
@@ -382,7 +389,7 @@ const _greet = (settings: EmailSettings): Promise<void> =>
       )
   );
 
-const _probe = (settings: EmailSettings): Promise<SmtpProbe> => {
+const _probe = (settings: SmtpEmailSettings): Promise<SmtpProbe> => {
   const started = performance.now();
   const elapsed = (): number => Math.round(performance.now() - started);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -404,7 +411,7 @@ const _probe = (settings: EmailSettings): Promise<SmtpProbe> => {
 };
 
 /** Отправка письма по SMTP без зависимостей: `Bun.connect` и `upgradeTLS`, вход PLAIN или LOGIN. */
-export var defineSmtpSender = (): EmailSender => ({
+export var defineSmtpSender = (): EmailSender<SmtpEmailSettings> => ({
   send: (settings, to, item, site) =>
     _transmit(settings, to, () => [
       mimeMessage({ from: settings.from, to, item, site }),

@@ -342,7 +342,8 @@ export type ComponentSignature = {
 export type Translation = { key: string; values: Record<string, string> };
 
 /** Своя настройка: `[@key]` подставляет значение в шаблоны и контент. */
-export type CustomSetting = { key: string; value: string };
+/** Своя настройка; пояснение — что это и где взять значение, видно только в менеджере. */
+export type CustomSetting = { key: string; value: string; note: string };
 
 /** Канал уведомлений. */
 export type ChannelKind = 'telegram' | 'email';
@@ -351,18 +352,36 @@ export type Severity = 'critical' | 'error' | 'warning' | 'info';
 
 export type Chat = { id: string; title: string };
 
-/** Настройки уведомлений без токена и пароля: их сервер не отдаёт. */
+/** Почтовый сервис с HTTP API — когда хостинг закрыл порты SMTP. */
+export type MailProvider = 'brevo' | 'postmark' | 'mailgun' | 'resend' | 'ses';
+
+/** Почта без пароля SMTP и без ключа API: от ключа сервер отдаёт только последние четыре знака. */
+export type EmailStatus =
+  | {
+      transport: 'smtp';
+      host: string;
+      port: number;
+      security: 'tls' | 'starttls' | 'none';
+      user: string;
+      from: string;
+      to: string[];
+      hasPassword: boolean;
+    }
+  | {
+      transport: MailProvider;
+      keyId: string;
+      region: string;
+      domain: string;
+      stream: string;
+      from: string;
+      to: string[];
+      keyHint: string;
+    };
+
+/** Настройки уведомлений без токена, пароля и ключа: их сервер не отдаёт. */
 export type NotifyStatus = {
   telegram: { chats: Chat[]; proxy: string; hasToken: true } | null;
-  email: {
-    host: string;
-    port: number;
-    security: 'tls' | 'starttls' | 'none';
-    user: string;
-    from: string;
-    to: string[];
-    hasPassword: boolean;
-  } | null;
+  email: EmailStatus | null;
   forms: ChannelKind[];
   incidents: ChannelKind[];
   level: Severity;
@@ -642,6 +661,8 @@ export type FormSummary = {
   fields: number;
 };
 
+export type ProofLevel = 'off' | 'light' | 'standard' | 'strong';
+
 export type FormDetail = FormSummary & {
   source: string;
   submitLabel: string;
@@ -652,6 +673,8 @@ export type FormDetail = FormSummary & {
   retentionDays: number;
   minSeconds: number;
   allowLinks: boolean;
+  /** Доказательство работы в браузере: выключено или сложность задачи (ADR 0053). */
+  proof: ProofLevel;
   goal: string;
   /** Письмо отправителю: адрес из поля, тема и текст с подстановками. */
   confirmation: {
@@ -720,6 +743,8 @@ export type SubmissionDetail = {
     url: string;
     referrer: string;
     utm: Record<string, string>;
+    /** `missing` — пришла из браузера без JS без доказательства работы. */
+    proof?: 'missing';
   };
   ip: string;
   userAgent: string;
@@ -746,4 +771,96 @@ export type SubmissionDetail = {
     type: string;
     size: number;
   }[];
+};
+
+/** Проверка правок агентов (ADR 0054): GET /review/settings. */
+export type ReviewSettings = {
+  agents: boolean;
+  linkDays: number;
+  /** Сколько предложений ждут решения во всех наборах. */
+  pending: number;
+};
+
+export type ProposalStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn';
+
+export type ChangeSetStatus = 'open' | 'ready' | 'closed';
+
+export type ReviewValue = string | number | boolean | null;
+
+/** Строка сравнения «сейчас → предложено» — её считает сервер. */
+export type ReviewDiffLine =
+  | {
+      kind: 'same' | 'old' | 'new';
+      pieces: { text: string; changed: boolean }[];
+    }
+  | { kind: 'skip'; count: number };
+
+export type ReviewChange = {
+  key: string;
+  before: ReviewValue;
+  after: ReviewValue;
+  /** Конфликт: каким место было, когда агент его увидел. */
+  was?: ReviewValue;
+  label?: string;
+};
+
+export type ReviewItem = {
+  id: number;
+  status: ProposalStatus;
+  error: string;
+  decidedBy: string;
+  decidedAt: string | null;
+  operations: string[];
+  conflicts: string[];
+  target:
+    | { kind: 'page'; id: number; title: string; path: string; exists: boolean }
+    | {
+        kind: 'element';
+        element: 'template' | 'component' | 'script';
+        name: string;
+      };
+  changes: ReviewChange[];
+  fields: ReviewChange[];
+  tree: {
+    before: { id: number; title: string } | null;
+    after: { id: number; title: string } | null;
+  } | null;
+  content: ReviewDiffLine[] | null;
+  source: ReviewDiffLine[] | null;
+};
+
+export type ChangeSetSummary = {
+  id: number;
+  agent: {
+    userId: number;
+    userName: string;
+    tokenId: number | null;
+    tokenName: string;
+  };
+  title: string;
+  description: string;
+  status: ChangeSetStatus;
+  createdAt: string;
+  updatedAt: string;
+  submittedAt: string | null;
+  closedAt: string | null;
+  counts: Record<ProposalStatus, number>;
+  conflicts: number;
+  /** Страницы с ждущими предложениями: их показывает предпросмотр. */
+  pages: number[];
+};
+
+export type ChangeSetView = ChangeSetSummary & { items: ReviewItem[] };
+
+/** Ссылка предпросмотра в списке: целиком токен показан один раз, при создании. */
+export type ShareLink = {
+  id: number;
+  target: { page: number; changeSet: number | null };
+  label: string;
+  createdBy: { id: number; name: string } | null;
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt: string | null;
+  uses: number;
+  live: boolean;
 };

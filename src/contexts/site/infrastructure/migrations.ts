@@ -25,4 +25,10 @@ export var siteMigrations: readonly Migration[] = [
       ) WITHOUT ROWID;
     `,
   },
+  {
+    id: 'site/003_custom_setting_notes',
+    sql: `
+      ALTER TABLE site_custom_settings ADD COLUMN note TEXT NOT NULL DEFAULT '';
+    `,
+  },
 ];

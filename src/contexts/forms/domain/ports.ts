@@ -1,4 +1,5 @@
 import type { Form, FormName } from './form.ts';
+import type { Challenge, ProofDifficulty, Solution } from './proof.ts';
 import type { FieldSpec, FormTexts, Posted, Upload } from './schema.ts';
 import type {
   NewSubmission,
@@ -152,6 +153,8 @@ export type FormView = {
   readonly hidden: Readonly<Record<string, string>>;
   /** Тексты формы на языке страницы; скрипт берёт свои из атрибутов формы. */
   readonly texts: FormTexts;
+  /** Задача доказательства работы строкой (`challengeText`); null — защита у формы выключена. */
+  readonly proof: string | null;
 };
 
 /** Печать формы: когда её показали — подписано; одноразовая. */
@@ -163,4 +166,21 @@ export type Stamps = {
   readonly valid: (form: string, token: unknown, iat: unknown) => boolean;
   /** Отметить использованной; false — уже была использована. */
   readonly spend: (token: string) => boolean;
+};
+
+/**
+ * Задачи доказательства работы: без записей на сервере — подпись связывает задачу с формой и печатью, а
+ * одноразовость даёт печать (`Stamps.spend`).
+ */
+export type Proofs = {
+  readonly issue: (
+    form: string,
+    stamp: string,
+    difficulty: ProofDifficulty
+  ) => Challenge;
+  readonly verify: (
+    form: string,
+    stamp: string,
+    solution: Solution
+  ) => 'valid' | 'invalid' | 'expired';
 };

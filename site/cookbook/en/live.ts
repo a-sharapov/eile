@@ -86,6 +86,7 @@ const form: Chapter = {
         'build a measuring visit request form in the form editor;',
         'put it on the Contact page;',
         'send a test request and find it in the manager;',
+        'see how the form keeps spam out;',
         'connect notifications in Telegram.'
       )
     ),
@@ -158,7 +159,7 @@ const form: Chapter = {
     ),
     h2('requests', 'Requests'),
     p(
-      'Open Contact on the site, fill in the form and send it. The form works without JavaScript, and when JavaScript is available, it sends the request without reloading the page.'
+      'Open Contact on the site, fill in the form and send it. If a field is wrong, say the phone is missing, the error appears right under it. The form works without JavaScript, and when JavaScript is available, it sends the request without reloading the page.'
     ),
     p(
       'In the manager, the envelope in the header now shows the number 1. Click it to see the new request. It has everything the visitor filled in, the page they came from, and ' +
@@ -171,11 +172,22 @@ const form: Chapter = {
         ui('Done') +
         ' once the measuring visit is booked.'
     ),
+    h2('spam', 'Spam protection'),
+    p(
+      'You don’t need a CAPTCHA, and there is nothing to switch on: a new form is already protected. While the visitor fills in the fields, their browser quietly solves a small puzzle and the server checks the answer. A quiet line at the end of the form, “Spam protection confirmed”, is that check. The form also sets an invisible trap for bots, checks how many seconds it took to fill in and limits the number of requests from one address.',
+      'Suspicious requests go to ' +
+        ui('Spam') +
+        ' and don’t trigger notifications. A request from a browser with JavaScript turned off lands there too, marked, because there is no way to check it. Look into Spam now and then.'
+    ),
     aside(
       'tip',
-      'Spam',
+      'Stricter or gentler',
       p(
-        'You don’t need a CAPTCHA. The form sets an invisible trap for bots, checks how many seconds it took to fill in and limits the number of requests from one address. Suspicious requests go to “Spam” and don’t trigger notifications.'
+        'You choose the level on the form’s ' +
+          ui('Protection and storage') +
+          ' tab, in the ' +
+          ui('Browser check') +
+          ' field. The default is Standard: on a mid-range phone the puzzle takes 0.2 seconds on average, while the person is still typing their name.'
       )
     ),
     h2('telegram', 'Notifications in Telegram'),

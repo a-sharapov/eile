@@ -1,7 +1,6 @@
 import type { Database } from '../../../platform/database.ts';
 import { textIn } from '../../../shared/kernel/manager-language.ts';
 import type { Delivery, DeliveryStatus } from '../domain/delivery.ts';
-import { DEFAULT_GATEWAY } from '../domain/gateway.ts';
 import type { ChannelKind, Message, Severity } from '../domain/message.ts';
 import type {
   IncidentRecord,
@@ -9,7 +8,7 @@ import type {
   OutboxRepository,
   SettingsRepository,
 } from '../domain/ports.ts';
-import { EMPTY_SETTINGS, type NotifySettings } from '../domain/settings.ts';
+import { type NotifySettings, storedSettings } from '../domain/settings.ts';
 
 // Одна строка JSON: настройки каналов читаются целиком и целиком меняются.
 export var defineSettingsRepository = (
@@ -26,13 +25,9 @@ export var defineSettingsRepository = (
     ON CONFLICT (id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`);
   const read = (): NotifySettings =>
     ((row) =>
-      ((stored) => ({
-        ...EMPTY_SETTINGS,
-        ...stored,
-        gateway: { ...DEFAULT_GATEWAY, ...stored.gateway },
-      }))(row ? (JSON.parse(row.value) as Partial<NotifySettings>) : {}))(
-      get.get()
-    );
+      storedSettings(
+        row ? (JSON.parse(row.value) as Partial<NotifySettings>) : {}
+      ))(get.get());
   // Адрес почтового шлюза сверяется на каждом запросе сайта: база читается один раз, дальше — до записи.
   // Запись другим процессом пересобирает контексты (data_version), а с ними и этот репозиторий.
   let cached: NotifySettings | null = null;

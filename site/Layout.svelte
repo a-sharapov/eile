@@ -7,7 +7,6 @@ import type { Snippet } from 'svelte';
 import Icon from '$components/Icon';
 import Logo from '$components/Logo';
 import { link, media, site as settings } from '$core';
-import Island from '$core/Island';
 
 let {
   /** Страница шаблона */
@@ -58,16 +57,29 @@ const fonts = [
   _face('JetBrains Mono', 'jetbrains-mono-cyrillic', _CYRILLIC),
   _face('JetBrains Mono', 'jetbrains-mono-latin', _LATIN),
 ].join('');
-const preload = [
+// Русская главная набирает латиницей команды и названия, а ширину заголовка в ch задаёт цифра 0 из
+// латинского файла Geologica: без этих файлов строки сдвигаются, когда шрифты догружаются.
+const preload = $derived([
   media(`fonts/${en ? 'onest-latin' : 'onest-cyrillic'}.woff2`),
   media(`fonts/${en ? 'geologica-latin' : 'geologica-cyrillic'}.woff2`),
-];
+  ...(isHome && !en
+    ? [
+        media('fonts/onest-latin.woff2'),
+        media('fonts/geologica-latin.woff2'),
+        media('fonts/jetbrains-mono-latin.woff2'),
+      ]
+    : []),
+]);
+// Как переехать с WordPress и Evo — глава «Что дальше» кукбука на языке страницы.
+const moving = $derived(link(Number(en ? c.enMoving : c.ruMoving)));
 const icon = media('brand/favicon.svg');
 
-// Тема ставится до первой отрисовки, иначе страница мигнёт системной; кнопка в шапке переключает её.
+// Одна строка в head вместо островов: тема ставится до первой отрисовки (иначе страница мигнёт системной),
+// кнопка переключает её и говорит aria-pressed, тёмная ли сейчас; ссылка в выезжающем меню закрывает меню
+// (#якорь на той же странице иначе оставил бы его открытым). Esc закрывает меню сам: popover="auto".
 // Имя тега отдельно: строка с закрывающим тегом script оборвала бы блок script компонента.
 const _TAG = 'script';
-const _THEME = `<${_TAG}>(()=>{const r=document.documentElement,k='eile-theme';try{const s=localStorage.getItem(k);if(s==='light'||s==='dark')r.dataset.theme=s}catch{}document.addEventListener('click',e=>{if(!e.target.closest('[data-theme-toggle]'))return;const d=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;r.dataset.theme=d?'light':'dark';try{localStorage.setItem(k,r.dataset.theme)}catch{}})})()</${_TAG}><noscript><style>[data-theme-toggle]{display:none}</style></noscript>`;
+const _THEME = `<${_TAG}>(()=>{const r=document.documentElement,k='eile-theme',m=matchMedia('(prefers-color-scheme: dark)');try{const s=localStorage.getItem(k);if(s==='light'||s==='dark')r.dataset.theme=s}catch{}const d=()=>r.dataset.theme?r.dataset.theme==='dark':m.matches,y=()=>document.querySelectorAll('[data-theme-toggle]').forEach(b=>b.setAttribute('aria-pressed',String(d())));document.addEventListener('DOMContentLoaded',y);m.addEventListener('change',y);document.addEventListener('click',e=>{const a=e.target.closest('[data-menu] [popover] a');if(a)a.closest('[popover]').hidePopover?.();if(!e.target.closest('[data-theme-toggle]'))return;r.dataset.theme=d()?'light':'dark';try{localStorage.setItem(k,r.dataset.theme)}catch{}y()})})()</${_TAG}><noscript><style>[data-theme-toggle]{display:none}</style></noscript>`;
 
 const sections = $derived([
   ['speed', t.navSpeed],
@@ -75,6 +87,7 @@ const sections = $derived([
   ['templates', t.navTemplates],
   ['ai', t.navAi],
   ['inside', t.navInside],
+  ['wordpress', t.navWordPress],
 ]);
 </script>
 
@@ -99,7 +112,7 @@ const sections = $derived([
 <header class="top" data-menu>
   <div class="bar">
     <a class="brand" href={home}><Logo label={`${site.name}, ${t.toHome}`} /></a>
-    <nav class="nav" id="nav" popover="auto" aria-label={t.navLabel}>
+    <nav class="nav" id="site-nav" popover="auto" aria-label={t.navLabel}>
       <ul>
         {#each sections as { 0: id, 1: label }}
           <li><a href={`${home}#${id}`}>{label}</a></li>
@@ -112,7 +125,14 @@ const sections = $derived([
       </ul>
     </nav>
     <div class="tools">
-      <button class="theme" type="button" data-theme-toggle aria-label={t.themeToggle} title={t.themeToggle}>
+      <button
+        class="theme"
+        type="button"
+        data-theme-toggle
+        aria-pressed="false"
+        aria-label={t.themeToggle}
+        title={t.themeToggle}
+      >
         <span class="moon"><Icon name="moon" /></span>
         <span class="sun"><Icon name="sun" /></span>
       </button>
@@ -121,15 +141,14 @@ const sections = $derived([
         href={other}
         hreflang={en ? 'ru' : 'en'}
         lang={en ? 'ru' : 'en'}
-        aria-label={en ? 'Русская версия' : 'English version'}
+        aria-label={en ? 'RU, Русская версия' : 'EN, English version'}
       >{en ? 'RU' : 'EN'}</a>
       <a class="gh" href={c.repo}><Icon name="github" /><span>GitHub</span></a>
-      <button class="burger" type="button" popovertarget="nav" aria-label={t.navLabel}>
+      <button class="burger" type="button" popovertarget="site-nav" aria-label={t.navLabel}>
         <Icon name="menu" />
       </button>
     </div>
   </div>
-  <Island name="MenuKeys" />
 </header>
 
 <main id="main">
@@ -156,7 +175,10 @@ const sections = $derived([
         <li><a href={`${c.repo}#readme`}>README</a></li>
         <li><a href={`${c.repo}/blob/main/docs/glossary.md`}>{t.footerGlossary}</a></li>
         <li><a href={`${c.repo}/blob/main/docs/README.md`}>{t.footerInside}</a></li>
-        <li><a href={`${c.repo}/blob/main/docs/adr/0009-evo-import.md`}>{t.footerMigrate}</a></li>
+        {#if moving}
+          <li><a href={`${moving}#wordpress`}>{t.footerMigrateWp}</a></li>
+          <li><a href={`${moving}#evo`}>{t.footerMigrate}</a></li>
+        {/if}
       </ul>
     </div>
     <div>
@@ -192,7 +214,7 @@ const sections = $derived([
     --line-strong: light-dark(#cdd2d9, #38404a);
     --text: light-dark(#13171c, #e9ecf0);
     --muted: light-dark(#59616b, #a0a8b3);
-    --faint: light-dark(#7a828c, #7f8893);
+    --faint: light-dark(#687079, #7f8893);
     --accent: light-dark(#2f5c96, #8db4ec);
     --fill: light-dark(#2f5c96, #6a9be0);
     --fill-hover: light-dark(#244b7d, #84aeea);
@@ -207,6 +229,8 @@ const sections = $derived([
     --gutter: clamp(1.25rem, 0.5rem + 3vw, 3rem);
     --radius: 0.75rem;
     --radius-l: 1.125rem;
+    --radius-window: 0.625rem;
+    --radius-pill-code: 0.3em;
     --ease: cubic-bezier(0.16, 1, 0.3, 1);
     --shadow-shot: 0 1px 2px rgb(16 28 48 / 0.06), 0 2rem 4rem -1.5rem rgb(16 36 72 / 0.28);
     --t-accent: var(--fill);
@@ -239,6 +263,8 @@ const sections = $derived([
     color: var(--text);
     font: 400 1.0625rem/1.6 var(--sans);
     font-feature-settings: 'cv11';
+    /* Слово длиннее строки (крупный текст, узкий экран) переносится, а не вылезает за край. */
+    overflow-wrap: break-word;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
@@ -275,6 +301,7 @@ const sections = $derived([
 
   .skip {
     position: absolute;
+    max-width: calc(100vw - 2rem);
     left: 1rem;
     top: -4rem;
     z-index: 20;
@@ -288,12 +315,21 @@ const sections = $derived([
     top: 1rem;
   }
 
+  /* Шапка — контейнер: переломы меню считаются от её ширины в rem страницы, поэтому при крупном тексте
+     (200 %) меню вовремя уходит в бургер, а не вылезает за край. */
   .top {
+    container: top / inline-size;
     position: sticky;
     top: 0;
     z-index: 10;
     background: color-mix(in oklab, var(--canvas) 94%, transparent);
     border-bottom: 1px solid var(--line);
+  }
+
+  @media (forced-colors: active) {
+    .top {
+      background: Canvas;
+    }
   }
 
   .bar {
@@ -348,7 +384,7 @@ const sections = $derived([
   }
 
   /* На широком экране меню — обычная строка; поповером оно становится только на узком. */
-  @media (min-width: 60rem) {
+  @container top (min-width: 60rem) {
     .nav[popover] {
       display: block;
       position: static;
@@ -436,7 +472,7 @@ const sections = $derived([
     }
   }
 
-  @media (max-width: 59.99rem) {
+  @container top (max-width: 59.99rem) {
     .bar {
       gap: 1rem;
     }
@@ -468,9 +504,53 @@ const sections = $derived([
     }
   }
 
-  @media (max-width: 30rem) {
+  /* Между бургером и широким экраном меню из семи пунктов тесно: зазоры уже, у GitHub — только значок. */
+  @container top (min-width: 60rem) and (max-width: 72rem) {
+    .bar {
+      gap: 1.25rem;
+    }
+
+    .nav a {
+      padding-inline: 0.55rem;
+    }
+
     .gh span {
-      display: none;
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    .gh {
+      padding: 0 0.65rem;
+    }
+  }
+
+  /* На узком экране у GitHub остаётся значок, а слово — только для читалки: без него ссылка безымянна. */
+  @container top (max-width: 30rem) {
+    /* Совсем узко (или очень крупный текст): кнопки переносятся под знак, а не уходят за край. */
+    .bar {
+      flex-wrap: wrap;
+      height: auto;
+      min-height: 4rem;
+      padding-block: 0.6rem;
+      row-gap: 0.6rem;
+    }
+
+    .tools {
+      flex-wrap: wrap;
+      justify-content: end;
+    }
+
+    .gh span {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
     }
 
     .gh {
@@ -548,11 +628,17 @@ const sections = $derived([
 
   @media (max-width: 48rem) {
     .cols {
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
 
     .about {
       grid-column: 1 / -1;
+    }
+  }
+
+  @media (max-width: 30rem) {
+    .cols {
+      grid-template-columns: minmax(0, 1fr);
     }
   }
 </style>

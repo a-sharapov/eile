@@ -114,7 +114,7 @@ const _NOTHING: Omit<GatewaySent, 'outcome'> = {
   attachments: 0,
 };
 
-/** Документ состояния: что готово, предел и адреса — без токенов, паролей и адресов почты. */
+/** Документ состояния: что готово, предел и адреса — без токенов, паролей, ключей и адресов почты. */
 const _status = (
   status: GatewayStatus,
   time: string,
@@ -129,7 +129,7 @@ const _status = (
     endpoints: {
       [`GET ${status.path}`]: 'status (this)',
       [`GET ${status.path}?probe=1`]:
-        'status + SMTP TCP/greeting probe, no AUTH',
+        'status + mail probe (SMTP greeting or an HTTPS answer of the mail API), no AUTH',
       [`POST ${status.path}`]:
         'send mail: Authorization: Bearer <token>, JSON { to, subject, html?, text?, from?, attachments? }',
     },
@@ -147,7 +147,8 @@ const _status = (
                   latency_ms: probe.latencyMs,
                   ...(probe.error ? { error: probe.error } : {}),
                 },
-          probe_note: 'TCP + greeting only, no AUTH; may take a few seconds',
+          probe_note:
+            'Connection only: SMTP greeting or an HTTPS answer of the mail API, no AUTH; may take a few seconds',
         }),
   });
 

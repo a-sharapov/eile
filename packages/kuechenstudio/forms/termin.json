@@ -1,0 +1,6 @@
+{
+  "title": "Termin",
+  "submitLabel": "Beratungstermin anfragen",
+  "successText": "Danke, Ihre Anfrage ist bei uns.",
+  "subject": "Terminanfrage: {name}"
+}

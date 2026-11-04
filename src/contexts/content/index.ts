@@ -14,6 +14,7 @@ export type {
   Clock,
   ContentService,
   CreatePageInput,
+  PageDraft,
   PageRef,
   RestoreInput,
 } from './application/content-service.ts';
@@ -28,6 +29,7 @@ export type {
   PublishedContent,
   TranslationNode,
 } from './application/published-content.ts';
+export { aliasFromTitle } from './domain/alias.ts';
 export type { ContentEvent } from './domain/events.ts';
 export type { Field, FieldType, FieldValue, NewField } from './domain/field.ts';
 export type {

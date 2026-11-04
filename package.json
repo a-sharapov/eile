@@ -1,6 +1,6 @@
 {
   "name": "cms",
-  "version": "0.1.0-alpha.9.1",
+  "version": "0.1.0",
   "description": "Fast, elegant CMS in the spirit of MODX Evo: Bun + SQLite + Svelte, shipped as one binary",
   "license": "GPL-3.0-or-later",
   "type": "module",
@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.4",
+    "@resvg/resvg-wasm": "2.6.2",
     "@types/bun": "^1.4.4",
     "typescript": "^7.0.2"
   }

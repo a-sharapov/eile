@@ -19,6 +19,13 @@ import {
   SEVERITIES,
   type Severity,
 } from './message.ts';
+import {
+  type ApiFields,
+  keyHint,
+  MAIL_PROVIDERS,
+  type MailProvider,
+  parseApiFields,
+} from './providers.ts';
 import { list, parseEmail, text } from './values.ts';
 
 /** Чат, куда бот пишет: id из Telegram и название для людей. */
@@ -34,7 +41,16 @@ export type TelegramSettings = {
 /** tls — шифрование сразу (порт 465), starttls — после приветствия (587), none — без шифрования. */
 export type SmtpSecurity = 'tls' | 'starttls' | 'none';
 
-export type EmailSettings = {
+/** Через что уходят письма: почтовый сервер SMTP или HTTP API почтового сервиса (ADR 0051). */
+export type EmailTransport = 'smtp' | MailProvider;
+
+export var EMAIL_TRANSPORTS: readonly EmailTransport[] = [
+  'smtp',
+  ...MAIL_PROVIDERS,
+];
+
+export type SmtpEmailSettings = {
+  readonly transport: 'smtp';
   readonly host: string;
   readonly port: number;
   readonly security: SmtpSecurity;
@@ -44,6 +60,15 @@ export type EmailSettings = {
   readonly from: string;
   readonly to: readonly string[];
 };
+
+/** Письма через HTTP API сервиса: ключ и поля провайдера вместо сервера и пароля. */
+export type ApiEmailSettings = ApiFields & {
+  readonly transport: MailProvider;
+  readonly from: string;
+  readonly to: readonly string[];
+};
+
+export type EmailSettings = SmtpEmailSettings | ApiEmailSettings;
 
 /** Каналы и маршруты: куда заявки, куда сбои и с какой важности. Настройка сервера, в копию не идёт. */
 export type NotifySettings = {
@@ -76,14 +101,17 @@ export type GatewayStatus = Omit<GatewaySettings, 'tokens'> & {
   readonly ready: boolean;
 };
 
-/** Настройки для менеджера: без токена и пароля — их он не показывает и не отдаёт. */
+/** Почта для менеджера: без пароля SMTP и без ключа API — от ключа только последние четыре знака. */
+export type EmailStatus =
+  | (Omit<SmtpEmailSettings, 'password'> & { readonly hasPassword: boolean })
+  | (Omit<ApiEmailSettings, 'key'> & { readonly keyHint: string });
+
+/** Настройки для менеджера: без токена, пароля и ключа — их он не показывает и не отдаёт. */
 export type NotifyStatus = {
   readonly telegram:
     | (Omit<TelegramSettings, 'token'> & { readonly hasToken: true })
     | null;
-  readonly email:
-    | (Omit<EmailSettings, 'password'> & { readonly hasPassword: boolean })
-    | null;
+  readonly email: EmailStatus | null;
   readonly forms: readonly ChannelKind[];
   readonly incidents: readonly ChannelKind[];
   readonly level: Severity;
@@ -103,21 +131,37 @@ export var gatewayStatusOf = (settings: NotifySettings): GatewayStatus =>
     ready: isReady(checks),
   }))(gatewayChecks(settings.gateway, settings.email));
 
+// Поля перечислены явно: новое секретное поле в настройках не уйдёт в менеджер само.
+const _emailStatus = (email: EmailSettings): EmailStatus =>
+  email.transport === 'smtp'
+    ? {
+        transport: 'smtp',
+        host: email.host,
+        port: email.port,
+        security: email.security,
+        user: email.user,
+        from: email.from,
+        to: email.to,
+        hasPassword: email.password !== '',
+      }
+    : {
+        transport: email.transport,
+        keyId: email.keyId,
+        region: email.region,
+        domain: email.domain,
+        stream: email.stream,
+        from: email.from,
+        to: email.to,
+        keyHint: keyHint(email.key),
+      };
+
 export var statusOf = (settings: NotifySettings): NotifyStatus => ({
   telegram: settings.telegram && {
     chats: settings.telegram.chats,
     proxy: settings.telegram.proxy,
     hasToken: true,
   },
-  email: settings.email && {
-    host: settings.email.host,
-    port: settings.email.port,
-    security: settings.email.security,
-    user: settings.email.user,
-    from: settings.email.from,
-    to: settings.email.to,
-    hasPassword: settings.email.password !== '',
-  },
+  email: settings.email && _emailStatus(settings.email),
   forms: settings.forms,
   incidents: settings.incidents,
   level: settings.level,
@@ -178,17 +222,30 @@ const _telegram = (
   };
 };
 
+const _recipients = (raw: unknown): string[] =>
+  ((to) =>
+    to.length === 0 || to.length > 10
+      ? fail('notify.invalid_email', 'From 1 to 10 recipients')
+      : to)([...new Set(list(raw).map(parseEmail))]);
+
 // Пустой пароль — прежний, но только для того же сервера и входа: на чужой хост он не уходит.
-const _email = (raw: Input, previous: EmailSettings | null): EmailSettings => {
+const _smtp = (
+  raw: Input,
+  previous: EmailSettings | null
+): SmtpEmailSettings => {
   const host = text(raw.host, 253).toLowerCase();
   const security = (text(raw.security) || 'tls') as SmtpSecurity;
   const port = Number(raw.port || _PORTS[security] || 0);
   const user = text(raw.user, 200);
-  const same = previous?.host === host && previous.user === user;
+  const same =
+    previous?.transport === 'smtp' &&
+    previous.host === host &&
+    previous.user === user;
   const password =
     (typeof raw.password === 'string' ? raw.password : '') ||
     (same ? previous.password : '');
   return {
+    transport: 'smtp',
     host: _HOST.test(host)
       ? host
       : fail('notify.invalid_host', 'Mail server is a host name'),
@@ -205,12 +262,38 @@ const _email = (raw: Input, previous: EmailSettings | null): EmailSettings => {
         ? fail('notify.no_password', 'The password is required')
         : password,
     from: parseEmail(raw.from),
-    to: ((to) =>
-      to.length === 0 || to.length > 10
-        ? fail('notify.invalid_email', 'From 1 to 10 recipients')
-        : to)([...new Set(list(raw.to).map(parseEmail))]),
+    to: _recipients(raw.to),
   };
 };
+
+const _api = (
+  provider: MailProvider,
+  raw: Input,
+  previous: EmailSettings | null
+): ApiEmailSettings =>
+  ((from) => ({
+    transport: provider,
+    ...parseApiFields(
+      provider,
+      raw,
+      from,
+      previous?.transport === 'smtp' ? null : previous
+    ),
+    from,
+    to: _recipients(raw.to),
+  }))(parseEmail(raw.from));
+
+// Без transport — SMTP: так форма и настройки прежних версий.
+const _email = (raw: Input, previous: EmailSettings | null): EmailSettings =>
+  ((transport) =>
+    transport === 'smtp'
+      ? _smtp(raw, previous)
+      : MAIL_PROVIDERS.includes(transport as MailProvider)
+        ? _api(transport as MailProvider, raw, previous)
+        : fail(
+            'notify.invalid_transport',
+            `Email goes through ${EMAIL_TRANSPORTS.join(', ')}`
+          ))(text(raw.transport, 20).toLowerCase() || 'smtp');
 
 const _channels = (raw: unknown): ChannelKind[] =>
   CHANNELS.filter((_) => list(raw).includes(_));
@@ -260,14 +343,33 @@ export var parseSettings = (
       : parseGateway(input.gateway as Input, previous.gateway),
 });
 
+// Почта, сохранённая до выбора способа отправки, — SMTP.
+const _storedEmail = (
+  email: EmailSettings | null | undefined
+): EmailSettings | null =>
+  email
+    ? ({
+        ...email,
+        transport:
+          (email as { readonly transport?: EmailTransport }).transport ??
+          'smtp',
+      } as EmailSettings)
+    : null;
+
+/** Настройки, как их хранит база (и файл настроек сервера); недостающее — умолчания. */
+export var storedSettings = (
+  stored: Partial<NotifySettings>
+): NotifySettings => ({
+  ...EMPTY_SETTINGS,
+  ...stored,
+  email: _storedEmail(stored.email),
+  gateway: { ...DEFAULT_GATEWAY, ...stored.gateway },
+});
+
 /** Настройки из файла настроек сервера — в том виде, в каком их хранит база; недостающее — умолчания. */
 export var restoredSettings = (value: unknown): NotifySettings =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? ((stored) => ({
-        ...EMPTY_SETTINGS,
-        ...stored,
-        gateway: { ...DEFAULT_GATEWAY, ...stored.gateway },
-      }))(value as Partial<NotifySettings>)
+    ? storedSettings(value as Partial<NotifySettings>)
     : fail(
         'notify.invalid_settings',
         'The notification settings are not an object'

@@ -90,6 +90,16 @@ export var defineDesignService = ({
       ? signatures.get(name)!.signature
       : describe(name, revision);
 
+  /** Сохранение без записи: имя, циклы импортов и компиляция — для предложения агента. */
+  const check = (kind: ElementKind, name: string, source: string): void =>
+    pipe(
+      (_: string) => parseElementName(_, kind),
+      (_: ElementName) =>
+        _changeOrCreate(elements.get(kind, _), kind, _, source),
+      assertAcyclic,
+      (_: ElementChange) => compiler.check(_.state)
+    )(name);
+
   const save =
     (kind: ElementKind) =>
     (name: string, source: string): void =>
@@ -141,6 +151,7 @@ export var defineDesignService = ({
         elements.get(kind, parseElementName(name, kind)),
       importers,
       remove,
+      check,
     },
     templates: { save: save('template') },
     /** Скрипты сайта: ES-модули для браузера; адрес с хэшем добавляет `defineDesign`. */

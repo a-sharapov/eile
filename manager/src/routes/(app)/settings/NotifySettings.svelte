@@ -18,6 +18,7 @@ import type {
   GatewayForm,
   GatewayStatus,
   IncidentRecord,
+  MailProvider,
   NotifyStatus,
   Severity,
 } from '#lib/types.ts';
@@ -27,16 +28,65 @@ import { firstInvalid } from '#lib/validity.ts';
 import GatewaySettings from './GatewaySettings.svelte';
 
 type Check = { ok: boolean; text: string };
+type Transport = 'smtp' | MailProvider;
+
+// Имена сервисов не переводятся; подпись и подсказка к ключу — по словам самого сервиса.
+const _PROVIDERS: Readonly<
+  Record<
+    MailProvider,
+    { name: string; key: MessageKey; hint: MessageKey; placeholder: string }
+  >
+> = {
+  brevo: {
+    name: 'Brevo',
+    key: 'notify.keyBrevo',
+    hint: 'notify.keyBrevoHint',
+    placeholder: 'xkeysib-…',
+  },
+  postmark: {
+    name: 'Postmark',
+    key: 'notify.keyPostmark',
+    hint: 'notify.keyPostmarkHint',
+    placeholder: '00000000-0000-0000-0000-000000000000',
+  },
+  mailgun: {
+    name: 'Mailgun',
+    key: 'notify.keyMailgun',
+    hint: 'notify.keyMailgunHint',
+    placeholder: '',
+  },
+  resend: {
+    name: 'Resend',
+    key: 'notify.keyResend',
+    hint: 'notify.keyResendHint',
+    placeholder: 're_…',
+  },
+  ses: {
+    name: 'Amazon SES',
+    key: 'notify.keySes',
+    hint: 'notify.keySesHint',
+    placeholder: '',
+  },
+};
+
+const _TRANSPORTS = Object.keys(_PROVIDERS) as MailProvider[];
 
 let status = $state<NotifyStatus | null>(null);
 let telegram = $state({ on: false, token: '', proxy: '', chats: [] as Chat[] });
 let email = $state({
   on: false,
+  transport: 'smtp' as Transport,
   host: '',
   port: '',
   security: 'tls' as 'tls' | 'starttls' | 'none',
   user: '',
   password: '',
+  key: '',
+  keyId: '',
+  mailgunRegion: 'us' as 'us' | 'eu',
+  awsRegion: '',
+  domain: '',
+  stream: '',
   from: '',
   to: '',
 });
@@ -71,13 +121,26 @@ const accept = (next: NotifyStatus): void => {
     proxy: next.telegram?.proxy ?? '',
     chats: next.telegram?.chats ?? [],
   };
+  const smtp = next.email?.transport === 'smtp' ? next.email : null;
+  const api = next.email && next.email.transport !== 'smtp' ? next.email : null;
   email = {
     on: next.email !== null,
-    host: next.email?.host ?? '',
-    port: next.email ? String(next.email.port) : '',
-    security: next.email?.security ?? 'tls',
-    user: next.email?.user ?? '',
+    transport: next.email?.transport ?? 'smtp',
+    host: smtp?.host ?? '',
+    port: smtp ? String(smtp.port) : '',
+    security: smtp?.security ?? 'tls',
+    user: smtp?.user ?? '',
     password: '',
+    key: '',
+    keyId: api?.keyId ?? '',
+    mailgunRegion:
+      api?.transport === 'mailgun' && api.region === 'eu' ? 'eu' : 'us',
+    awsRegion: api?.transport === 'ses' ? api.region : '',
+    domain: api?.domain ?? '',
+    stream:
+      api?.transport === 'postmark' && api.stream !== 'outbound'
+        ? api.stream
+        : '',
     from: next.email?.from ?? '',
     to: next.email?.to.join(', ') ?? '',
   };
@@ -123,6 +186,58 @@ const _SEVERITY: Readonly<Record<Severity, MessageKey>> = {
   info: 'notify.severityInfo',
 };
 
+// Ключ сохранён для этого же сервиса: поле можно оставить пустым.
+const keptKey = $derived(
+  status?.email &&
+    status.email.transport !== 'smtp' &&
+    status.email.transport === email.transport
+    ? status.email.keyHint
+    : null
+);
+
+// Строка состояния: через что письма уходят сейчас — по сохранённым настройкам, не по форме.
+const via = $derived(
+  !status?.email
+    ? ''
+    : status.email.transport === 'smtp'
+      ? t('notify.viaSmtp', {
+          host: status.email.host,
+          port: status.email.port,
+        })
+      : t('notify.viaApi', {
+          provider: _PROVIDERS[status.email.transport].name,
+          hint: status.email.keyHint,
+        })
+);
+
+const emailInput = () =>
+  email.transport === 'smtp'
+    ? {
+        transport: 'smtp',
+        host: email.host,
+        port: Number(email.port) || undefined,
+        security: email.security,
+        user: email.user,
+        password: email.password,
+        from: email.from,
+        to: email.to,
+      }
+    : {
+        transport: email.transport,
+        key: email.key,
+        keyId: email.keyId,
+        region:
+          email.transport === 'mailgun'
+            ? email.mailgunRegion
+            : email.transport === 'ses'
+              ? email.awsRegion
+              : '',
+        domain: email.domain,
+        stream: email.stream,
+        from: email.from,
+        to: email.to,
+      };
+
 const toggle = (list: ChannelKind[], channel: ChannelKind, on: boolean) =>
   on ? [...new Set([...list, channel])] : list.filter((_) => _ !== channel);
 
@@ -141,17 +256,7 @@ const save = (event: SubmitEvent) => {
                 chats: telegram.chats,
               }
             : null,
-          email: email.on
-            ? {
-                host: email.host,
-                port: Number(email.port) || undefined,
-                security: email.security,
-                user: email.user,
-                password: email.password,
-                from: email.from,
-                to: email.to,
-              }
-            : null,
+          email: email.on ? emailInput() : null,
           ...routes,
           gateway: {
             enabled: gateway.on,
@@ -314,35 +419,89 @@ const off = (channel: ChannelKind) =>
         <span><strong>{t('notify.emailOn')}</strong><small class="help">{t('notify.emailOnHint')}</small></span>
       </label>
       {#if email.on}
-        <div class="fields-2">
-          <label>
-            <span>{t('notify.host')}<span class="required" aria-hidden="true"> *</span></span>
-            <input class="code" required bind:value={email.host} placeholder="smtp.yandex.ru" spellcheck="false" autocomplete="off" />
-          </label>
-          <label>
-            {t('notify.security')}
-            <select bind:value={email.security}>
-              <option value="tls">{t('notify.securityTls')}</option>
-              <option value="starttls">{t('notify.securityStarttls')}</option>
-              <option value="none">{t('notify.securityNone')}</option>
-            </select>
-          </label>
-        </div>
+        {#if via}<p class="via" role="status">{via}</p>{/if}
         <label>
-          {t('notify.port')}
-          <input type="number" min="1" max="65535" bind:value={email.port} placeholder={{ tls: '465', starttls: '587', none: '25' }[email.security]} />
+          {t('notify.transport')}
+          <select bind:value={email.transport}>
+            <option value="smtp">{t('notify.transportSmtp')}</option>
+            {#each _TRANSPORTS as provider (provider)}<option value={provider}>{_PROVIDERS[provider].name} — HTTP API</option>{/each}
+          </select>
+          <small>{t('notify.transportHint')}</small>
         </label>
-        <div class="fields-2">
+        {#if email.transport === 'smtp'}
+          <div class="fields-2">
+            <label>
+              <span>{t('notify.host')}<span class="required" aria-hidden="true"> *</span></span>
+              <input class="code" required bind:value={email.host} placeholder="smtp.yandex.ru" spellcheck="false" autocomplete="off" />
+            </label>
+            <label>
+              {t('notify.security')}
+              <select bind:value={email.security}>
+                <option value="tls">{t('notify.securityTls')}</option>
+                <option value="starttls">{t('notify.securityStarttls')}</option>
+                <option value="none">{t('notify.securityNone')}</option>
+              </select>
+            </label>
+          </div>
           <label>
-            {t('notify.user')}
-            <input bind:value={email.user} autocomplete="off" spellcheck="false" />
+            {t('notify.port')}
+            <input type="number" min="1" max="65535" bind:value={email.port} placeholder={{ tls: '465', starttls: '587', none: '25' }[email.security]} />
           </label>
+          <div class="fields-2">
+            <label>
+              {t('notify.user')}
+              <input bind:value={email.user} autocomplete="off" spellcheck="false" />
+            </label>
+            <label>
+              <span id="notify-password-label">{t('notify.password')}</span>
+              <PasswordInput id="notify-password" labelledby="notify-password-label" autocomplete="new-password" bind:value={email.password} placeholder={status?.email?.transport === 'smtp' && status.email.hasPassword ? t('notify.passwordKept') : ''} />
+            </label>
+          </div>
+          <small class="help">{t('notify.passwordHint')}</small>
+        {:else}
+          {#if email.transport === 'ses'}
+            <div class="fields-2">
+              <label>
+                <span>{t('notify.awsRegion')}<span class="required" aria-hidden="true"> *</span></span>
+                <input class="code" required bind:value={email.awsRegion} placeholder="eu-central-1" spellcheck="false" autocomplete="off" />
+                <small>{t('notify.awsRegionHint')}</small>
+              </label>
+              <label>
+                <span>{t('notify.keyId')}<span class="required" aria-hidden="true"> *</span></span>
+                <input class="code" required bind:value={email.keyId} placeholder="AKIA…" spellcheck="false" autocomplete="off" />
+              </label>
+            </div>
+          {/if}
+          {#if email.transport === 'mailgun'}
+            <div class="fields-2">
+              <label>
+                {t('notify.mailgunRegion')}
+                <select bind:value={email.mailgunRegion}>
+                  <option value="us">{t('notify.mailgunRegionUs')}</option>
+                  <option value="eu">{t('notify.mailgunRegionEu')}</option>
+                </select>
+              </label>
+              <label>
+                {t('notify.mailgunDomain')}
+                <input class="code" bind:value={email.domain} placeholder={email.from.split('@')[1] || 'mg.example.com'} spellcheck="false" autocomplete="off" />
+                <small>{t('notify.mailgunDomainHint')}</small>
+              </label>
+            </div>
+          {/if}
           <label>
-            <span id="notify-password-label">{t('notify.password')}</span>
-            <PasswordInput id="notify-password" labelledby="notify-password-label" autocomplete="new-password" bind:value={email.password} placeholder={status?.email?.hasPassword ? t('notify.passwordKept') : ''} />
+            <span id="notify-key-label">{t(_PROVIDERS[email.transport].key)}{#if !keptKey}<span class="required" aria-hidden="true"> *</span>{/if}</span>
+            <PasswordInput id="notify-key" labelledby="notify-key-label" class="code" required={!keptKey} autocomplete="off" bind:value={email.key} placeholder={keptKey ? t('notify.keyKept', { hint: keptKey }) : _PROVIDERS[email.transport].placeholder} />
+            <small>{t(_PROVIDERS[email.transport].hint)}</small>
           </label>
-        </div>
-        <small class="help">{t('notify.passwordHint')}</small>
+          {#if email.transport === 'postmark'}
+            <label>
+              {t('notify.stream')}
+              <input class="code" bind:value={email.stream} placeholder="outbound" spellcheck="false" autocomplete="off" />
+              <small>{t('notify.streamHint')}</small>
+            </label>
+          {/if}
+          <p class="note">{t('notify.verifyDomain')}</p>
+        {/if}
         <label>
           <span>{t('notify.from')}<span class="required" aria-hidden="true"> *</span></span>
           <input type="email" required bind:value={email.from} placeholder="site@example.com" />
@@ -525,6 +684,22 @@ const off = (channel: ChannelKind) =>
   .ok {
     margin: 0;
     color: var(--ok);
+    font-size: 0.875rem;
+  }
+
+  .via {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+
+  .note {
+    margin: 0;
+    padding: 0.6rem 0.8rem;
+    border: 0.0625rem solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--muted);
     font-size: 0.875rem;
   }
 

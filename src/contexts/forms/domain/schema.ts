@@ -189,7 +189,7 @@ type Problem =
   | 'type';
 
 /** Исход отправки целиком, а не одного поля. */
-export type Outcome = 'invalid' | 'stale' | 'fast' | 'many';
+export type Outcome = 'invalid' | 'stale' | 'fast' | 'many' | 'proof';
 
 const _MESSAGES: Readonly<
   Record<string, Readonly<Record<Problem | Outcome, string>>>
@@ -210,6 +210,8 @@ const _MESSAGES: Readonly<
     stale: 'Форма устарела — отправьте её ещё раз',
     fast: 'Подождите пару секунд и отправьте ещё раз',
     many: 'Слишком много отправок — попробуйте через несколько минут',
+    proof:
+      'Не удалось подтвердить защиту от спама — обновите страницу и отправьте форму ещё раз',
   },
   en: {
     required: 'Please fill in this field',
@@ -227,6 +229,8 @@ const _MESSAGES: Readonly<
     stale: 'The form has expired — please send it again',
     fast: 'Wait a couple of seconds and send it again',
     many: 'Too many submissions — try again in a few minutes',
+    proof:
+      'The spam protection could not be confirmed — please reload the page and send the form again',
   },
   de: {
     required: 'Bitte füllen Sie dieses Feld aus',
@@ -244,6 +248,8 @@ const _MESSAGES: Readonly<
     stale: 'Das Formular ist abgelaufen – bitte senden Sie es noch einmal ab',
     fast: 'Bitte warten Sie einen Moment und senden Sie das Formular dann noch einmal ab',
     many: 'Zu viele Anfragen – bitte versuchen Sie es in ein paar Minuten erneut',
+    proof:
+      'Der Spam-Schutz konnte nicht bestätigt werden – bitte laden Sie die Seite neu und senden Sie das Formular noch einmal ab',
   },
 };
 
@@ -253,7 +259,8 @@ export var messagesFor = (language: string) =>
 
 /**
  * Тексты формы для посетителя на языке страницы: кнопки и счётчик шагов (`{n}` — номер, `{m}` — сколько
- * всего), подпись ловушки и ошибки отправки, которые показывает скрипт.
+ * всего), подпись ловушки, ошибки отправки и строка защиты от спама, которые показывает скрипт, и строка для
+ * браузера без JS.
  */
 export type FormTexts = {
   readonly next: string;
@@ -263,6 +270,9 @@ export type FormTexts = {
   readonly failed: string;
   readonly offline: string;
   readonly tooLarge: string;
+  readonly proofWorking: string;
+  readonly proofDone: string;
+  readonly proofNoScript: string;
 };
 
 const _TEXTS: Readonly<Record<string, FormTexts>> = {
@@ -274,6 +284,10 @@ const _TEXTS: Readonly<Record<string, FormTexts>> = {
     failed: 'Не удалось отправить форму.',
     offline: 'Нет связи с сайтом — попробуйте ещё раз.',
     tooLarge: 'Файлы слишком большие для одной заявки.',
+    proofWorking: 'Проверяем защиту от спама…',
+    proofDone: 'Защита от спама пройдена',
+    proofNoScript:
+      'Без JavaScript заявку не проверить автоматически, поэтому её обработка может занять больше времени.',
   },
   en: {
     next: 'Next',
@@ -283,6 +297,10 @@ const _TEXTS: Readonly<Record<string, FormTexts>> = {
     failed: 'The form could not be sent.',
     offline: 'No connection to the site. Please try again.',
     tooLarge: 'The files are too large for one submission.',
+    proofWorking: 'Checking spam protection…',
+    proofDone: 'Spam protection confirmed',
+    proofNoScript:
+      'Without JavaScript your message cannot be checked automatically, so it may take longer to process.',
   },
   de: {
     next: 'Weiter',
@@ -293,6 +311,10 @@ const _TEXTS: Readonly<Record<string, FormTexts>> = {
     offline:
       'Keine Verbindung zur Website. Bitte versuchen Sie es noch einmal.',
     tooLarge: 'Die Dateien sind für eine einzelne Anfrage zu groß.',
+    proofWorking: 'Spam-Schutz wird geprüft…',
+    proofDone: 'Spam-Schutz bestätigt',
+    proofNoScript:
+      'Ohne JavaScript kann Ihre Anfrage nicht automatisch geprüft werden, daher kann die Bearbeitung länger dauern.',
   },
 };
 
@@ -328,11 +350,21 @@ const _numberOk = (field: FieldSpec, value: string): boolean =>
     (field.min === null || number >= Number(field.min)) &&
     (field.max === null || number <= Number(field.max)))(Number(value));
 
+/** min у даты из `data-min="today"`: не раньше сегодня, считается при проверке. */
+export var MIN_TODAY = 'today';
+
+// «Сегодня» по UTC минус день: у посетителя к западу от UTC его сегодня — это ещё вчера по UTC.
+const _today = (): string =>
+  new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+
 // Даты и время сравниваются строками ISO: так же, как min и max у браузера.
 const _dateOk = (field: FieldSpec, value: string): boolean =>
-  (_DATE[field.kind]?.test(value) ?? true) &&
-  (field.min === null || value >= field.min) &&
-  (field.max === null || value <= field.max);
+  ((min) =>
+    (_DATE[field.kind]?.test(value) ?? true) &&
+    (min === null || value >= min) &&
+    (field.max === null || value <= field.max))(
+    field.min === MIN_TODAY ? _today() : field.min
+  );
 
 const _CHECKS: Readonly<
   Partial<
