@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { type App, createApp } from '../src/app.ts';
 import { DEMO } from './fixtures/demo.ts';
+import { MANAGER_FILES } from './fixtures/manager.ts';
 
 // Аудит: за TLS-прокси вход отвечал 403 (Origin https против http в URL), cookie не получала Secure.
 
@@ -11,7 +12,7 @@ let app: App;
 afterEach(() => app.close());
 
 const start = (trustProxy: boolean) => {
-  app = createApp({ scaffold: DEMO, trustProxy });
+  app = createApp({ scaffold: DEMO, trustProxy, managerFiles: MANAGER_FILES });
   return app.fetch(
     new Request('http://localhost/manager/api/setup', {
       method: 'POST',

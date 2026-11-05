@@ -622,8 +622,8 @@ export var TEXTS: Readonly<Record<string, readonly [string, string]>> = {
   ],
   vsLimitsTitle: ['Где Eile пока уступает', 'Where Eile falls short for now'],
   vsLimits: [
-    'Молодость :: Версия 0.1.2: до 1.0 возможны несовместимые изменения.|Один сервер :: Один процесс и одна база SQLite: сайт растёт вверх, а не вширь, реплик нет.|Svelte :: Шаблоны пишутся на Svelte: для своей вёрстки нужен разработчик, который его знает или готов выучить.|Готовое :: Каталога плагинов и тем нет: пять каркасов, пакет кухонной студии и набор компонентов, остальное пишется самому.',
-    'Youth :: Version 0.1.2: breaking changes may land before 1.0.|One server :: One process and one SQLite database: the site scales up, not out, with no replicas.|Svelte :: Templates are written in Svelte: custom layouts need a developer who knows it or is willing to learn.|Ready-made parts :: There is no plugin or theme directory: five starters, a kitchen studio package and a component kit, the rest you write yourself.',
+    'Молодость :: Версия 0.1.3: до 1.0 возможны несовместимые изменения.|Один сервер :: Один процесс и одна база SQLite: сайт растёт вверх, а не вширь, реплик нет.|Svelte :: Шаблоны пишутся на Svelte: для своей вёрстки нужен разработчик, который его знает или готов выучить.|Готовое :: Каталога плагинов и тем нет: пять каркасов, пакет кухонной студии и набор компонентов, остальное пишется самому.',
+    'Youth :: Version 0.1.3: breaking changes may land before 1.0.|One server :: One process and one SQLite database: the site scales up, not out, with no replicas.|Svelte :: Templates are written in Svelte: custom layouts need a developer who knows it or is willing to learn.|Ready-made parts :: There is no plugin or theme directory: five starters, a kitchen studio package and a component kit, the rest you write yourself.',
   ],
   vsSourcesTitle: ['Источники', 'Sources'],
   vsChecked: [

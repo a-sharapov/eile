@@ -1,7 +1,7 @@
 import { compressBody, negotiate } from '../../platform/compression.ts';
 import type { Database } from '../../platform/database.ts';
 import { attempt } from '../../shared/kernel/errors.ts';
-import { type ManagerAssets, managerAssets } from './infrastructure/assets.ts';
+import { managerAssets } from './infrastructure/assets.ts';
 import { defineActivityLog } from './infrastructure/sqlite-activity.ts';
 import { defineAppearanceRepository } from './infrastructure/sqlite-appearance.ts';
 import {
@@ -109,9 +109,13 @@ const _defineSessions = () => {
 
 /** Контекст manager: JSON API и SPA менеджера. */
 export var defineManager = (
-  services: ManagerServices & { readonly db: Database },
-  assets: ManagerAssets = managerAssets()
+  services: ManagerServices & {
+    readonly db: Database;
+    /** Файлы SPA «путь → файл» вместо встроенных и собранных — у тестов. */
+    readonly files?: Readonly<Record<string, string>>;
+  }
 ) => {
+  const assets = managerAssets(services.files);
   const appearance = defineAppearanceRepository(services.db);
   const api = defineManagerApi({
     ...services,

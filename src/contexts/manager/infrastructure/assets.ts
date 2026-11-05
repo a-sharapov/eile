@@ -144,5 +144,8 @@ const _embedded = (): Record<string, string> | undefined =>
     | Record<string, string>
     | undefined;
 
-export var managerAssets = (): ManagerAssets =>
-  defineManagerAssets(_embedded() ?? directoryTable(_BUILD_DIR));
+/** SPA менеджера: своя таблица файлов, иначе встроенная в бинарник, иначе `manager/build`. */
+export var managerAssets = (
+  table: Readonly<Record<string, string>> = _embedded() ??
+    directoryTable(_BUILD_DIR)
+): ManagerAssets => defineManagerAssets(table);

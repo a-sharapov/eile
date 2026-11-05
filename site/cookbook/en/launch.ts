@@ -64,7 +64,7 @@ const deploy: Chapter = {
     ),
     list(
       c('--domain facade.example,www.facade.example') +
-        ': the addresses the site lives at. Eile gets an HTTPS certificate for them from Let’s Encrypt by itself, renews it and sends visitors from http to https.',
+        ': the addresses the site lives at. Eile gets an HTTPS certificate for them from Let’s Encrypt by itself, renews it and sends visitors from http to https, and from www to the address without it, the first in the list.',
       c('--email') +
         ': Let’s Encrypt writes to this address if something is wrong with the certificate.',
       c('--from facade-copy.db') +
