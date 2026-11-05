@@ -29,7 +29,10 @@ export {
   CERTIFICATES_TABLES,
   certificatesMigrations,
 } from './infrastructure/migrations.ts';
-export { defineHttpListener } from './interface/http-listener.ts';
+export {
+  defineHttpListener,
+  defineHttpsListener,
+} from './interface/http-listener.ts';
 
 /** HTTPS без прокси: домены, почта для Let's Encrypt и каталог ACME (по умолчанию — боевой). */
 export type HttpsOptions = {

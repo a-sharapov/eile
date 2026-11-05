@@ -5,6 +5,7 @@ import {
   type CertificateState,
   domainsKey,
   due,
+  isSecondaryDomain,
   parseDomains,
   valid,
 } from './certificate.ts';
@@ -64,6 +65,24 @@ describe('домены сайта', () => {
     expect(domainsKey(['www.example.com', 'example.com'])).toBe(
       domainsKey(['example.com', 'www.example.com'])
     );
+  });
+
+  it('дополнительный — любой из списка, кроме первого; точка на конце не в счёт', () => {
+    const domains = ['example.com', 'www.example.com', 'example.net'];
+    expect(
+      [
+        'www.example.com',
+        'example.net',
+        'www.example.com.',
+        'example.com',
+        'example.com.',
+        'evil.example',
+        '127.0.0.1',
+        'localhost',
+        '',
+      ].map((_) => isSecondaryDomain(domains, _))
+    ).toEqual([true, true, true, false, false, false, false, false, false]);
+    expect(isSecondaryDomain(['example.com'], 'example.com')).toBe(false);
   });
 });
 

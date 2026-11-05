@@ -184,6 +184,8 @@ export type AppOptions = {
   readonly https?: HttpsOptions;
   /** Каталог кэша медиатеки; по умолчанию `<база>.media-cache` рядом с файлом базы, у базы в памяти кэша нет. */
   readonly mediaCache?: string;
+  /** Файлы SPA менеджера «путь → файл» вместо собранных: тестам не нужен `bun run build:manager`. */
+  readonly managerFiles?: Readonly<Record<string, string>>;
 };
 
 /** То, что Bun передаёт в fetch вторым аргументом: по нему узнаём адрес посетителя. */
@@ -696,6 +698,7 @@ const _compose = (
     review,
     version: VERSION,
     db,
+    files: options.managerFiles,
   });
 
   // Почтовый шлюз — перед сайтом: его адрес перекрывает страницу и переадресацию с тем же адресом.

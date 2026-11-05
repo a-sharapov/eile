@@ -39,6 +39,7 @@ const _RU: readonly CommandHelp[] = [
       'Остановить — Ctrl+C или SIGTERM, на Windows — Ctrl+C или Ctrl+Break: статистика дописывается, база закрывается аккуратно.',
       'За nginx или Caddy с HTTPS — --trust-proxy: протокол и адрес посетителя берутся из X-Forwarded-*, cookie входа получает Secure. Без прокси этот флаг не включайте: заголовки подделает любой. Прокси на этой же машине — слушайте только её: --host 127.0.0.1.',
       "HTTPS без прокси — --domain: сервер сам получает сертификат Let's Encrypt и продлевает его за 30 дней до конца. HTTP (порт 80) отвечает на проверку домена и ведёт на HTTPS (443); пока сертификата нет, сайт открывается по HTTP. DNS доменов должен указывать на этот сервер.",
+      'Первый домен в --domain — основной. Когда сертификат есть, запросы на остальные (www.example.com) сервер ведёт на основной ответом 308 с тем же путём и query, с HTTP — сразу на HTTPS основного. /_cms/health отвечает на любом домене. Основным сделать www — поставить его первым: --domain www.example.com,example.com.',
       'На своём сервере проще всего — службой systemd: sudo cms service install --domain example.com берёт на себя порты, пользователя и перезапуск после сбоя (cms help service). Без неё порты 80 и 443 даёт root или sudo setcap cap_net_bind_service=+ep $(which cms).',
       'Медиатека живёт в базе. Чтобы отдавать картинки и видео без копии в памяти, сервер при первом запросе файла кладёт его в кэш на диске — папку site.media-cache рядом с базой (--media-cache — другая папка). Кэш можно удалить: он наберётся заново. Папка не пишется — файлы идут прямо из базы.',
     ],
@@ -483,7 +484,7 @@ const _RU: readonly CommandHelp[] = [
     ],
     details: [
       'install ставит сайт службой systemd: пишет юнит /etc/systemd/system/cms.service, включает и запускает его, ждёт, пока сайт ответит, и печатает адреса сайта и менеджера, а на новой базе — ссылку для администратора. База — /var/lib/cms/site.db, кэш медиатеки — /var/cache/cms. Служба работает от своего временного пользователя (DynamicUser) в песочнице и после сбоя поднимается через секунду.',
-      "Два режима. --domain: служба сама держит HTTPS на портах 80 и 443 с сертификатом Let's Encrypt (cms help serve). --trust-proxy: за nginx или Caddy на этой машине, на 127.0.0.1 и --port (8080).",
+      "Два режима. --domain: служба сама держит HTTPS на портах 80 и 443 с сертификатом Let's Encrypt и ведёт остальные домены списка на первый, основной (cms help serve). --trust-proxy: за nginx или Caddy на этой машине, на 127.0.0.1 и --port (8080).",
       '--from переносит готовый сайт: согласованная копия базы, как у cms backup, можно с работающего сервера. Своей базы службы --from не заменяет.',
       'Перед установкой команда проверяет: есть ли systemd, свободны ли порты (заняты nginx или Caddy — подскажет --trust-proxy), указывают ли домены на эту машину, хватает ли памяти (меньше 1 ГиБ без подкачки — команды для файла подкачки). Занятый порт останавливает установку, остальное — предупреждения.',
       'Повтор с тем же юнитом ничего не меняет. Другой юнит с этим именем заменяет только --force. --print печатает юнит и ничего не трогает: так его можно поставить и руками.',
@@ -602,6 +603,7 @@ const _EN: readonly CommandHelp[] = [
       'Stop with Ctrl+C or SIGTERM, on Windows with Ctrl+C or Ctrl+Break: the statistics are written out and the database closes cleanly.',
       'Behind nginx or Caddy with HTTPS, use --trust-proxy: the protocol and the visitor address come from X-Forwarded-*, and the sign-in cookie gets Secure. Do not turn it on without a proxy: anyone can forge those headers. With the proxy on the same machine, listen on it only: --host 127.0.0.1.',
       "HTTPS without a proxy: --domain. The server gets a Let's Encrypt certificate itself and renews it 30 days before it expires. HTTP (port 80) answers the domain check and redirects to HTTPS (443); until the certificate arrives, the site opens over HTTP. The DNS of the domains must point at this server.",
+      'The first domain in --domain is the primary one. Once there is a certificate, the server sends requests for the others (www.example.com) to the primary with a 308, keeping the path and query, from HTTP straight to HTTPS on the primary. /_cms/health answers on every domain. To make www the primary, put it first: --domain www.example.com,example.com.',
       'On your own server the easiest is a systemd service: sudo cms service install --domain example.com takes care of the ports, the user and restarts after a failure (cms help service). Without it, ports 80 and 443 need root or sudo setcap cap_net_bind_service=+ep $(which cms).',
       'The media library lives in the database. To serve images and video without a copy in memory, the server puts a file into a cache on disk the first time it is requested: the site.media-cache folder next to the database (--media-cache sets another one). The cache can be deleted: it fills up again. If the folder is not writable, files come straight from the database.',
     ],
@@ -1064,7 +1066,7 @@ const _EN: readonly CommandHelp[] = [
     ],
     details: [
       'install sets the site up as a systemd service: it writes the unit /etc/systemd/system/cms.service, enables and starts it, waits until the site answers and prints the site and manager addresses, and on a new database the link for the administrator. The database is /var/lib/cms/site.db, the media cache /var/cache/cms. The service runs as a temporary user of its own (DynamicUser) in a sandbox and is back a second after a failure.',
-      "Two modes. --domain: the service holds HTTPS itself on ports 80 and 443 with a Let's Encrypt certificate (cms help serve). --trust-proxy: behind nginx or Caddy on this machine, on 127.0.0.1 and --port (8080).",
+      "Two modes. --domain: the service holds HTTPS itself on ports 80 and 443 with a Let's Encrypt certificate and sends the other domains of the list to the first, primary one (cms help serve). --trust-proxy: behind nginx or Caddy on this machine, on 127.0.0.1 and --port (8080).",
       '--from moves a ready site in: a consistent copy of the database, as cms backup makes, fine on a running server. --from never replaces a database the service already has.',
       'Before installing, the command checks for systemd, free ports (taken by nginx or Caddy, it suggests --trust-proxy), domains pointing at this machine and memory (under 1 GiB without swap, it prints the commands for a swap file). A taken port stops the install, the rest are warnings.',
       'Running it again with the same unit changes nothing. Another unit with this name is replaced only with --force. --print prints the unit and touches nothing, so it can also be installed by hand.',

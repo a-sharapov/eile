@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { type App, createApp } from '../src/app.ts';
 import { DEMO } from './fixtures/demo.ts';
+import { MANAGER_FILES } from './fixtures/manager.ts';
 
 // Полоса правки на сайте (как QuickManager в Evo): только тому, кто вошёл в менеджер, и мимо общего кэша.
 
@@ -41,7 +42,7 @@ const configOf = (html: string) =>
   );
 
 beforeEach(async () => {
-  app = createApp({ scaffold: DEMO });
+  app = createApp({ scaffold: DEMO, managerFiles: MANAGER_FILES });
   const setup = await api('POST', '/setup', {
     token: app.identity.setup.token(),
     name: 'Anna </script> Admin',

@@ -64,7 +64,7 @@ const deploy: Chapter = {
     ),
     list(
       c('--domain fasad.ru,www.fasad.ru') +
-        ': на каких адресах живёт сайт. Eile сам получит для них сертификат HTTPS у Let’s Encrypt, будет продлевать его и переводить гостей с http на https.',
+        ': на каких адресах живёт сайт. Eile сам получит для них сертификат HTTPS у Let’s Encrypt, будет продлевать его и переводить гостей с http на https, а с www — на адрес без www: он в списке первый.',
       c('--email') +
         ': сюда Let’s Encrypt напишет, если с сертификатом что-то не так.',
       c('--from fasad-copy.db') +

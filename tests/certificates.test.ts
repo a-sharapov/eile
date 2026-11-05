@@ -2,12 +2,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { X509Certificate } from 'node:crypto';
 import { createApp } from '../src/app.ts';
 import { parseInvocation } from '../src/cli/args.ts';
-import { withHsts } from '../src/cli/https.ts';
+import { serveSecure, withHsts } from '../src/cli/https.ts';
 import { motd } from '../src/cli/motd.ts';
 import { definePaint } from '../src/cli/paint.ts';
 import {
   type Certificate,
   defineHttpListener,
+  defineHttpsListener,
 } from '../src/contexts/certificates/index.ts';
 import {
   certificateRequest,
@@ -15,6 +16,7 @@ import {
   oid,
   tlv,
 } from '../src/contexts/certificates/infrastructure/der.ts';
+import { HEALTH_PATH } from '../src/health.ts';
 import { type MockAcme, readRequest, startMockAcme } from './fixtures/acme.ts';
 import { DEMO } from './fixtures/demo.ts';
 
@@ -98,6 +100,12 @@ const _stand = (
   });
 };
 
+// Свободный порт для HTTPS: адрес переадресации строится из номера, поэтому 0 не годится.
+const _freePort = (): number =>
+  ((server) => ((port) => (server.stop(true), port))(server.port!))(
+    Bun.serve({ port: 0, fetch: () => new Response('') })
+  );
+
 const _get = (port: number, path: string, host = 'example.test') =>
   fetch(`http://127.0.0.1:${port}${path}`, {
     headers: { host },
@@ -148,11 +156,20 @@ describe('HTTPS без прокси', () => {
     expect(await stand.app.certificates.ensure()).toBe('unchanged');
   });
 
-  it('после выпуска HTTP переадресует на HTTPS, и только на свои домены', async () => {
-    const own = await _get(stand.http.port!, '/blog?x=1', 'www.example.test');
-    expect(own.status).toBe(308);
-    expect(own.headers.get('location')).toBe(
-      `https://www.example.test:${_HTTPS_PORT}/blog?x=1`
+  it('после выпуска HTTP ведёт на HTTPS основного домена — и с дополнительного, и с чужого Host', async () => {
+    const primary = await _get(stand.http.port!, '/blog?x=1');
+    expect(primary.status).toBe(308);
+    expect(primary.headers.get('location')).toBe(
+      `https://example.test:${_HTTPS_PORT}/blog?x=1`
+    );
+    const secondary = await _get(
+      stand.http.port!,
+      '/blog?x=1',
+      'www.example.test'
+    );
+    expect(secondary.status).toBe(308);
+    expect(secondary.headers.get('location')).toBe(
+      `https://example.test:${_HTTPS_PORT}/blog?x=1`
     );
     const foreign = await _get(stand.http.port!, '/', 'evil.test');
     expect(foreign.headers.get('location')).toBe(
@@ -193,6 +210,65 @@ describe('HTTPS без прокси', () => {
     expect(cookie).toContain('Secure');
   });
 
+  it('serveSecure: дополнительный домен — на основной по HTTP и HTTPS, с HSTS; здоровье и петля — сайт', async () => {
+    const httpsPort = _freePort();
+    const secure = serveSecure({
+      app: stand.app,
+      domains: _DOMAINS,
+      port: 0,
+      httpsPort,
+      base: {
+        hostname: '127.0.0.1',
+        maxRequestBodySize: 1024 * 1024,
+        development: false,
+        error: () => new Response('', { status: 500 }),
+      },
+      issued: () => undefined,
+      failed: () => undefined,
+    });
+    const secured = (path: string, host: string, init: RequestInit = {}) =>
+      fetch(`https://127.0.0.1:${httpsPort}${path}`, {
+        ...init,
+        headers: { host },
+        redirect: 'manual',
+        tls: { ca: stand.acme.caPem, serverName: 'example.test' },
+      });
+    const plain = await _get(
+      secure.http.port!,
+      '/blog?x=1',
+      'www.example.test'
+    );
+    expect(plain.status).toBe(308);
+    expect(plain.headers.get('location')).toBe(
+      `https://example.test:${httpsPort}/blog?x=1`
+    );
+    const moved = await secured('/blog?x=1', 'www.example.test', {
+      method: 'POST',
+      body: 'a=1',
+    });
+    expect(moved.status).toBe(308);
+    expect(moved.headers.get('location')).toBe(
+      `https://example.test:${httpsPort}/blog?x=1`
+    );
+    expect(moved.headers.get('strict-transport-security')).toBe(
+      'max-age=31536000'
+    );
+    const page = await secured('/', 'example.test');
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('<title>Главная');
+    expect(page.headers.get('strict-transport-security')).toBe(
+      'max-age=31536000'
+    );
+    const health = await secured(HEALTH_PATH, 'www.example.test');
+    expect(health.status).toBe(200);
+    expect(await health.json()).toMatchObject({ status: 'ok' });
+    expect(
+      (await _get(secure.http.port!, HEALTH_PATH, 'www.example.test')).status
+    ).toBe(200);
+    expect((await secured('/', `127.0.0.1:${httpsPort}`)).status).toBe(200);
+    secure.stop();
+  });
+
   it('сертификат и ключ — сервера: в копию сайта не попадают', () => {
     const tables = Object.keys(stand.app.archive().tables);
     expect(tables.some((_) => _.startsWith('certificates_'))).toBe(false);
@@ -223,6 +299,137 @@ describe('HTTPS без прокси', () => {
       lastError: '',
       staging: true,
     });
+  });
+});
+
+describe('основной домен', () => {
+  const site = (request: Request) =>
+    Promise.resolve(
+      ((url) => new Response(`${request.method} ${url.host}${url.pathname}`))(
+        new URL(request.url)
+      )
+    );
+  const overHttp = (secured = true, httpsPort = _HTTPS_PORT) =>
+    defineHttpListener({
+      domains: _DOMAINS,
+      httpsPort,
+      challenge: (token) => (token === 'token' ? 'token.key' : null),
+      secured: () => secured,
+      site,
+      direct: [HEALTH_PATH],
+    });
+  const overHttps = (httpsPort = _HTTPS_PORT) =>
+    defineHttpsListener({
+      domains: _DOMAINS,
+      httpsPort,
+      site,
+      direct: [HEALTH_PATH],
+    });
+
+  it('HTTP: с дополнительного домена — сразу на HTTPS основного, одним шагом', async () => {
+    const moved = await overHttp()(
+      new Request('http://www.example.test/blog?x=1')
+    );
+    expect(moved.status).toBe(308);
+    const location = moved.headers.get('location')!;
+    expect(location).toBe(`https://example.test:${_HTTPS_PORT}/blog?x=1`);
+    const landed = await overHttps()(new Request(location));
+    expect(landed.status).toBe(200);
+    expect(await landed.text()).toBe(`GET example.test:${_HTTPS_PORT}/blog`);
+  });
+
+  it('HTTP: проверка HTTP-01 и здоровье на дополнительном домене — как раньше', async () => {
+    const challenge = await overHttp()(
+      new Request('http://www.example.test/.well-known/acme-challenge/token')
+    );
+    expect(challenge.status).toBe(200);
+    expect(await challenge.text()).toBe('token.key');
+    const health = await overHttp()(
+      new Request(`http://www.example.test${HEALTH_PATH}`)
+    );
+    expect(health.status).toBe(200);
+    expect(await health.text()).toBe(`GET www.example.test${HEALTH_PATH}`);
+  });
+
+  it('HTTP без сертификата: дополнительный домен открывает сайт как есть', async () => {
+    const response = await overHttp(false)(
+      new Request('http://www.example.test/blog')
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('GET www.example.test/blog');
+  });
+
+  it('HTTPS: дополнительный домен — на тот же путь и query основного, 308 на сутки', async () => {
+    const moved = await overHttps()(
+      new Request(`https://www.example.test:${_HTTPS_PORT}/form?x=1&y=2`, {
+        method: 'POST',
+        body: 'name=a',
+      })
+    );
+    expect(moved.status).toBe(308);
+    expect(moved.headers.get('location')).toBe(
+      `https://example.test:${_HTTPS_PORT}/form?x=1&y=2`
+    );
+    expect(moved.headers.get('cache-control')).toBe('max-age=86400');
+    expect(
+      (
+        await overHttps()(new Request('https://www.example.test./'))
+      ).headers.get('location')
+    ).toBe(`https://example.test:${_HTTPS_PORT}/`);
+  });
+
+  it('HTTPS: основной домен, Host не из списка, петля и localhost — сайт как есть', async () => {
+    const answers = await Promise.all(
+      [
+        'https://example.test/blog',
+        'https://evil.test/blog',
+        `https://127.0.0.1:${_HTTPS_PORT}/blog`,
+        'https://[::1]/blog',
+        'https://localhost/blog',
+      ].map((url) =>
+        overHttps()(new Request(url)).then((_) =>
+          _.text().then((text) => `${_.status} ${text}`)
+        )
+      )
+    );
+    expect(answers).toEqual([
+      '200 GET example.test/blog',
+      '200 GET evil.test/blog',
+      `200 GET 127.0.0.1:${_HTTPS_PORT}/blog`,
+      '200 GET [::1]/blog',
+      '200 GET localhost/blog',
+    ]);
+  });
+
+  it('HTTPS: проверка здоровья отвечает на дополнительном домене', async () => {
+    const health = await overHttps()(
+      new Request(`https://www.example.test${HEALTH_PATH}?probe=1`)
+    );
+    expect(health.status).toBe(200);
+    expect(await health.text()).toBe(`GET www.example.test${HEALTH_PATH}`);
+  });
+
+  it('порт HTTPS — в адресе переадресации, если он не 443', async () => {
+    const location = (response: Promise<Response>) =>
+      response.then((_) => _.headers.get('location'));
+    expect(
+      await location(overHttps(443)(new Request('https://www.example.test/a')))
+    ).toBe('https://example.test/a');
+    expect(
+      await location(
+        overHttps(18443)(new Request('https://www.example.test:18443/a'))
+      )
+    ).toBe('https://example.test:18443/a');
+    expect(
+      await location(
+        overHttp(true, 443)(new Request('http://www.example.test/a'))
+      )
+    ).toBe('https://example.test/a');
+    expect(
+      await location(
+        overHttp(true, 18443)(new Request('http://www.example.test:8080/a'))
+      )
+    ).toBe('https://example.test:18443/a');
   });
 });
 

@@ -2,6 +2,7 @@ import type { App } from '../app.ts';
 import {
   type Certificate,
   defineHttpListener,
+  defineHttpsListener,
   valid,
 } from '../contexts/certificates/index.ts';
 import { HEALTH_PATH } from '../health.ts';
@@ -45,7 +46,8 @@ export var withHsts =
 
 /**
  * HTTPS без прокси: HTTP-порт отвечает на проверку HTTP-01 и ведёт на HTTPS, HTTPS встаёт, как только
- * есть действующий сертификат. Пока его нет (и если он истёк), сайт открывается по HTTP.
+ * есть действующий сертификат. Пока его нет (и если он истёк), сайт открывается по HTTP. С сертификатом оба
+ * порта ведут дополнительные домены на основной — первый в `domains`.
  *
  * Новый сертификат — новый слушатель рядом со старым на том же порту (`reusePort`): старый дорабатывает
  * начатые запросы и уходит. `server.reload` сертификат не меняет — проверено на Bun 1.4.4.
@@ -69,13 +71,24 @@ export var serveSecure = ({
 }): Secure => {
   let secure: Server | null = null;
 
+  const handle = withHsts(
+    withAbsoluteUrl(
+      defineHttpsListener({
+        domains,
+        httpsPort,
+        site: app.fetch,
+        direct: [HEALTH_PATH],
+      })
+    )
+  );
+
   const listen = (certificate: Certificate): Server =>
     Bun.serve({
       ...base,
       port: httpsPort,
       reusePort: true,
       tls: { cert: certificate.chain, key: certificate.key },
-      fetch: withHsts(app.fetch),
+      fetch: handle,
     });
 
   // Где порт делить нельзя, старый слушатель уходит раньше, чем встаёт новый.

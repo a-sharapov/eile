@@ -55,6 +55,15 @@ export var parseDomains = (raw: string): string[] =>
       .filter(Boolean)
   );
 
+/**
+ * Дополнительный домен — любой из списка, кроме первого (основного): с него сервер ведёт на основной.
+ * Имя из адреса запроса сравнивается без точки на конце: `www.example.com.` — тот же домен.
+ */
+export var isSecondaryDomain = (
+  domains: readonly string[],
+  hostname: string
+): boolean => domains.indexOf(hostname.replace(/\.$/, '')) > 0;
+
 /** Ключ состояния: одни и те же домены в любом порядке — один сертификат. */
 export var domainsKey = (domains: readonly string[]): string =>
   [...domains].sort().join(',');

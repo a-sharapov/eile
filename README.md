@@ -1,7 +1,7 @@
 <h1 align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
-    <img src="docs/assets/logo-light.svg" alt="Eile" width="240">
+    <img src="docs/assets/logo-light.svg" alt="Eile" width="340">
   </picture>
 </h1>
 
@@ -246,6 +246,12 @@ DNS домена должен указывать на сервер, порты 8
 в службу согласованную копию базы, можно и с работающего сервера. Попробовать без лимитов боевого центра —
 `--acme-staging`: сертификат выпустится, но браузеры ему не поверят.
 
+Первый домен в `--domain` — основной. Когда сертификат выпущен, запросы на остальные (`www.example.com`) сервер
+ведёт на основной ответом 308 с тем же путём и query, а с HTTP — сразу на HTTPS основного, одним переходом. Сайт
+живёт по одному адресу, как за Caddy с `redir`, даже если адрес сайта в «Настройках» не задан. Основным должен
+быть www — поставьте его первым. Ключи проверки Let's Encrypt и `/_cms/health` отвечают на любом домене
+([ADR 0062](docs/adr/0062-primary-domain.md)).
+
 За своим nginx или Caddy — `--trust-proxy`: служба слушает только `127.0.0.1:8080` (`--port` — другой порт),
 протокол, адрес сайта и посетителя берутся из `X-Forwarded-*`, cookie входа получает `Secure`. В «Настройках»
 задайте адрес сайта: по нему строятся canonical, sitemap и проверка Origin.
@@ -410,6 +416,7 @@ Ctrl+Break: статистика допишется, база закроется
   [история правок](docs/adr/0026-page-revisions.md) ·
   [сброс пароля](docs/adr/0027-password-reset.md) ·
   [HTTPS без прокси](docs/adr/0028-https-without-proxy.md) ·
+  [основной домен вместо www](docs/adr/0062-primary-domain.md) ·
   [поиск по сайту](docs/adr/0030-site-search.md) ·
   [языки менеджера](docs/adr/0031-manager-languages.md) ·
   [правка прямо на сайте](docs/adr/0032-edit-bar.md) ·
@@ -420,7 +427,6 @@ Ctrl+Break: статистика допишется, база закроется
   [медиатека из папки](docs/adr/0058-media-push.md) ·
   [почтовый шлюз для других сервисов](docs/adr/0040-mail-gateway.md) ·
   [почта через HTTP API, когда SMTP закрыт](docs/adr/0051-mail-over-http-apis.md) ·
-  [мониторинг, зеркало релизов и проверка редиректов](docs/adr/0048-health-releases-url-redirect-check.md).
   [мониторинг, зеркало релизов и проверка редиректов](docs/adr/0048-health-releases-url-redirect-check.md) ·
   [проверка домена перед переездом](docs/adr/0052-domain-check.md).
 
