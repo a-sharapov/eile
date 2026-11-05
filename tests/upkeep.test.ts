@@ -486,8 +486,9 @@ describe('обновления', () => {
   // Архив и бинарник — по сотне мегабайт, а у сервера бывает 512 МБ памяти на всё. До 0.1.2 обновление
   // держало архив дважды и бинарник целиком (около 250 МБ), и рядом с работающим сайтом его убивал OOM.
   // Теперь скачанное идёт на диск по мере загрузки: к последнему куску почти весь архив уже в файле, а
-  // прежний код к этому моменту не записал ничего. Память процесса на раннерах шумит (сборщик мусора
-  // приходит, когда хочет), поэтому её предел — с запасом: поток рос на 60–120 МБ, прежний код — на 250–300.
+  // прежний код к этому моменту не записал ничего. Память процесса здесь не мерило: на раннере без нехватки
+  // памяти сборщик мусора не спешит, и поток «рос» на 117–212 МБ против 60–80 на машине разработчика. Под
+  // настоящим пределом cgroup обновление проверено на сборке (ADR 0025): 0.1.2 укладывается в 64 МБ.
   unixIt(
     'большой выпуск пишется на диск по мере загрузки, а не собирается в памяти',
     async () => {
@@ -502,23 +503,13 @@ describe('обновления', () => {
         written: null as number | null,
       };
       large = release;
-      // Буферы сборки архива — прочь до замера.
-      await Bun.sleep(10);
-      Bun.gc(true);
-      const before = process.memoryUsage().rss;
-      let peak = before;
-      const sample = setInterval(
-        () => void (peak = Math.max(peak, process.memoryUsage().rss)),
-        2
-      );
       const result = await updateProgram({
         releases: releases(),
         current: '0.1.0',
         binary,
         standalone: true,
         target: 'linux-x64',
-      }).finally(() => clearInterval(sample));
-      peak = Math.max(peak, process.memoryUsage().rss);
+      });
       large = null;
       expect(result).toMatchObject({ status: 'updated' });
       expect(statSync(binary).size).toBe(size);
@@ -528,7 +519,6 @@ describe('обновления', () => {
         'eile',
       ]);
       expect(release.written).toBeGreaterThan(Bun.file(path).size / 2);
-      expect(peak - before).toBeLessThan(size * 3);
     },
     60_000
   );
