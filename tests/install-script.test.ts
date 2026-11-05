@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
 import {
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   rmSync,
@@ -38,13 +39,24 @@ writeFileSync(
   join(release, 'SHA256SUMS'),
   `${_TARGETS.map((_) => `${sum}  cms-${_}.gz`).join('\n')}\n`
 );
+// Тот же выпуск с чужой суммой: архив будто подменён.
+const forged = join(dir, 'forged');
+mkdirSync(forged);
+_TARGETS.forEach((_) => void writeFileSync(join(forged, `cms-${_}.gz`), gz));
+writeFileSync(
+  join(forged, 'SHA256SUMS'),
+  `${_TARGETS.map((_) => `${'0'.repeat(64)}  cms-${_}.gz`).join('\n')}\n`
+);
 
 let bin = '';
 beforeEach(() => {
   bin = join(mkdtempSync(join(dir, 'home-')), 'bin');
 });
 
-const install = (lang = 'ru_RU.UTF-8') =>
+const install = (
+  lang = 'ru_RU.UTF-8',
+  env: Readonly<Record<string, string>> = {}
+) =>
   $`bash ${SCRIPT}`
     .env({
       ...process.env,
@@ -56,6 +68,7 @@ const install = (lang = 'ru_RU.UTF-8') =>
       CMS_INSTALL_DIR: bin,
       CMS_NO_MODIFY_PATH: '1',
       NO_COLOR: '1',
+      ...env,
     })
     .quiet()
     .nothrow();
@@ -78,6 +91,24 @@ describe.skipIf(WINDOWS)('установщик', () => {
     expect(again.exitCode).toBe(0);
     expect(again.stderr.toString()).not.toContain('не создано');
     expect(readlinkSync(join(bin, 'eile'))).toBe('cms');
+  });
+
+  // /tmp бывает tmpfs, то есть той же памятью, а архив с бинарником — под 200 МБ.
+  it('скачанное — в каталоге установки, а не в TMPDIR; после установки там только cms и eile', async () => {
+    const result = await install('ru_RU.UTF-8', {
+      TMPDIR: join(dir, 'no-such-tmp'),
+    });
+    expect(result.exitCode).toBe(0);
+    expect(readdirSync(bin).toSorted()).toEqual(['cms', 'eile']);
+  });
+
+  it('подменённый архив — отказ, в каталоге ничего не остаётся', async () => {
+    const result = await install('ru_RU.UTF-8', {
+      CMS_DOWNLOAD_URL: `file://${forged}`,
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toContain('не совпала');
+    expect(readdirSync(bin)).toEqual([]);
   });
 
   it('на нерусской локали говорит по-английски', async () => {

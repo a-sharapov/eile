@@ -122,6 +122,16 @@ describe.if(WINDOWS)('install.ps1 на Windows', () => {
     }
   }, 180_000);
 
+  it('файла нет в релизе — отказ с причиной, а не одно «download failed»', () => {
+    const empty = join(dir, 'empty-release');
+    mkdirSync(empty);
+    const result = install(fresh(), empty);
+    expect(result.exitCode).toBe(1);
+    expect(output(result)).toMatch(
+      /download failed: \S+cms-windows-\w+\.zip \(.+\)/
+    );
+  }, 120_000);
+
   it('подменённый архив — отказ с кодом 1, ничего не поставлено', () => {
     const tampered = join(dir, 'tampered');
     mkdirSync(tampered);

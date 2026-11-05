@@ -241,10 +241,28 @@ describe('автокопии', () => {
 const _script = (version: string): Uint8Array<ArrayBuffer> =>
   new TextEncoder().encode(`#!/bin/sh\necho "Eile ${version}"\n`);
 
+// Бинарник на size байт: скрипт печатает версию и выходит, дальше шум — он не сжимается, архив того же размера.
+const _large = (size: number): Uint8Array<ArrayBuffer> => {
+  const body = new Uint8Array(size);
+  const words = new Uint32Array(body.buffer);
+  for (let i = 0, x = 2463534242; i < words.length; i += 1) {
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    words[i] = x >>> 0;
+  }
+  body.set(new TextEncoder().encode('#!/bin/sh\necho "Eile 0.2.0"\nexit 0\n'));
+  return body;
+};
+
 describe('обновления', () => {
   let server: ReturnType<typeof Bun.serve>;
   let tamper = false;
   let listed = 0;
+  // Сколько раз скачан архив; в SHA256SUMS нет строки архива; большой выпуск — файлом на диске.
+  let archives = 0;
+  let unlisted = false;
+  let large: { readonly path: string; readonly sums: string } | null = null;
   const archive = Bun.gzipSync(_script('0.2.0'));
   const sums = `${new Bun.CryptoHasher('sha256').update(archive).digest('hex')}  cms-linux-x64.gz\n`;
 
@@ -268,9 +286,16 @@ describe('обновления', () => {
                 }))
               ))
             : path.endsWith('/cms-linux-x64.gz')
-              ? new Response(tamper ? Bun.gzipSync(_script('evil')) : archive)
+              ? ((archives += 1),
+                new Response(
+                  large
+                    ? Bun.file(large.path)
+                    : tamper
+                      ? Bun.gzipSync(_script('evil'))
+                      : archive
+                ))
               : path.endsWith('/SHA256SUMS')
-                ? new Response(sums)
+                ? new Response(large?.sums ?? (unlisted ? '' : sums))
                 : new Response('Not Found', { status: 404 }))(
           new URL(request.url).pathname
         ),
@@ -392,6 +417,95 @@ describe('обновления', () => {
     expect(readdirSync(join(binary, '..'))).toEqual(['cms']);
     expect(readFileSync(binary, 'utf8')).toBe('old');
   });
+
+  unixIt('в SHA256SUMS нет архива — отказ до его загрузки', async () => {
+    const binary = installed();
+    const before = archives;
+    unlisted = true;
+    const code = await codeOf(
+      updateProgram({
+        releases: releases(),
+        current: '0.1.0',
+        binary,
+        standalone: true,
+        target: 'linux-x64',
+      })
+    );
+    unlisted = false;
+    expect(code).toBe('upkeep.asset_missing');
+    expect(archives).toBe(before);
+    expect(readdirSync(join(binary, '..'))).toEqual(['cms']);
+  });
+
+  // Права каталога root не останавливают.
+  it.skipIf(WINDOWS || process.getuid?.() === 0)(
+    'писать в каталог нельзя — no_write до загрузки архива, каталог как был',
+    async () => {
+      const binary = installed();
+      const folder = join(binary, '..');
+      const before = archives;
+      chmodSync(folder, 0o555);
+      const code = await codeOf(
+        updateProgram({
+          releases: releases(),
+          current: '0.1.0',
+          binary,
+          standalone: true,
+          target: 'linux-x64',
+        })
+      );
+      chmodSync(folder, 0o755);
+      expect(code).toBe('upkeep.no_write');
+      expect(archives).toBe(before);
+      expect(readdirSync(folder)).toEqual(['cms']);
+    }
+  );
+
+  // Архив и бинарник — по сотне мегабайт, а у сервера бывает 512 МБ памяти на всё. До 0.1.2 обновление
+  // держало архив дважды и бинарник целиком (около 250 МБ), и рядом с работающим сайтом его убивал OOM.
+  // Теперь в памяти только куски потока.
+  unixIt(
+    'большой выпуск идёт через диск: ни архив, ни бинарник в памяти целиком не лежат',
+    async () => {
+      const size = 64 << 20;
+      const path = join(dir, 'large.gz');
+      writeFileSync(path, Bun.gzipSync(_large(size), { level: 1 }));
+      large = {
+        path,
+        sums: `${new Bun.CryptoHasher('sha256').update(await Bun.file(path).bytes()).digest('hex')}  cms-linux-x64.gz\n`,
+      };
+      const binary = installed();
+      // Буферы сборки архива — прочь до замера.
+      await Bun.sleep(10);
+      Bun.gc(true);
+      const before = process.memoryUsage().rss;
+      let peak = before;
+      const sample = setInterval(
+        () => void (peak = Math.max(peak, process.memoryUsage().rss)),
+        2
+      );
+      const result = await updateProgram({
+        releases: releases(),
+        current: '0.1.0',
+        binary,
+        standalone: true,
+        target: 'linux-x64',
+      }).finally(() => clearInterval(sample));
+      peak = Math.max(peak, process.memoryUsage().rss);
+      large = null;
+      expect(result).toMatchObject({ status: 'updated' });
+      expect(statSync(binary).size).toBe(size);
+      expect(readdirSync(join(binary, '..')).toSorted()).toEqual([
+        'cms',
+        'cms.old',
+        'eile',
+      ]);
+      // Старый код рос на четыре размера архива (250 МБ здесь); поток — на постоянные 35–60 МБ буферов и
+      // рантайма, сколько бы ни весил выпуск.
+      expect(peak - before).toBeLessThan(size * 1.5);
+    },
+    60_000
+  );
 
   it('новее нет — так и говорит; из исходников не обновляет', async () => {
     expect(

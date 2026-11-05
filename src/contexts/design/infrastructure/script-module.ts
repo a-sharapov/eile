@@ -61,8 +61,25 @@ const _scan = (script: Script): Script =>
     _syntaxError(script)
   );
 
+// Дерево acorn собранной сцены в мегабайт — 0,2 с и больше 100 МБ памяти на пике, а сервер бывает на 512 МБ.
+// Нужно оно, только чтобы найти места путей. Ссылки `./имя.js` и запрещённые импорты видит и нативный
+// scanImports (пути — уже значения строк, экранирование раскрыто); `new URL(…, import.meta.url)` без
+// `import.meta` в тексте не бывает. Нет ни того, ни другого — путей для проверки и адресов нет, дерево не
+// строится. `require(…)` из чужих сборок модулю не путь.
+const _IMPORT_META = /\bimport\s*\.\s*meta\b/;
+const _REQUIRE = new Set(['require-call', 'require-resolve']);
+
+const _needsTree = (source: string): boolean =>
+  _IMPORT_META.test(source) ||
+  _transpiler
+    .scanImports(source)
+    .some((_) => !_REQUIRE.has(_.kind) && !_ALLOWED_IMPORT.test(_.path));
+
 const _parse = (script: Script): readonly ModulePath[] =>
-  attempt(() => modulePaths(script.source), _syntaxError(script));
+  attempt(
+    () => (_needsTree(script.source) ? modulePaths(script.source) : []),
+    _syntaxError(script)
+  );
 
 const _checkImports =
   (script: Script) =>
@@ -94,8 +111,8 @@ export var scriptHash = (source: string): string =>
   Bun.hash(source).toString(36);
 
 /**
- * Разбор скриптов сайта. Дерево acorn собранной сцены в 2 МБ — около 0,1 с, поэтому пути запоминаются по
- * имени и хэшу исходника: проверка при сохранении, адреса и отдача разбирают каждую версию один раз.
+ * Разбор скриптов сайта. Пути запоминаются по имени и хэшу исходника: проверка при сохранении, адреса и
+ * отдача разбирают каждую версию один раз, а дерево строится, только когда путям есть где быть (`_needsTree`).
  */
 export var defineScriptModules = () => {
   const parsed = new Map<

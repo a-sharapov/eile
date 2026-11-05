@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
+import * as moduleImports from '../../../platform/module-imports.ts';
 import {
   attempt,
   type DomainError,
@@ -141,6 +142,41 @@ describe('ссылки скрипта на другие скрипты', () => {
       { name: 'lazy' as ElementName, text: '`./lazy.js`' },
       { name: 'w' as ElementName, text: "'./w.js'" },
     ]);
+  });
+
+  it('экранированный путь — тоже ссылка: значение строки, а не её запись', () => {
+    expect(referencesOf("import { a } from '.\\/shared.js';")).toEqual([
+      { name: 'shared' as ElementName, text: "'.\\/shared.js'" },
+    ]);
+  });
+
+  // Дерево acorn собранной сцены в мегабайт — 0,2 с и больше 100 МБ на пике (ADR 0057).
+  it('дерево строится, только когда путям есть где быть', () => {
+    const tree = spyOn(moduleImports, 'modulePaths');
+    const fresh = defineScriptModules();
+    const scene = [
+      'function blob(e){try{return new URL(e).protocol==="blob:"}catch(t){return!1}}',
+      'const fs = typeof require === "function" ? require("fs") : null;',
+      "import x from 'https://cdn.example.com/x.js';",
+      'export const stage = () => blob("x");',
+    ].join('\n');
+    expect(fresh.references(script(scene))).toEqual([]);
+    fresh.check(script(scene));
+    expect(tree).not.toHaveBeenCalled();
+    expect(
+      fresh.references(
+        script(`${scene}\nconst lazy = () => import('./lazy.js');`)
+      )
+    ).toHaveLength(1);
+    expect(tree).toHaveBeenCalledTimes(1);
+    fresh.references(
+      script(`${scene}\nconst w = new URL(name, import.meta.url);`)
+    );
+    expect(tree).toHaveBeenCalledTimes(2);
+    expect(errorOf(`${scene}\nimport three from 'three';`)?.code).toBe(
+      'design.script_import'
+    );
+    tree.mockRestore();
   });
 
   it('строка, где только написано «./x.js», — не ссылка', () => {
