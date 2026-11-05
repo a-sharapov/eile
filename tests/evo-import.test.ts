@@ -191,3 +191,78 @@ describe('разбор дампа линейный', () => {
     expect(performance.now() - started).toBeLessThan(500);
   });
 });
+
+describe('безопасность импорта Evo', () => {
+  let app: App;
+  beforeEach(() => {
+    app = createApp();
+  });
+  afterEach(() => app.close());
+
+  it('чистит HTML страниц из дампа; документ со своим НЕ-HTML типом не трогает', () => {
+    const evil =
+      '<p>safe</p><script>alert(1)</script><img src=x onerror=boom><svg onload=boom>';
+    const intro = '<em>e</em><img src=y onerror=boom2>';
+    const xml = '<urlset><url><loc>https://x/a</loc></url></urlset>';
+    const columns = [
+      'id',
+      'type',
+      'pagetitle',
+      'longtitle',
+      'description',
+      'alias',
+      'published',
+      'pub_date',
+      'unpub_date',
+      'parent',
+      'introtext',
+      'content',
+      'template',
+      'menuindex',
+      'cacheable',
+      'deleted',
+      'menutitle',
+      'hidemenu',
+      'contentType',
+    ]
+      .map((_) => `  \`${_}\` text,`)
+      .join('\n');
+    const row = (
+      id: number,
+      alias: string,
+      introtext: string,
+      content: string,
+      type: string
+    ) =>
+      `(${id},'document','P${id}','','','${alias}',1,0,0,0,'${introtext}','${content}',3,${id},1,0,'',0,'${type}')`;
+    const dump = `
+CREATE TABLE \`modx_site_content\` (
+${columns}
+  PRIMARY KEY (\`id\`)
+);
+INSERT INTO \`modx_site_content\` VALUES ${row(1, 'index', '', '<p>hi</p>', 'text/html')},${row(8, 'evil', intro, evil, 'text/html')},${row(9, 'sitemap', '', xml, 'application/xml')};
+CREATE TABLE \`modx_site_templates\` (
+  \`id\` int,
+  \`templatename\` varchar(255),
+  \`content\` mediumtext
+);
+INSERT INTO \`modx_site_templates\` VALUES (3,'Main','<body>[*content*]</body>');
+CREATE TABLE \`modx_system_settings\` (
+  \`setting_name\` varchar(50),
+  \`setting_value\` text
+);
+INSERT INTO \`modx_system_settings\` VALUES ('site_name','Co'),('site_start','1');
+`;
+    importEvo(app, parseDump(dump));
+    const page = app.content.drafts.page(8)!;
+    expect(page.content).not.toContain('<script');
+    expect(`${page.content} ${page.introText}`).not.toContain('onerror');
+    expect(page.content).not.toContain('onload');
+    expect(page.content).toContain('<p>safe</p>');
+    expect(page.introText).toContain('<em>e</em>');
+    // Документ со своим типом (sitemap.xml) — не HTML: его XML не разбирается санитайзером.
+    const sitemap = app.content.drafts.page(9)!;
+    expect(sitemap.contentType).toBe('application/xml');
+    expect(sitemap.content).toContain('<urlset>');
+  });
+});

@@ -378,11 +378,18 @@ describe('основной домен', () => {
     ).toBe(`https://example.test:${_HTTPS_PORT}/`);
   });
 
-  it('HTTPS: основной домен, Host не из списка, петля и localhost — сайт как есть', async () => {
+  it('HTTPS: чужой домен — 308 на основной; основной, петля и localhost — сайт как есть', async () => {
+    const foreign = await overHttps()(
+      new Request(`https://evil.test:${_HTTPS_PORT}/blog?x=1`)
+    );
+    expect(foreign.status).toBe(308);
+    expect(foreign.headers.get('location')).toBe(
+      `https://example.test:${_HTTPS_PORT}/blog?x=1`
+    );
+    expect(foreign.headers.get('cache-control')).toBe('max-age=86400');
     const answers = await Promise.all(
       [
         'https://example.test/blog',
-        'https://evil.test/blog',
         `https://127.0.0.1:${_HTTPS_PORT}/blog`,
         'https://[::1]/blog',
         'https://localhost/blog',
@@ -394,7 +401,6 @@ describe('основной домен', () => {
     );
     expect(answers).toEqual([
       '200 GET example.test/blog',
-      '200 GET evil.test/blog',
       `200 GET 127.0.0.1:${_HTTPS_PORT}/blog`,
       '200 GET [::1]/blog',
       '200 GET localhost/blog',

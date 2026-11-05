@@ -64,6 +64,22 @@ export var isSecondaryDomain = (
   hostname: string
 ): boolean => domains.indexOf(hostname.replace(/\.$/, '')) > 0;
 
+/**
+ * На основной домен по HTTPS ведём не только дополнительные имена из --domain, но и любой чужой домен,
+ * наведённый на этот сервер: его зеркалят под своим именем, а так посетитель попадёт на настоящий сайт.
+ * IP-литерал, localhost и имя без точки — не домен: их (и сам основной) отдаём как есть, чтобы доступ по
+ * адресу и мониторинг не ломались.
+ */
+export var redirectsToPrimary = (
+  domains: readonly string[],
+  hostname: string
+): boolean =>
+  ((host) =>
+    domains.length > 0 &&
+    host !== domains[0] &&
+    host.includes('.') &&
+    !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host))(hostname.replace(/\.$/, ''));
+
 /** Ключ состояния: одни и те же домены в любом порядке — один сертификат. */
 export var domainsKey = (domains: readonly string[]): string =>
   [...domains].sort().join(',');

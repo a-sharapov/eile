@@ -1,4 +1,4 @@
-import { isSecondaryDomain } from '../domain/certificate.ts';
+import { redirectsToPrimary } from '../domain/certificate.ts';
 
 const _CHALLENGE = '/.well-known/acme-challenge/';
 
@@ -61,9 +61,9 @@ export var defineHttpListener =
           : site(request, server))(new URL(request.url));
 
 /**
- * Обработчик HTTPS-порта: запрос на дополнительный домен переадресуется на тот же путь и query основного
- * (308 сохраняет метод и тело). Основной домен, Host не из списка (IP, localhost) и пути `direct` идут в сайт
- * как есть.
+ * Обработчик HTTPS-порта: запрос на дополнительный домен из --domain или на любой чужой домен, наведённый на
+ * этот сервер, переадресуется на тот же путь и query основного (308 сохраняет метод и тело). Основной домен,
+ * IP, localhost и пути `direct` идут в сайт как есть.
  */
 export var defineHttpsListener =
   <Server>({
@@ -79,7 +79,8 @@ export var defineHttpsListener =
   }) =>
   (request: Request, server?: Server): Promise<Response> =>
     ((url) =>
-      isSecondaryDomain(domains, url.hostname) && !direct.includes(url.pathname)
+      redirectsToPrimary(domains, url.hostname) &&
+      !direct.includes(url.pathname)
         ? Promise.resolve(
             new Response(null, {
               status: 308,

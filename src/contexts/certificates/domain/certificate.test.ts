@@ -7,6 +7,7 @@ import {
   due,
   isSecondaryDomain,
   parseDomains,
+  redirectsToPrimary,
   valid,
 } from './certificate.ts';
 
@@ -83,6 +84,38 @@ describe('домены сайта', () => {
       ].map((_) => isSecondaryDomain(domains, _))
     ).toEqual([true, true, true, false, false, false, false, false, false]);
     expect(isSecondaryDomain(['example.com'], 'example.com')).toBe(false);
+  });
+
+  it('на основной ведём и дополнительные, и чужие домены; IP, localhost и имя без точки — нет', () => {
+    const domains = ['example.com', 'www.example.com', 'example.net'];
+    expect(
+      [
+        'www.example.com',
+        'example.net',
+        'www.example.com.',
+        'evil.example',
+        'sbdigitaal.nl',
+        'example.com',
+        'example.com.',
+        '127.0.0.1',
+        '[::1]',
+        'localhost',
+        '',
+      ].map((_) => redirectsToPrimary(domains, _))
+    ).toEqual([
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
+    expect(redirectsToPrimary([], 'evil.example')).toBe(false);
   });
 });
 

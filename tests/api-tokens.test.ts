@@ -115,6 +115,42 @@ describe('ключи API', () => {
     }
   });
 
+  it('ключом не сменить адрес сайта и другие настройки «только для человека»', async () => {
+    const { token } = await issue(admin, 'настройки');
+    const before = (await api('GET', '/settings', { cookie: admin }).then((_) =>
+      _.json()
+    )) as any;
+    const blocked = await api('PATCH', '/settings', {
+      token,
+      body: { siteUrl: 'https://evil.example' },
+    });
+    expect(blocked.status).toBe(403);
+    expect(((await blocked.json()) as any).error.code).toBe(
+      'manager.settings_restricted'
+    );
+    const after = (await api('GET', '/settings', { cookie: admin }).then((_) =>
+      _.json()
+    )) as any;
+    expect(after.siteUrl).toBe(before.siteUrl);
+    // Безопасное поле ключ менять может.
+    const safe = await api('PATCH', '/settings', {
+      token,
+      body: { description: 'От бота' },
+    });
+    expect(safe.status).toBe(200);
+    // Человек в менеджере — может и адрес; вернём как было, чтобы не влиять на другие тесты.
+    const human = await api('PATCH', '/settings', {
+      cookie: admin,
+      body: { siteUrl: 'https://ok.example' },
+    });
+    expect(human.status).toBe(200);
+    expect(((await human.json()) as any).siteUrl).toBe('https://ok.example');
+    await api('PATCH', '/settings', {
+      cookie: admin,
+      body: { siteUrl: before.siteUrl, description: before.description },
+    });
+  });
+
   it('права — роли: ключ редактора не сохраняет код', async () => {
     await app.identity.users.create({
       email: 'ed@example.com',

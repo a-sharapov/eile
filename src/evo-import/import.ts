@@ -4,6 +4,7 @@ import type {
   FieldValue,
 } from '../contexts/content/index.ts';
 import type { DesignService } from '../contexts/design/index.ts';
+import { sanitizeHtml } from '../contexts/manager/index.ts';
 import type { SiteService } from '../contexts/site/index.ts';
 import { attempt, fail, isDomainError } from '../shared/kernel/errors.ts';
 import {
@@ -210,6 +211,12 @@ export var importEvo = (
       tryTo(`page ${_int(row, 'id')}`, () => {
         const id = _int(row, 'id');
         const alias = _text(row, 'alias');
+        const mime = _text(row, 'contentType');
+        const typed = /^[\w.+-]+\/[\w.+-]+$/.test(mime);
+        // Документ со своим НЕ-HTML типом (sitemap.xml, rss.xml, robots.txt) — не чистим, иначе XML/текст
+        // поломается. Обычную HTML-страницу (text/html или без своего типа) чистим тем же санитайзером, что
+        // и правки в менеджере: у Evo своей очистки HTML нет, и `<script>`/`onerror` остались бы на странице.
+        const rawDoc = typed && !/^text\/html\b/i.test(mime);
         content.pages.import(id, {
           parentId: _int(row, 'parent') || null,
           kind: _text(row, 'type') === 'reference' ? 'link' : 'page',
@@ -217,17 +224,18 @@ export var importEvo = (
           longTitle: _text(row, 'longtitle'),
           menuTitle: _text(row, 'menutitle'),
           description: _text(row, 'description'),
-          introText: _text(row, 'introtext'),
+          introText: sanitizeHtml(_text(row, 'introtext')),
           ...(alias && /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+)?$/.test(alias)
             ? { alias }
             : {}),
           template: templates.get(_int(row, 'template')) ?? _BLANK_TEMPLATE,
-          // sitemap.xml, rss.xml, robots.txt в Evo — документы со своим contentType.
-          ...(/^[\w.+-]+\/[\w.+-]+$/.test(_text(row, 'contentType'))
-            ? { contentType: _text(row, 'contentType') }
-            : {}),
+          ...(typed ? { contentType: mime } : {}),
           content:
-            _text(row, 'type') === 'reference' ? '' : _text(row, 'content'),
+            _text(row, 'type') === 'reference'
+              ? ''
+              : rawDoc
+                ? _text(row, 'content')
+                : sanitizeHtml(_text(row, 'content')),
           linkTo:
             _text(row, 'type') === 'reference' ? _text(row, 'content') : '',
           menuIndex: _int(row, 'menuindex'),
@@ -243,7 +251,14 @@ export var importEvo = (
 
   // Чанки в контенте — вызовы компонентов; ссылки [~id~] остаются как есть: id сохранены, адрес подставит рендер.
   imported.forEach((row) => {
-    const html = _text(row, 'content');
+    const mime = _text(row, 'contentType');
+    const rawDoc =
+      /^[\w.+-]+\/[\w.+-]+$/.test(mime) && !/^text\/html\b/i.test(mime);
+    // Чистим ДО разбора чанков: `[[Name]]` — это текст, он уцелеет, а `<script>` уйдёт. Комментарии-метки
+    // сниппетов конвертер добавит уже после — санитайзер срезал бы их, запусти мы его потом.
+    const html = rawDoc
+      ? _text(row, 'content')
+      : sanitizeHtml(_text(row, 'content'));
     const converted = convertContent(html, chunks);
     converted.snippets.forEach((_) => void snippets.add(_));
     void (
@@ -261,7 +276,14 @@ export var importEvo = (
       tv !== undefined &&
       tryTo(`TV value ${tv.name} of page ${_int(row, 'contentid')}`, () =>
         content.pages.setFields(_int(row, 'contentid'), {
-          [tv.name]: _value(tv.type, _text(row, 'value')),
+          // Значение richtext — HTML на странице: чистим его; остальные типы полей не трогаем.
+          [tv.name]:
+            tv.type === 'richtext'
+              ? ((value: FieldValue | null) =>
+                  typeof value === 'string' ? sanitizeHtml(value) : value)(
+                  _value(tv.type, _text(row, 'value'))
+                )
+              : _value(tv.type, _text(row, 'value')),
         })
       )
     );

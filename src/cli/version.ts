@@ -1,3 +1,3 @@
 // Версия бинарника. С package.json её сверяет tests/cli.test.ts: импорт JSON потребовал бы
 // resolveJsonModule в tsconfig ради одной строки.
-export var VERSION = '0.1.3';
+export var VERSION = '0.1.4';

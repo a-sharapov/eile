@@ -282,6 +282,7 @@ const _STATUS: Readonly<Record<string, number>> = {
   agent_gone: 409,
   not_agent: 403,
   forbidden: 403,
+  settings_restricted: 403,
   _: 422,
 };
 
@@ -510,6 +511,19 @@ const _SESSION_ONLY: ReadonlySet<string> = new Set([
   'POST /review/links',
   'DELETE /review/links/:id',
 ]);
+
+// Эти настройки меняет только человек в менеджере, не ключ API и не агент (даже администраторский): адрес
+// сайта задаёт ссылки сброса пароля в письмах (подменённый увёл бы их на чужой сайт), robots.txt и правила
+// ИИ-ботов — выдачу поисковикам, кэш — отдачу страниц. Тот же список исключён из полей инструмента
+// update_settings (agent-tools.ts) — здесь он закрыт и для прямого запроса ключом.
+const _HUMAN_SETTINGS: readonly (keyof SiteSettings)[] = [
+  'siteUrl',
+  'robots',
+  'aiSearch',
+  'aiTraining',
+  'pagingCanonical',
+  'pageCacheMb',
+];
 
 export var sessionToken = (request: Request): string | null =>
   (request.headers.get('cookie') ?? '')
@@ -2467,11 +2481,14 @@ const _routes = (
       'PATCH',
       '/settings',
       'site.edit',
-      ({ body }) =>
-        body().then(
-          (_: Partial<SiteSettings>) => (
-            site.settings.update(_), _json(200, site.settings.get())
-          )
+      ({ body, agent }) =>
+        body().then((_: Partial<SiteSettings>) =>
+          agent && _HUMAN_SETTINGS.some((key) => key in (_ ?? {}))
+            ? fail(
+                'manager.settings_restricted',
+                'The site address, robots.txt, AI bot rules and the page cache are changed only by a person in the manager'
+              )
+            : (site.settings.update(_), _json(200, site.settings.get()))
         ),
     ],
     ['GET', '/users', 'users.manage', () => _json(200, identity.users.list())],
