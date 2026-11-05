@@ -229,6 +229,7 @@ export var defineManager = (
   };
 };
 
+export { sanitizeHtml } from './infrastructure/html-sanitizer.ts';
 export { managerMigrations } from './infrastructure/migrations.ts';
 export {
   type AgentKey,
