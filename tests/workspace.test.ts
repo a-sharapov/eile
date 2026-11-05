@@ -337,7 +337,9 @@ describe('скрипты в папке элементов', () => {
     const text = agentsGuide(app, { db: 'site.db', program: 'cms' });
     expect(text).toContain('`scripts/name.js`');
     expect(text).toContain('## Scripts');
-    expect(text).toContain('only from https:// URLs');
+    expect(text).toContain(
+      'It imports only other site scripts as `./name.js` and https:// URLs'
+    );
     expect(text).toContain('- Scripts: kitchen-stage.');
   });
 });

@@ -453,7 +453,7 @@ export var messages: Dictionary['messages'] = {
   'elements.aboutFields':
     'Zusatzfelder für Seiten, werden Vorlagen zugewiesen.',
   'elements.aboutScripts':
-    'ES-Module für den Browser: Eine Vorlage bindet sie mit script(name) ein.',
+    'ES-Module für den Browser: Eine Vorlage bindet sie mit script(name) ein, untereinander importieren sie sich als ./name.js.',
   'plugins.one': 'Plugin',
   'nav.forms': 'Formulare',
   'inbox.title': 'Anfragen',
@@ -631,6 +631,8 @@ export var messages: Dictionary['messages'] = {
   'formEditor.title': 'Bezeichnung des Formulars',
   'formEditor.submitLabel': 'Text der Schaltfläche',
   'formEditor.successText': '„Danke“-Text',
+  'formEditor.successTextHint':
+    'Eigenes Markup – Überschrift, Links, Schaltflächen – kommt als Block <template data-sent>…</template> in das HTML des Formulars und ersetzt diesen Text.',
   'formEditor.successPage': 'Oder zu einer Seite weiterleiten',
   'formEditor.successPageHint':
     'Eine „Danke“-Seite eignet sich gut für Analyseziele.',
@@ -683,6 +685,12 @@ export var messages: Dictionary['messages'] = {
   'formEditor.storeHint':
     'Anfragen mit personenbezogenen Daten werden nach Ablauf der Frist gelöscht – so verlangt es die DSGVO.',
   'formEditor.retention': 'Aufbewahrung (Tage)',
+  'formEditor.storeClientInfo':
+    'IP-Adresse und Browser des Besuchers speichern',
+  'formEditor.storeClientInfoHint':
+    'Sie stehen bei der Anfrage und im CSV und helfen, Spam zu erkennen. Schalten Sie es aus, wenn die Datenschutzerklärung zusagt, keine IP-Adressen zu speichern.',
+  'formEditor.storeClientInfoOffHint':
+    'Anfragen werden ohne IP-Adresse und Browser gespeichert; Benachrichtigungen und Webhook enthalten sie ohnehin nicht. Das Sendelimit pro Adresse wirkt weiter: Die Adresse bleibt nur im Arbeitsspeicher des Servers und wird nicht in die Datenbank geschrieben.',
   'formEditor.webhookTitle': 'Webhook',
   'formEditor.webhookHint':
     'Jede angenommene Anfrage geht als JSON an diese Adresse, zum Beispiel an ein CRM. Spam wird nicht gesendet; eine fehlgeschlagene Zustellung wird bis zu fünfmal wiederholt, das Ergebnis steht bei der Anfrage.',
@@ -732,10 +740,11 @@ export var messages: Dictionary['messages'] = {
   'elements.hint':
     "Strg+S – speichern. Komponenten importieren: import X from '$components/X'.",
   'elements.scriptHint':
-    'Strg+S speichert. Ein ES-Modul für den Browser, bis 2 MB: Bündeln Sie die Abhängigkeiten in diese Datei, importiert werden dürfen nur https://-Adressen.',
+    'Strg+S speichert. Ein ES-Modul für den Browser, bis 2 MB. Importiert werden dürfen andere Skripte der Website als ./name.js (Teile eines Builds mit Code-Splitting) und https://-Adressen; bündeln Sie alle anderen Abhängigkeiten in Skripte.',
   'elements.scriptInclude': 'Einbinden im <svelte:head> einer Vorlage',
   'elements.scriptUrl': 'Adresse der aktuellen Version',
-  'elements.scriptUnused': 'noch in keiner Vorlage oder Komponente eingebunden',
+  'elements.scriptUnused':
+    'noch in keiner Vorlage oder Komponente eingebunden, und kein Skript verweist darauf',
   'nav.plugins': 'Plugins',
   'nav.media': 'Medien',
   'media.title': 'Mediathek',
@@ -1340,7 +1349,7 @@ export var messages: Dictionary['messages'] = {
     'Eine Gruppe pro Zeile, Varianten durch Kommas getrennt; eine Variante kann eine Phrase sein. Wer nach „Couch“ sucht, findet auch Seiten über Sofas.',
   'settings.files': 'Prüfen, was Suchmaschinen und KI sehen:',
   'translations.intro':
-    'Im Seitentext schreiben Sie einen Schlüssel als {i18n.key}, in der Vorlage als {site.i18n.key}; auf der Website wird daraus Text in der Sprache der Seite – und fehlt er in dieser Sprache, Text in der Standardsprache. Übersetzungen sind kein Muss: Text kann auch direkt in der Seite stehen.',
+    'Im Seitentext schreiben Sie einen Schlüssel als {i18n.key}, in der Vorlage als {site.i18n.key}; auf der Website wird daraus Text in der Sprache der Seite – und fehlt er in dieser Sprache, Text in der Standardsprache. Übersetzungen sind kein Muss: Text kann auch direkt in der Seite stehen. Umschalt+Enter beginnt eine neue Zeile: Eine Liste, etwa Antwortmöglichkeiten, steht mit einem Eintrag pro Zeile.',
   'translations.search': 'Schlüssel oder Text suchen',
   'translations.newKey': 'Neuer Schlüssel',
   'translations.newText': 'Text',
@@ -1360,7 +1369,7 @@ export var messages: Dictionary['messages'] = {
   'translations.removeBody':
     'Wo der Schlüssel verwendet wird, steht auf der Website dann der Schlüssel selbst in geschweiften Klammern.',
   'custom.intro':
-    'Ein Wert, den Sie an einer Stelle ändern – etwa Telefonnummer oder Anschrift: Im Seitentext schreiben Sie seinen Schlüssel als [@key], in Vorlagen und Komponenten als {site.custom.key}.',
+    'Ein Wert, den Sie an einer Stelle ändern – etwa Telefonnummer oder Anschrift: Im Seitentext schreiben Sie seinen Schlüssel als [@key], in Vorlagen und Komponenten als {site.custom.key}. Ein Wert kann mehrere Zeilen haben (Umschalt+Enter), etwa ein Kontakt pro Zeile.',
   'custom.key': 'Schlüssel',
   'custom.newKey': 'Neuer Schlüssel',
   'custom.removed': 'Einstellung gelöscht',
@@ -1717,7 +1726,7 @@ export var messages: Dictionary['messages'] = {
   'starter.pluginHooks':
     'Hooks sind optional: Behalten Sie die, die Sie brauchen.',
   'starter.scriptAbout':
-    'Ein ES-Modul für den Browser. Bündeln Sie die Abhängigkeiten in diese Datei: Importiert werden dürfen nur https://-Adressen.',
+    'Ein ES-Modul für den Browser. Importiert werden dürfen andere Skripte der Website als ./name.js und https://-Adressen.',
   'aiFacts.components': 'Komponenten der Website: {list}',
   'aiFacts.none': 'keine',
   'aiFacts.media': 'Mediathek',
@@ -2133,7 +2142,11 @@ export var errors: Dictionary['errors'] = {
   'design.script_syntax':
     'Das Skript lässt sich nicht als ES-Modul lesen — {detail}',
   'design.script_import':
-    'Bündeln Sie die Abhängigkeiten in das Skript: Importiert werden dürfen nur https://-Adressen — {detail}',
+    'Ein Skript importiert nur andere Skripte der Website als ./name.js und https://-Adressen; bündeln Sie den Rest in Skripte — {detail}',
+  'design.unknown_script':
+    'Das Skript verweist auf ein Skript, das es nicht gibt: Speichern Sie es vorher oder zusammen mit diesem — {detail}',
+  'design.invalid_scripts':
+    'Skripte eines Builds werden als Objekt Name → Quelltext übergeben.',
   'extensions.empty_source': 'Der Code des Plugins darf nicht leer sein.',
   'extensions.source_too_large': 'Der Code des Plugins ist zu groß.',
   'extensions.compile_failed': 'Das Plugin kompiliert nicht – {detail}',

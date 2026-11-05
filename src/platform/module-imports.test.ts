@@ -1,5 +1,5 @@
 import { expect, it } from 'bun:test';
-import { rewriteImports } from './module-imports.ts';
+import { modulePaths, replacePaths, rewriteImports } from './module-imports.ts';
 
 const _mark = rewriteImports((_) => `@x/${_}`);
 
@@ -41,4 +41,39 @@ it('не трогает слова import и from в строках, шабло�
 
 it('ошибку разбора не прячет', () => {
   expect(() => _mark("import from from 'x")).toThrow();
+});
+
+it('modulePaths: импорты, import() строкой и шаблоном без подстановок, new URL от import.meta.url', () => {
+  const code = [
+    "import { a } from './a.js';",
+    'const b = () => import(`./b.js`);',
+    "const w = new Worker(new URL('./w.js', import.meta.url));",
+    'const c = (x) => import(`./${x}.js`);',
+    "const d = new URL('./d.js', location.href);",
+    "const e = new URL('./e.js');",
+  ].join('\n');
+  expect(
+    modulePaths(code).map((_) => ({
+      kind: _.kind,
+      value: _.value,
+      text: code.slice(_.start, _.end),
+    }))
+  ).toEqual([
+    { kind: 'module', value: './a.js', text: "'./a.js'" },
+    { kind: 'module', value: './b.js', text: '`./b.js`' },
+    { kind: 'url', value: './w.js', text: "'./w.js'" },
+  ]);
+});
+
+it('rewriteImports не трогает new URL; replacePaths оставляет кавычки свои', () => {
+  const code =
+    "import a from './a.js';\nconst w = new URL('./w.js', import.meta.url);\nconst b = import(`./b.js`);";
+  expect(_mark(code)).toBe(
+    "import a from '@x/./a.js';\nconst w = new URL('./w.js', import.meta.url);\nconst b = import(`@x/./b.js`);"
+  );
+  expect(
+    replacePaths(code, modulePaths(code), (_) => _.value.toUpperCase())
+  ).toBe(
+    "import a from './A.JS';\nconst w = new URL('./W.JS', import.meta.url);\nconst b = import(`./B.JS`);"
+  );
 });

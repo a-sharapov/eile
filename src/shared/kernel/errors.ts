@@ -1,6 +1,13 @@
 /** Место в исходнике: строка и столбец, оба с единицы. */
 export type SourcePoint = { readonly line: number; readonly column: number };
 
+/** Строка и столбец знака `index` исходника: по ним ошибка печатается как `файл:строка:столбец`. */
+export var pointAt = (source: string, index: number): SourcePoint =>
+  ((before) => ({
+    line: before.split('\n').length,
+    column: index - before.lastIndexOf('\n'),
+  }))(source.slice(0, index));
+
 /**
  * Нарушенное бизнес-правило. `code` — стабильная строка `context.reason`; `at` — где в исходнике
  * ошибка, если она в коде шаблона, компонента или плагина.

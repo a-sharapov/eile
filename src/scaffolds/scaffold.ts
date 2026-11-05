@@ -7,6 +7,10 @@ import type { DesignService } from '../contexts/design/index.ts';
 import type { ExtensionsService } from '../contexts/extensions/index.ts';
 import type { FormInput, FormsService } from '../contexts/forms/index.ts';
 import type { MediaService } from '../contexts/media/index.ts';
+import type {
+  RedirectsService,
+  RuleInput,
+} from '../contexts/redirects/index.ts';
 import type { SiteService } from '../contexts/site/index.ts';
 import { kitClosure } from '../kit/index.ts';
 import { fail } from '../shared/kernel/errors.ts';
@@ -26,6 +30,12 @@ export type ScaffoldPage = Omit<
 
 /** Своя настройка каркаса с пояснением для менеджера: что это и где взять значение. */
 export type ScaffoldSetting = { readonly value: string; readonly note: string };
+
+/**
+ * Перевод каркаса: строкой — текст на языке каркаса, иначе тексты по языкам `{ de: '…', en: '…' }`.
+ * Список — по пункту на строку.
+ */
+export type ScaffoldTranslation = string | Readonly<Record<string, string>>;
 
 /** Файл медиатеки каркаса: путь в медиатеке (`img/hero.jpg`), содержимое и описание картинки. */
 export type ScaffoldMedia = {
@@ -59,6 +69,10 @@ export type Scaffold = {
   readonly forms?: Readonly<Record<string, FormInput>>;
   /** Свои настройки сайта; `@{key}` в значении — id страницы. */
   readonly settings?: Readonly<Record<string, string | ScaffoldSetting>>;
+  /** Переводы: подписи шаблонов и компонентов (`t(key)`, `site.i18n.key`); `@{key}` — id страницы. */
+  readonly translations?: Readonly<Record<string, ScaffoldTranslation>>;
+  /** Правила переадресации старых адресов (ADR 0029); цель `[~@{key}~]` — страница каркаса. */
+  readonly redirects?: readonly RuleInput[];
   /** Файлы медиатеки; варианты размеров картинкам делает сервер (ADR 0046). */
   readonly media?: readonly ScaffoldMedia[];
   readonly pages: readonly ScaffoldPage[];
@@ -74,6 +88,7 @@ export type ScaffoldServices = {
   readonly forms: FormsService;
   readonly media: Pick<MediaService, 'files'>;
   readonly extensions: Pick<ExtensionsService, 'plugins'>;
+  readonly redirects: Pick<RedirectsService, 'rules'>;
 };
 
 export type ScaffoldReport = {
@@ -85,11 +100,41 @@ export type ScaffoldReport = {
   readonly fields: number;
   readonly forms: number;
   readonly media: number;
+  readonly translations: number;
+  readonly redirects: number;
 };
 
 /** Значение своей настройки каркаса: строкой или с пояснением. */
 export var settingValue = (setting: string | ScaffoldSetting): string =>
   typeof setting === 'string' ? setting : setting.value;
+
+/** Тексты перевода каркаса по языкам: строка — на языке каркаса. */
+export var translationTexts = (
+  translation: ScaffoldTranslation,
+  language: string
+): Readonly<Record<string, string>> =>
+  typeof translation === 'string' ? { [language]: translation } : translation;
+
+const _pageLanguages = (pages: readonly ScaffoldPage[]): string[] =>
+  pages.flatMap((_) => [
+    ...(_.language ? [_.language] : []),
+    ..._pageLanguages(_.children ?? []),
+  ]);
+
+/**
+ * Другие языки сайта из каркаса: языки веток и переводов. Без них менеджер не покажет ни выбор языка
+ * у страницы, ни колонку перевода.
+ */
+const _languages = (scaffold: Scaffold): string[] =>
+  ((language) =>
+    [
+      ...new Set([
+        ..._pageLanguages(scaffold.pages),
+        ...Object.values(scaffold.translations ?? {}).flatMap((_) =>
+          Object.keys(translationTexts(_, language))
+        ),
+      ]),
+    ].filter((_) => _ !== language))(scaffold.language ?? 'ru');
 
 const _REF = /@\{([a-z][a-z0-9-]*)\}/g;
 
@@ -126,7 +171,15 @@ const _plant = (
 /** Разворачивает каркас на пустой сайт; `siteName` — своё название вместо названия каркаса. */
 export var applyScaffold = (
   scaffold: Scaffold,
-  { content, design, site, forms, media, extensions }: ScaffoldServices,
+  {
+    content,
+    design,
+    site,
+    forms,
+    media,
+    extensions,
+    redirects,
+  }: ScaffoldServices,
   siteName?: string
 ): ScaffoldReport => {
   // Набор — на языке каркаса: английский сайт получает английские подписи компонентов.
@@ -138,10 +191,12 @@ export var applyScaffold = (
     ).values(),
   ];
   kit.forEach((_) => void design.components.save(_.name, _.source));
-  // Скрипты — раньше элементов: шаблон подключает скрипт по имени.
-  Object.entries(scaffold.scripts ?? {}).forEach(
-    ({ 0: name, 1: source }) => void design.scripts.save(name, source)
-  );
+  // Скрипты — раньше элементов: шаблон подключает скрипт по имени. Ссылаться друг на друга (`./имя.js`)
+  // скрипты каркаса могут в любом порядке: они сохраняются одним набором.
+  ((scripts) =>
+    scripts.forEach(
+      (source, name) => void design.scripts.save(name, source, scripts)
+    ))(new Map(Object.entries(scaffold.scripts ?? {})));
   Object.entries(scaffold.components ?? {}).forEach(
     ({ 0: name, 1: source }) => void design.components.save(name, source)
   );
@@ -175,16 +230,31 @@ export var applyScaffold = (
         ...(input.source ? { source: resolve(input.source) } : {}),
       })
   );
-  // Пояснение к настройке ядро этой версии не хранит: в сайт уходит значение.
   Object.entries(scaffold.settings ?? {}).forEach(
     ({ 0: key, 1: setting }) =>
       void (typeof setting === 'string'
         ? site.customSettings.save(key, resolve(setting))
         : site.customSettings.save(key, resolve(setting.value), setting.note))
   );
+  Object.entries(scaffold.translations ?? {}).forEach(
+    ({ 0: key, 1: translation }) =>
+      void site.translations.save(
+        key,
+        Object.fromEntries(
+          Object.entries(
+            translationTexts(translation, scaffold.language ?? 'ru')
+          ).map(({ 0: language, 1: text }) => [language, resolve(text)])
+        )
+      )
+  );
+  // Правила — после страниц: цель `[~id~]` должна уже существовать.
+  (scaffold.redirects ?? []).forEach(
+    (_) => void redirects.rules.create({ ..._, to: resolve(_.to) })
+  );
   site.settings.update({
     name: siteName?.trim() || scaffold.siteName,
     language: scaffold.language ?? 'ru',
+    languages: _languages(scaffold),
     description: scaffold.description ?? '',
     homePageId: Number(resolve(`@{${scaffold.home}}`)),
     notFoundPageId: scaffold.notFound
@@ -205,6 +275,8 @@ export var applyScaffold = (
     fields: scaffold.fields?.length ?? 0,
     forms: Object.keys(scaffold.forms ?? {}).length,
     media: scaffold.media?.length ?? 0,
+    translations: Object.keys(scaffold.translations ?? {}).length,
+    redirects: scaffold.redirects?.length ?? 0,
   };
 };
 

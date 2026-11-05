@@ -260,6 +260,12 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
       Anfragen sind personenbezogene Daten der Besucher: Sie werden nach der Frist des Formulars automatisch gelöscht, standardmäßig nach 30 Tagen. Was Sie behalten möchten,
       laden Sie mit „CSV herunterladen“ herunter – die Datei öffnet sich in Excel.
     </p>
+    <p>
+      Mit der Anfrage werden IP-Adresse und Browser des Besuchers gespeichert: Sie helfen, Spam zu erkennen. Sagt die
+      Datenschutzerklärung zu, keine IP-Adressen zu speichern, schaltet ein Administrator das auf dem Reiter „Schutz und
+      Speicherung“ des Formulars aus. Das Sendelimit pro Adresse wirkt auch dann: Die Adresse bleibt nur im Arbeitsspeicher
+      des Servers.
+    </p>
   </section>
   {#if admin}
     <section id="forms-build" data-topic hidden={!shown('forms-build')}>
@@ -282,6 +288,12 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         Anfrage. Ein <strong>Schritt</strong> teilt ein langes Formular in Seiten mit „Zurück“ und „Weiter“; jeder Schritt wird
         vor dem nächsten geprüft. Ein Feld <strong>„Datei“</strong> nimmt Dateien der erlaubten Typen bis 10 MB an (erweiterbar auf 20): Sie
         bleiben bei der Anfrage und lassen sich aus ihrer Karte herunterladen.
+      </p>
+      <p>
+        Nach dem Absenden sehen Besucher statt des Formulars den „Danke“-Text vom Reiter „Nach dem Absenden“. Für eigenes
+        Markup – Überschrift, Link, Schaltfläche – fügen Sie im HTML-Modus einen Textblock
+        <code>&lt;template data-sent&gt;…&lt;/template&gt;</code> ein: Er ersetzt den Text mit und ohne Skript, und ein Element mit
+        <code>tabindex="-1"</code> darin erhält den Fokus.
       </p>
     </section>
     <section id="forms-spam" data-topic hidden={!shown('forms-spam')}>

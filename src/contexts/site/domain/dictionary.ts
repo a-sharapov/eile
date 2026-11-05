@@ -36,6 +36,11 @@ export type CustomSetting = {
 const _MAX_VALUE = 10_000;
 const _MAX_NOTE = 500;
 
+// Значение может быть в несколько строк — список хранят по пункту на строку. Переводы строк — LF, откуда
+// бы ни пришло значение: `t(key).split('\n')` в шаблоне не оставит `\r` в конце пункта.
+const _text = (value: unknown): string =>
+  String(value ?? '').replace(/\r\n?/g, '\n');
+
 export var createTranslation = (
   key: string,
   values: Readonly<Record<string, unknown>>
@@ -43,9 +48,7 @@ export var createTranslation = (
   key: parseKey(key),
   values: Object.fromEntries(
     Object.entries(values)
-      .map(
-        ({ 0: language, 1: value }) => [language, String(value ?? '')] as const
-      )
+      .map(({ 0: language, 1: value }) => [language, _text(value)] as const)
       .filter(({ 1: value }) => value !== '')
       .map(({ 0: language, 1: value }) =>
         _LANGUAGE.test(language) && value.length <= _MAX_VALUE
@@ -83,7 +86,32 @@ export var createCustomSetting = (
       : fail(
           'site.invalid_setting',
           `Setting "${key}" is over ${_MAX_VALUE} characters`
-        ))(String(value ?? ''));
+        ))(_text(value));
+
+/**
+ * Правка перевода по языкам: названные языки заменяются, остальные остаются; пустой текст убирает язык.
+ * Новый текст — только на языке сайта (`languages`): на другом его не покажут ни сайт, ни менеджер.
+ */
+export var patchTranslation = (
+  key: string,
+  current: Translation | undefined,
+  patch: Readonly<Record<string, unknown>>,
+  languages: readonly string[]
+): Translation =>
+  ((foreign) =>
+    foreign === undefined
+      ? createTranslation(key, { ...current?.values, ...patch })
+      : fail(
+          'site.unknown_language',
+          `Translation "${key}": "${foreign}" is not a language of the site (${languages.join(', ')}); add it to the site languages first`
+        ))(
+    Object.entries(patch).find(({ 0: language, 1: value }) =>
+      ((text) =>
+        text !== '' &&
+        text !== current?.values[language] &&
+        !languages.includes(language))(_text(value))
+    )?.[0]
+  );
 
 /** Перевод на язык: свой, иначе язык сайта по умолчанию; null — ключа нет или текста нет ни на одном. */
 export var translate = (
@@ -100,6 +128,11 @@ export type DictionaryRepository = {
   readonly translations: () => Translation[];
   readonly saveTranslation: (translation: Translation) => void;
   readonly removeTranslation: (key: DictionaryKey) => void;
+  /** Несколько переводов разом, одной транзакцией: всё или ничего. */
+  readonly saveTranslations: (
+    save: readonly Translation[],
+    remove: readonly DictionaryKey[]
+  ) => void;
   readonly settings: () => CustomSetting[];
   readonly saveSetting: (setting: CustomSetting) => void;
   readonly removeSetting: (key: DictionaryKey) => void;

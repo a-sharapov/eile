@@ -56,6 +56,18 @@ import {
 } from '../domain/share-link.ts';
 import { type DiffLine, textDiff } from '../domain/text-diff.ts';
 
+/** Скрипты сайта, что сохраняются вместе: имя → исходник. Ссылаться друг на друга они могут в любом порядке. */
+export type ScriptBatch = ReadonlyMap<string, string>;
+
+const _scripts = (items: readonly ProposalBody[]): ScriptBatch =>
+  new Map(
+    items.flatMap((_) =>
+      _.kind === 'element' && _.element === 'script'
+        ? [[_.name, _.source] as const]
+        : []
+    )
+  );
+
 /** Нынешняя страница для базы, конфликтов и сравнения. */
 export type PageFacts = PageState & {
   readonly title: string;
@@ -68,11 +80,12 @@ export type ReviewSources = {
   readonly element: (kind: ElementKind, name: string) => ElementState | null;
   /** Страница после правки, без записи: ошибка — та же, что при сохранении. */
   readonly checkPage: (draft: PageDraft) => void;
-  /** Имя, циклы импортов и компиляция, без записи. */
+  /** Имя, циклы импортов, компиляция и ссылки скрипта, без записи; `batch` — скрипты, что придут вместе. */
   readonly checkElement: (
     kind: ElementKind,
     name: string,
-    source: string
+    source: string,
+    batch: ScriptBatch
   ) => void;
   readonly fieldLabel: (name: string) => string;
 };
@@ -230,20 +243,33 @@ export var defineReviewService = ({
       ? sources.page(body.pageId)
       : sources.element(body.element, body.name);
 
-  const validate = (body: ProposalBody): ProposalBody => (
-    body.kind === 'page'
-      ? sources.checkPage({
-          id: body.pageId,
-          created: body.delta.created,
-          changes: body.delta.changes as PageDraft['changes'],
-          fields: body.delta.fields as PageDraft['fields'],
-          ...('parentId' in body.delta
-            ? { parentId: body.delta.parentId ?? null }
-            : {}),
-        })
-      : sources.checkElement(body.element, body.name, body.source),
-    body
-  );
+  // Скрипт может ссылаться на скрипты, что уже ждут в наборе или пришли в той же правке (`batch`).
+  const validate =
+    (set: ChangeSet, batch: ScriptBatch) =>
+    (body: ProposalBody): ProposalBody => (
+      body.kind === 'page'
+        ? sources.checkPage({
+            id: body.pageId,
+            created: body.delta.created,
+            changes: body.delta.changes as PageDraft['changes'],
+            fields: body.delta.fields as PageDraft['fields'],
+            ...('parentId' in body.delta
+              ? { parentId: body.delta.parentId ?? null }
+              : {}),
+          })
+        : sources.checkElement(
+            body.element,
+            body.name,
+            body.source,
+            new Map([
+              ..._scripts(
+                proposals.of(set.id).filter((_) => _.status === 'pending')
+              ),
+              ...batch,
+            ])
+          ),
+      body
+    );
 
   const fold = (op: Operation, previous: Proposal | null): ProposalBody =>
     op.kind === 'element.save'
@@ -466,19 +492,21 @@ export var defineReviewService = ({
         )
       );
 
+  // Принятые скрипты ложатся вместе: вход может ссылаться на кусок сборки, который идёт следом.
   const applyAll = (
     chosen: readonly Proposal[],
     reviewer: string,
-    apply: (proposal: Proposal) => void
+    apply: (proposal: Proposal, batch: ScriptBatch) => void
   ): void =>
     attempt(
       () =>
         transaction(() =>
-          applyOrder(chosen).forEach(
-            (_) =>
-              void (attempt(() => apply(_), failedOn(_)),
-              proposals.decide(_.id, 'accepted', reviewer, now()))
-          )
+          ((batch) =>
+            applyOrder(chosen).forEach(
+              (_) =>
+                void (attempt(() => apply(_, batch), failedOn(_)),
+                proposals.decide(_.id, 'accepted', reviewer, now()))
+            ))(_scripts(chosen))
         ),
       (error) =>
         rethrow(
@@ -535,13 +563,20 @@ export var defineReviewService = ({
     /** Ждут ли правки агента проверки: всех агентов — по настройке, ключа — по его отметке. */
     required: (tokenReview: boolean): boolean =>
       settings.get().agents || tokenReview,
-    /** Правка агента → предложение в его открытом наборе; та же цель в наборе — сливается. */
-    propose: (agent: Agent, op: Operation): Receipt =>
+    /**
+     * Правка агента → предложение в его открытом наборе; та же цель в наборе — сливается. `batch` —
+     * скрипты, которые агент предлагает той же правкой.
+     */
+    propose: (
+      agent: Agent,
+      op: Operation,
+      batch: ScriptBatch = new Map()
+    ): Receipt =>
       transaction(() =>
         ((set) =>
           ((previous) =>
             pipe(
-              (_: Operation) => validate(fold(_, previous)),
+              (_: Operation) => validate(set, batch)(fold(_, previous)),
               (body: ProposalBody) => ({
                 body,
                 id: previous
@@ -632,7 +667,7 @@ export var defineReviewService = ({
       accept: (
         id: number,
         decision: Decision,
-        apply: (proposal: Proposal) => void
+        apply: (proposal: Proposal, batch: ScriptBatch) => void
       ): ChangeSetView =>
         ((set) =>
           ((chosen) =>

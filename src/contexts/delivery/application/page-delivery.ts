@@ -472,11 +472,10 @@ export var definePageDelivery = ({
                   template.view,
                   {
                     page,
-                    site: withSiteKeys(
-                      site,
-                      (key) => dictionary.text(key, language),
-                      dictionary.value
-                    ),
+                    site: withSiteKeys(site, {
+                      ...dictionary,
+                      text: (key) => dictionary.text(key, language),
+                    }),
                   },
                   context
                 )

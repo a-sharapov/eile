@@ -125,7 +125,7 @@ const _RU: readonly CommandHelp[] = [
       'cms scaffold export <каркас> [<папка>] [--force]',
     ],
     details: [
-      'Пакет — папка: manifest.json (название, язык, дерево страниц, свои настройки, описания картинок), templates/, components/, scripts/, forms/, fields.json — как у cms elements, — плюс pages/ с текстами страниц и media/ с файлами медиатеки. Ссылки на страницы пакета — @{ключ}: [~@{kontakt}~], parent=@{blog}.',
+      'Пакет — папка: manifest.json (название, язык, дерево страниц, свои настройки, переводы, редиректы, описания картинок), templates/, components/, scripts/, forms/, fields.json — как у cms elements, — плюс pages/ с текстами страниц и media/ с файлами медиатеки. Ссылки на страницы пакета — @{ключ}: [~@{kontakt}~], parent=@{blog}.',
       'pack проверяет папку так же, как cms new перед установкой, и собирает архив: файлы по порядку путей, одно время, без сжатия — у одной папки всегда одна сумма. Печатает SHA-256: её дают вместе с адресом пакета. По умолчанию — <имя>.zip в текущем каталоге.',
       'export выгружает встроенный каркас пакетом в папку (по умолчанию — с именем каркаса): начало для своего пакета. Непустая папка — только с --force.',
       'Официальные пакеты лежат в packages/ репозитория и выходят с каждым выпуском рядом с бинарниками: <имя>.zip и строка в SHA256SUMS.',
@@ -196,7 +196,7 @@ const _RU: readonly CommandHelp[] = [
     details: [
       'pull выкладывает шаблоны, компоненты, скрипты, плагины, формы и поля файлами: templates/, components/, scripts/, plugins/, forms/, fields.json. Рядом — AGENTS.md: правила CMS и что есть на сайте, для Claude Code, Codex, Cursor. Отличающиеся файлы переписываются — держите папку в git.',
       'Файлы пишутся с переводами строк LF. CRLF (git с core.autocrlf на Windows) и BOM при чтении не в счёт: файл, который отличается только ими, не считается изменённым, а в сайт уходит LF.',
-      'check компилирует всё (скрипт scripts/имя.js — разбирает как ES-модуль) и печатает ошибки как файл:строка:столбец. Ничего не сохраняет.',
+      'check компилирует всё (скрипт scripts/имя.js — разбирает как ES-модуль; другие скрипты он импортирует как ./имя.js, и они должны быть в папке или на сайте) и печатает ошибки как файл:строка:столбец. Ничего не сохраняет.',
       'push сохраняет изменённые файлы в сайт — все или ни одного. Сервер на этой базе подхватывает правку сам, перезапуск не нужен.',
       '--prune удаляет из сайта то, чего нет в папке (поля — никогда), --watch отправляет каждый сохранённый файл. Папка по умолчанию — текущая.',
     ],
@@ -210,6 +210,40 @@ const _RU: readonly CommandHelp[] = [
       ['Элементы — в папку site', 'cms elements pull site --db site.db'],
       ['Проверить правки', 'cms elements check site --db site.db'],
       ['Отправить в сайт', 'cms elements push site --db site.db'],
+    ],
+  },
+  {
+    name: 'media',
+    summary: 'Медиатека из папки: шрифты, картинки, видео из git',
+    usage: [
+      'cms media push [<папка>] [--into <путь>] [--prune] [--dry-run] [--json]',
+    ],
+    details: [
+      'push кладёт файлы папки в медиатеку сайта. Путь в медиатеке — путь файла от корня папки: fonts/pt-sans.woff2; с --into — под этим путём: cms media push static/fonts --into fonts. Пути — латиница в нижнем регистре, цифры и ._@-, типы — те же, что принимает медиатека, файл — до 25 МиБ.',
+      'Скрытое (.git, .DS_Store) и следы архиваторов (__MACOSX, Thumbs.db) не читаются. Файл, который нарушает правила, — ошибка с его путём; ошибки печатаются все сразу, и тогда в медиатеку не уходит ничего.',
+      'Совпавшие файлы (тот же хэш содержимого) пропускаются, новые и изменённые сохраняются так же, как загрузка в менеджере: у них новый ?v=, страницы с ними перерисуются, варианты размеров картинок сервер делает тут же. Файлы пишутся по одному: прерванную отправку доделает повтор.',
+      'media.json в корне папки — описания картинок: { "images/hero.jpg": { "alt": "…" } }, пути — от корня папки, без --into. Сам он в медиатеку не уходит.',
+      '--prune удаляет из медиатеки файлы, которых нет в папке (с --into — только под этим путём), вместе с их вариантами размеров. Файлы, которые стоят на страницах, картинка сайта для соцсетей и файлы, чей путь есть в шаблонах, компонентах и скриптах, остаются — команда скажет, кто на них ссылается. Без --prune не удаляется ничего.',
+      '--dry-run показывает, что изменится, ничего не записывая. Сервер на этой базе подхватывает новые файлы сам, перезапуск не нужен.',
+    ],
+    options: [
+      ['--into <путь>', 'Положить файлы под этим путём медиатеки'],
+      ['--prune', 'Удалить из медиатеки то, чего нет в папке'],
+      ['--dry-run', 'Только показать, что изменится'],
+      ['--json', 'Итог в JSON: для скриптов и агентов'],
+      _DB,
+      _MEDIA_CACHE,
+    ],
+    examples: [
+      ['Папка media — в медиатеку', 'cms media push media --db site.db'],
+      [
+        'Шрифты из git — в fonts/',
+        'cms media push web/static/fonts --into fonts --db site.db',
+      ],
+      [
+        'Что изменится, если убрать лишнее',
+        'cms media push media --prune --dry-run --db site.db',
+      ],
     ],
   },
   {
@@ -660,7 +694,7 @@ const _EN: readonly CommandHelp[] = [
       'cms scaffold export <scaffold> [<folder>] [--force]',
     ],
     details: [
-      'A package is a folder: manifest.json (title, language, page tree, custom settings, image descriptions), templates/, components/, scripts/, forms/, fields.json as in cms elements, plus pages/ with page texts and media/ with media files. Links to package pages are @{key}: [~@{contact}~], parent=@{blog}.',
+      'A package is a folder: manifest.json (title, language, page tree, custom settings, translations, redirects, image descriptions), templates/, components/, scripts/, forms/, fields.json as in cms elements, plus pages/ with page texts and media/ with media files. Links to package pages are @{key}: [~@{contact}~], parent=@{blog}.',
       'pack checks the folder the same way cms new does before installing and builds the archive: files in path order, one timestamp, no compression, so one folder always gives one hash. It prints the SHA-256: hand it out with the package address. The default is <name>.zip in the current directory.',
       'export writes a built-in scaffold as a package folder (named after the scaffold by default): a start for your own package. A folder that is not empty only with --force.',
       'Official packages live in packages/ of the repository and ship with every release next to the binaries: <name>.zip and a line in SHA256SUMS.',
@@ -743,7 +777,7 @@ const _EN: readonly CommandHelp[] = [
     details: [
       'pull writes templates, components, scripts, plugins, forms and fields as files: templates/, components/, scripts/, plugins/, forms/, fields.json. Next to them goes AGENTS.md: the CMS rules and what the site has, for Claude Code, Codex and Cursor. Files that differ are overwritten, so keep the folder in git.',
       'Files are written with LF line endings. CRLF (git with core.autocrlf on Windows) and a BOM do not count when reading: a file that differs only in them is not changed, and LF goes to the site.',
-      'check compiles everything (a script scripts/name.js is parsed as an ES module) and prints problems as file:line:column. Nothing is saved.',
+      'check compiles everything (a script scripts/name.js is parsed as an ES module; it imports other scripts as ./name.js, and they must be in the folder or on the site) and prints problems as file:line:column. Nothing is saved.',
       'push saves the changed files to the site, all of them or none. A server on this database picks the change up by itself, no restart needed.',
       '--prune deletes from the site what has no file (never fields), --watch sends every saved file. The folder is the current one by default.',
     ],
@@ -757,6 +791,43 @@ const _EN: readonly CommandHelp[] = [
       ['Elements into the folder site', 'cms elements pull site --db site.db'],
       ['Check the edits', 'cms elements check site --db site.db'],
       ['Send them to the site', 'cms elements push site --db site.db'],
+    ],
+  },
+  {
+    name: 'media',
+    summary: 'Media library from a folder: fonts, images, video',
+    usage: [
+      'cms media push [<folder>] [--into <path>] [--prune] [--dry-run] [--json]',
+    ],
+    details: [
+      'push puts the files of a folder into the site’s media library. The library path is the file’s path from the folder root: fonts/pt-sans.woff2; with --into, under that path: cms media push static/fonts --into fonts. Paths are lowercase latin letters, digits and ._@-, the types are the ones the library accepts, a file is at most 25 MiB.',
+      'Hidden files (.git, .DS_Store) and archiver leftovers (__MACOSX, Thumbs.db) are not read. A file that breaks the rules is an error with its path; all errors are printed at once, and then nothing goes to the library.',
+      'Files that match (the same content hash) are skipped; new and changed ones are saved just like an upload in the manager: they get a new ?v=, the pages with them are rendered again, and the server makes the image size variants right away. Files are written one by one, so running the command again finishes an interrupted push.',
+      'media.json at the folder root holds image descriptions: { "images/hero.jpg": { "alt": "…" } }, with paths from the folder root, without --into. It is not uploaded itself.',
+      '--prune deletes library files that have no file in the folder (with --into, only under that path), together with their size variants. Files used on pages, the site’s social image and files whose path appears in templates, components and scripts are kept, and the command says what uses them. Without --prune nothing is deleted.',
+      '--dry-run shows what would change and writes nothing. A server on this database picks up the new files by itself, no restart needed.',
+    ],
+    options: [
+      ['--into <path>', 'Put the files under this library path'],
+      ['--prune', 'Delete from the library what has no file'],
+      ['--dry-run', 'Only show what would change'],
+      ['--json', 'The result as JSON: for scripts and agents'],
+      _DB_EN,
+      _MEDIA_CACHE_EN,
+    ],
+    examples: [
+      [
+        'The folder media into the library',
+        'cms media push media --db site.db',
+      ],
+      [
+        'Fonts from git into fonts/',
+        'cms media push web/static/fonts --into fonts --db site.db',
+      ],
+      [
+        'What pruning would change',
+        'cms media push media --prune --dry-run --db site.db',
+      ],
     ],
   },
   {

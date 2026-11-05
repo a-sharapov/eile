@@ -3,7 +3,12 @@ import { join } from 'node:path';
 import type { App } from '../app.ts';
 import type { NewField } from '../contexts/content/index.ts';
 import { posixPath } from '../platform/paths.ts';
-import { attempt, fail, isDomainError } from '../shared/kernel/errors.ts';
+import {
+  attempt,
+  fail,
+  isDomainError,
+  pointAt,
+} from '../shared/kernel/errors.ts';
 import {
   byOrder,
   entryOf,
@@ -15,7 +20,6 @@ import {
   json,
   PATTERNS,
   pathOf,
-  pointAt,
   settingsPathOf,
 } from './layout.ts';
 
@@ -65,6 +69,7 @@ const _SETTINGS = [
   'allowLinks',
   'proof',
   'goal',
+  'storeClientInfo',
   'confirmation',
   'webhook',
 ] as const;
@@ -112,7 +117,8 @@ const _rethrow = (error: unknown): never => {
   throw error;
 };
 
-const _problem = (file: string, error: unknown): Problem =>
+/** Отказ при работе с файлом — проблема этого файла: ошибка домена со своим кодом и местом, прочее — `workspace.failed`. */
+export var problemOf = (file: string, error: unknown): Problem =>
   isDomainError(error)
     ? {
         file,
@@ -129,7 +135,7 @@ const _problem = (file: string, error: unknown): Problem =>
 const _tryAt = (file: string, run: () => void): Problem | null =>
   attempt(
     () => (run(), null),
-    (error) => _problem(file, error)
+    (error) => problemOf(file, error)
   );
 
 const _parse = (file: string, text: string): unknown =>
@@ -160,11 +166,21 @@ const _fieldsToSave = (
     _parse(FIELDS_FILE, text)
   );
 
+// Сравниваются настройки, которые есть в файле: чего в нём нет, сохранение не меняет. Так файл, выложенный до
+// новой настройки формы, не кажется изменённым при каждой отправке.
 const _settingsDiffer = (name: string, folder: Files, site: Files): boolean =>
   ((path) =>
     folder.has(path) &&
-    JSON.stringify(_parse(path, folder.get(path)!)) !==
-      JSON.stringify(JSON.parse(site.get(path) ?? '{}')))(settingsPathOf(name));
+    ((wanted, current) =>
+      typeof wanted !== 'object' ||
+      wanted === null ||
+      Object.entries(wanted).some(
+        ({ 0: key, 1: value }) =>
+          JSON.stringify(value) !== JSON.stringify(current[key])
+      ))(
+      _parse(path, folder.get(path)!),
+      JSON.parse(site.get(path) ?? '{}') as Readonly<Record<string, unknown>>
+    ))(settingsPathOf(name));
 
 type _Check = (
   path: string,
@@ -214,12 +230,24 @@ const _saveField =
           : _rethrow(error)
     );
 
+// Скрипты папки уходят вместе: ссылаться на `./имя.js` можно и на тот, которого в сайте ещё нет.
+const _scriptsOf = (folder: Files): ReadonlyMap<string, string> =>
+  new Map(
+    [...folder].flatMap(({ 0: path, 1: text }) =>
+      ((entry) =>
+        entry?.kind === 'script' ? [[entry.name, text] as const] : [])(
+        entryOf(path)
+      )
+    )
+  );
+
 const _SAVE: Readonly<Record<FileKind, _Save>> = {
   template: (services, name, text) =>
     services.design.templates.save(name, text),
   component: (services, name, text) =>
     services.design.components.save(name, text),
-  script: (services, name, text) => services.design.scripts.save(name, text),
+  script: (services, name, text, folder) =>
+    services.design.scripts.save(name, text, _scriptsOf(folder)),
   plugin: (services, name, text) =>
     void services.extensions.plugins.save(name, text),
   form: (services, name, text, folder) =>
@@ -242,30 +270,37 @@ const _inUse = (
     ? fail(code, `Pages ${pages.map((_) => _.id).join(', ')} use ${what}`)
     : undefined;
 
+// `together` — `вид/имя` элементов, что уходят той же отправкой: держать друг друга они не мешают.
 const _REMOVE: Readonly<
   Record<
     Exclude<FileKind, 'fields'>,
-    (services: WorkspaceServices, name: string) => void
+    (
+      services: WorkspaceServices,
+      name: string,
+      together: ReadonlySet<string>
+    ) => void
   >
 > = {
-  template: (services, name) => (
+  template: (services, name, together) => (
     _inUse(
       'design.element_in_use',
       services.content.usage.template(name),
       `the template ${name}`
     ),
-    services.design.elements.remove('template', name)
+    services.design.elements.remove('template', name, together)
   ),
-  component: (services, name) => (
+  component: (services, name, together) => (
     _inUse(
       'design.element_in_use',
       services.content.usage.component(name),
       `[[${name}]] in their text`
     ),
-    services.design.elements.remove('component', name)
+    services.design.elements.remove('component', name, together)
   ),
-  // Скрипт, который подключает шаблон или компонент, сайт удалить не даст: ошибка скажет, кто держит.
-  script: (services, name) => services.design.elements.remove('script', name),
+  // Скрипт, который подключает оставшийся шаблон, компонент или скрипт, сайт удалить не даст: ошибка скажет,
+  // кто держит. Скрипты, что ссылаются друг на друга по кругу, уходят вместе.
+  script: (services, name, together) =>
+    services.design.elements.remove('script', name, together),
   plugin: (services, name) => services.extensions.plugins.remove(name),
   form: (services, name) => (
     _inUse(
@@ -280,35 +315,28 @@ const _REMOVE: Readonly<
 type _Done = { readonly path: string; readonly problem: Problem | null };
 
 const _removeOne =
-  (services: WorkspaceServices) =>
+  (services: WorkspaceServices, together: ReadonlySet<string>) =>
   (path: string): _Done => ({
     path,
     problem: _tryAt(path, () =>
       _REMOVE[entryOf(path)!.kind as Exclude<FileKind, 'fields'>](
         services,
-        entryOf(path)!.name
+        entryOf(path)!.name,
+        together
       )
     ),
   });
 
-// Компонент, который импортирует другой удаляемый, уходит первым: повторяем, пока что-то удаляется.
+const _keysOf = (paths: readonly string[]): ReadonlySet<string> =>
+  new Set(
+    paths.map((_) => ((entry) => `${entry!.kind}/${entry!.name}`)(entryOf(_)))
+  );
+
+// Удаляемые вместе не держат друг друга: компонент с тем, кто его импортирует, скрипты по кругу.
 const _removeAll = (
   services: WorkspaceServices,
   paths: readonly string[]
-): _Done[] =>
-  ((tried) =>
-    ((failed) =>
-      failed.length === 0 || failed.length === paths.length
-        ? tried
-        : [
-            ...tried.filter((_) => _.problem === null),
-            ..._removeAll(
-              services,
-              failed.map((_) => _.path)
-            ),
-          ])(tried.filter((_) => _.problem !== null)))(
-    paths.map(_removeOne(services))
-  );
+): _Done[] => paths.map(_removeOne(services, _keysOf(paths)));
 
 const _COMPONENT_IMPORT = /\b(?:from|import)\s*['"]\$components\/([^'"]+)['"]/g;
 

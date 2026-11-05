@@ -412,7 +412,10 @@ describe('скрипты в менеджере и у агента', () => {
       .find((_) => _.email === 'anna@example.com')!;
     const guide = await tool(anna, 'read_guide', { topic: 'script' });
     expect(guide.content[0]!.text).toContain(
-      'Bundle your dependencies into one script'
+      'Bundle your dependencies: build with code splitting'
+    );
+    expect(guide.content[0]!.text).toContain(
+      "new URL('./name.js', import.meta.url)"
     );
     const core = await tool(anna, 'read_guide', { topic: 'core' });
     expect(core.content[0]!.text).toContain('script(name)');

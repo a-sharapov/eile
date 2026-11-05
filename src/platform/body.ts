@@ -1,4 +1,4 @@
-import { closeSync, openSync, readSync, rmSync } from 'node:fs';
+import { closeSync, openSync, readSync, rmSync, statSync } from 'node:fs';
 
 // Большие тела — без лишних копий (ADR 0043). `Response#arrayBuffer()` и `Request#formData()` держат и
 // пришедшие куски, и их склейку, а `new Request(…, { body })` копирует тело ещё раз.
@@ -97,7 +97,7 @@ const _WINDOW = 1024 * 1024;
 // Окно с запасом на искомое: разделитель multipart — граница до 70 знаков и ещё четыре.
 const _SPARE = 256;
 
-const _fromFile = (path: string, size: number): BodyBytes => {
+const _fromFile = (path: string, size: number, keep = false): BodyBytes => {
   const fd = openSync(path, 'r');
   const window = new Uint8Array(_WINDOW + _SPARE);
   let open = true;
@@ -123,10 +123,18 @@ const _fromFile = (path: string, size: number): BodyBytes => {
     text: () => Bun.file(path).text(),
     close: () =>
       void (
-        open && ((open = false), closeSync(fd), rmSync(path, { force: true }))
+        open &&
+        ((open = false), closeSync(fd), keep || rmSync(path, { force: true }))
       ),
   };
 };
+
+/**
+ * Файл с диска — как `BodyBytes`: окна по 1 МиБ, в памяти он целиком не лежит. `close` закрывает файл и
+ * ничего не удаляет.
+ */
+export var openFile = (path: string): BodyBytes =>
+  _fromFile(path, statSync(path).size, true);
 
 // Счётчик байтов в потоке: тело без Content-Length (chunked) не протащит больше потолка.
 const _counting = (

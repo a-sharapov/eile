@@ -316,7 +316,8 @@ const editTranslation = (
 let added = $state({ key: '', text: '' });
 
 // Новый ключ сразу получает текст на языке по умолчанию: пустой перевод сервер не хранит.
-// В ячейке перевода Enter сохраняет, как в обычном поле; перенос строки — Shift+Enter.
+// В ячейке перевода и своей настройки Enter сохраняет, как в обычном поле; перенос строки — Shift+Enter:
+// так пишут список по пункту на строку. В <input> перевод строки браузер вырезал бы при правке.
 const commitOnEnter = (event: KeyboardEvent) =>
   void (
     event.key === 'Enter' &&
@@ -769,7 +770,7 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
                 <code>[@{row.key}]</code>
                 {#if row.note}<small class="note" id="note-{row.key}">{row.note}</small>{/if}
               </td>
-              <td><input aria-label={row.key} aria-describedby={row.note ? `note-${row.key}` : undefined} value={row.value} onchange={(e) => saveSetting(row.key, e.currentTarget.value)} /></td>
+              <td><textarea rows="1" aria-label={row.key} aria-describedby={row.note ? `note-${row.key}` : undefined} value={row.value} onkeydown={commitOnEnter} onchange={(e) => saveSetting(row.key, e.currentTarget.value)}></textarea></td>
               <td class="row-actions">
                 <button type="button" class="icon" aria-label={`${t('common.copy')}: [@${row.key}]`} title={`[@${row.key}]`} onclick={() => copy(`[@${row.key}]`)}>{@html icons.copy}</button>
                 <button type="button" class="icon danger" aria-label={`${t('custom.remove')}: ${row.key}`} title={t('custom.remove')} onclick={() => removeSetting(row.key)}>{@html icons.trash}</button>
@@ -930,10 +931,6 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
     border-radius: var(--radius-l);
   }
 
-  td input {
-    min-width: 10rem;
-  }
-
   /* Пояснение своей настройки — под ключом, мелко: что это и где взять значение. */
   .note {
     display: block;
@@ -944,7 +941,8 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
     line-height: 1.4;
   }
 
-  /* Текст перевода виден целиком: ячейка растёт по содержимому, Enter сохраняет, Shift+Enter — перенос. */
+  /* Текст перевода и значение настройки видны целиком: ячейка растёт по содержимому, Enter сохраняет,
+     Shift+Enter — перенос. */
   td textarea {
     display: block;
     width: 100%;

@@ -1,6 +1,7 @@
 import { chunksOf, joinChunks } from '../../../platform/chunks.ts';
 import type { Database } from '../../../platform/database.ts';
 import {
+  DEFAULTS,
   type Form,
   type FormName,
   NO_CONFIRMATION,
@@ -34,12 +35,14 @@ type FormRow = {
   updated_at: string;
 };
 
-// Настройки форм со старых версий — без письма отправителю, вебхука и доказательства работы: у них умолчания.
-// Защита сохранённой раньше формы выключена — сайт после обновления принимает заявки, как принимал.
+// Настройки форм со старых версий — без письма отправителю, вебхука, доказательства работы и выбора, хранить ли
+// адрес посетителя: у них умолчания. Защита сохранённой раньше формы выключена — сайт после обновления принимает
+// заявки, как принимал; адрес и браузер хранятся, как хранились.
 const _form = (row: FormRow): Form => ({
   confirmation: NO_CONFIRMATION,
   webhook: NO_WEBHOOK,
   proof: PROOF_DEFAULTS.stored,
+  storeClientInfo: DEFAULTS.storeClientInfo,
   ...(JSON.parse(row.settings) as Omit<
     Form,
     | 'name'
@@ -51,8 +54,11 @@ const _form = (row: FormRow): Form => ({
     | 'confirmation'
     | 'webhook'
     | 'proof'
+    | 'storeClientInfo'
   > &
-    Partial<Pick<Form, 'confirmation' | 'webhook' | 'proof'>>),
+    Partial<
+      Pick<Form, 'confirmation' | 'webhook' | 'proof' | 'storeClientInfo'>
+    >),
   name: row.name as FormName,
   title: row.title,
   source: row.source,

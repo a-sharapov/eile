@@ -6,8 +6,14 @@ import type { Problem } from '../../workspace/index.ts';
 // Пакет каркаса (ADR 0056): zip с manifest.json и файлами в раскладке папки элементов. Ничего из пакета
 // не исполняется при установке: манифест — данные, элементы только компилируются.
 
-/** Версия формата: поле `format` манифеста. Пакет новее этой версии просит более новую cms. */
-export var PACKAGE_FORMAT = 1;
+/**
+ * Версия формата: поле `format` манифеста. Пакет новее этой версии просит более новую cms; читаются все
+ * версии до неё. 2 — переводы (`translations`, ADR 0061).
+ */
+export var PACKAGE_FORMAT = 2;
+
+/** Первая версия формата, где появилось поле манифеста; поля без записи — с версии 1. */
+const _SINCE = { translations: 2, redirects: 2 } as const;
 
 export var MANIFEST = 'manifest.json';
 
@@ -37,6 +43,14 @@ export type Localized = string | Readonly<Record<string, string>>;
 export type ManifestSetting =
   | string
   | { readonly value: string; readonly note?: string };
+
+/** Правило переадресации: как в менеджере (ADR 0029), код 301 по умолчанию. */
+export type ManifestRedirect = {
+  readonly from: string;
+  readonly to: string;
+  readonly status?: 301 | 302;
+  readonly note?: string;
+};
 
 /** Страница манифеста: поля `NewPage`, текст — строкой или файлом из `pages/`. */
 export type ManifestPage = {
@@ -75,6 +89,10 @@ export type Manifest = {
   /** Компоненты набора; их зависимости ставятся сами. */
   readonly kit?: readonly string[];
   readonly settings?: Readonly<Record<string, ManifestSetting>>;
+  /** Переводы: ключ → текст на языке пакета или тексты по языкам; с формата 2. */
+  readonly translations?: Readonly<Record<string, Localized>>;
+  /** Правила переадресации старых адресов: цель `[~@{key}~]` — страница пакета; с формата 2. */
+  readonly redirects?: readonly ManifestRedirect[];
   /** Описания картинок: путь в медиатеке → `{ alt }`. Файлы — в `media/`. */
   readonly media?: Readonly<Record<string, { readonly alt?: string }>>;
   readonly pages: readonly ManifestPage[];
@@ -89,7 +107,8 @@ export var PACKAGE_NAME = /^(?!cms-)[a-z][a-z0-9-]{1,39}$/;
 export var PAGE_KEY = /^[a-z][a-z0-9-]*$/;
 
 const _LANGUAGE = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
-const _SETTING_KEY = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+/** Ключ своей настройки и перевода — идентификатор JS, как в ядре (`site.i18n.footerText`). */
+const _DICTIONARY_KEY = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
 /** Текст на языке: свой, иначе язык пакета, иначе первый. */
 export var localized = (
@@ -176,6 +195,24 @@ const _localized = _either(
   _map(_matches(_LANGUAGE, 'a language code like de or en'), _string)
 );
 
+// Текст перевода не пустой: пустой ядро не хранит, и ключ пропал бы молча.
+const _text = _is(
+  'a text that is not empty',
+  (_) => typeof _ === 'string' && _ !== ''
+);
+
+const _translation: _Check = (value, at) =>
+  typeof value === 'string'
+    ? _text(value, at)
+    : !_isObject(value)
+      ? [`${at} must be a text or an object of language → text`]
+      : Object.keys(value).length === 0
+        ? [`${at} has no text`]
+        : _map(_matches(_LANGUAGE, 'a language code like de or en'), _text)(
+            value,
+            at
+          );
+
 const _fieldValue = _is(
   'a string, a number, true, false or null',
   (_) =>
@@ -210,35 +247,83 @@ const _page: _Check = (value, at) =>
     }
   )(value, at);
 
-const _manifest = _shape(
-  {
-    format: _is(String(PACKAGE_FORMAT), (_) => _ === PACKAGE_FORMAT),
-    name: _matches(
-      PACKAGE_NAME,
-      '2–40 latin lowercase letters, digits and -, not starting with cms-'
-    ),
-    title: _localized,
-    summary: _localized,
-    language: _matches(_LANGUAGE, 'a language code like de or en'),
-    siteName: _string,
-    pages: _list(_page),
-    home: _matches(PAGE_KEY, 'a page key'),
-  },
-  {
-    description: _string,
-    kit: _list(_string),
-    settings: _map(
-      _matches(_SETTING_KEY, 'latin letters, digits and _'),
-      _either(
-        'a string or { "value": "…", "note": "…" }',
-        _string,
-        _shape({ value: _string }, { note: _string })
-      )
-    ),
-    media: _map(_string, _shape({}, { alt: _string })),
-    notFound: _matches(PAGE_KEY, 'a page key'),
-  }
-);
+// Поле новее версии пакета — не «незнакомое», а подсказка, какую версию написать.
+const _since =
+  (format: number, since: number, check: _Check): _Check =>
+  (value, at) =>
+    format >= since
+      ? check(value, at)
+      : [`${at} is part of format ${since}: write "format": ${since}`];
+
+const _manifest = (format: number) =>
+  _shape(
+    {
+      format: _is(
+        Array.from({ length: PACKAGE_FORMAT }, (_, n) => n + 1).join(' or '),
+        (_) =>
+          Number.isInteger(_) &&
+          (_ as number) >= 1 &&
+          (_ as number) <= PACKAGE_FORMAT
+      ),
+      name: _matches(
+        PACKAGE_NAME,
+        '2–40 latin lowercase letters, digits and -, not starting with cms-'
+      ),
+      title: _localized,
+      summary: _localized,
+      language: _matches(_LANGUAGE, 'a language code like de or en'),
+      siteName: _string,
+      pages: _list(_page),
+      home: _matches(PAGE_KEY, 'a page key'),
+    },
+    {
+      description: _string,
+      kit: _list(_string),
+      settings: _map(
+        _matches(_DICTIONARY_KEY, 'latin letters, digits and _'),
+        _either(
+          'a string or { "value": "…", "note": "…" }',
+          _string,
+          _shape({ value: _string }, { note: _string })
+        )
+      ),
+      translations: _since(
+        format,
+        _SINCE.translations,
+        _map(
+          _matches(_DICTIONARY_KEY, 'latin letters, digits and _'),
+          _translation
+        )
+      ),
+      redirects: _since(
+        format,
+        _SINCE.redirects,
+        _list(
+          _shape(
+            { from: _string, to: _string },
+            {
+              status: _is('301 or 302', (_) => _ === 301 || _ === 302),
+              note: _string,
+            }
+          )
+        )
+      ),
+      media: _map(_string, _shape({}, { alt: _string })),
+      notFound: _matches(PAGE_KEY, 'a page key'),
+    }
+  );
+
+/**
+ * Наименьшая версия формата, в которую ложится манифест: пакет без переводов и переадресаций остаётся
+ * форматом 1, и его поставит и cms, которая читает только его.
+ */
+export var formatFor = (manifest: Omit<Manifest, 'format'>): number =>
+  Object.entries(_SINCE)
+    .filter(
+      ({ 0: field }) =>
+        (manifest as Readonly<Record<string, unknown>>)[field] !== undefined
+    )
+    .reduce((acc, { 1: since }) => Math.max(acc, since), 1);
 
 const _problem = (message: string): Problem => ({
   file: MANIFEST,
@@ -268,7 +353,7 @@ export var parseManifest = (
               {
                 file: MANIFEST,
                 code: 'package.newer_format',
-                message: `The package is format ${raw.format}; this cms reads format ${PACKAGE_FORMAT}: update cms`,
+                message: `The package is format ${raw.format}; this cms reads formats up to ${PACKAGE_FORMAT}: update cms`,
               },
             ],
           }
@@ -276,7 +361,11 @@ export var parseManifest = (
             problems.length > 0
               ? { manifest: null, problems }
               : { manifest: raw as Manifest, problems: [] })(
-            _manifest(raw, '').map(_problem)
+            _manifest(
+              _isObject(raw) && typeof raw.format === 'number'
+                ? raw.format
+                : PACKAGE_FORMAT
+            )(raw, '').map(_problem)
           ))(
     attempt(
       () => JSON.parse(text) as unknown,

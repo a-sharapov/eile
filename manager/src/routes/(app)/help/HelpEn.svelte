@@ -258,6 +258,11 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
       Submissions are visitors’ personal data: they’re deleted automatically when the form’s retention period ends, after 30 days by default. Save what you need
       with the “Download CSV” button — the file opens in Excel.
     </p>
+    <p>
+      A submission keeps the visitor’s IP address and browser: they help to tell spam apart. If the site’s privacy policy
+      promises not to store IP addresses, an administrator turns this off on the form’s “Protection and storage” tab. The
+      limit per address still works then: the address stays only in the server’s memory.
+    </p>
   </section>
   {#if admin}
     <section id="forms-build" data-topic hidden={!shown('forms-build')}>
@@ -279,6 +284,11 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
         <strong>Step</strong> splits a long form into screens with Back and Next, and each step is checked before the next one.
         A <strong>File</strong> field takes files of the types you allow, up to 10 MB each (you can raise it to 20): they are kept with the submission
         and downloaded from its card.
+      </p>
+      <p>
+        After sending, the visitor sees the thank-you text from the “After sending” tab instead of the form. For your own
+        markup — a heading, a link, a button — add a text block <code>&lt;template data-sent&gt;…&lt;/template&gt;</code> in HTML mode:
+        it replaces the text with and without the script, and an element with <code>tabindex="-1"</code> in it gets the focus.
       </p>
     </section>
     <section id="forms-spam" data-topic hidden={!shown('forms-spam')}>

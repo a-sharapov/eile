@@ -13,6 +13,7 @@ import {
   applyScaffold,
   type Scaffold,
   type ScaffoldReport,
+  translationTexts,
 } from '../scaffold.ts';
 import { packageScaffold, textOf } from './convert.ts';
 import {
@@ -257,6 +258,41 @@ const _mediaProblems = (path: string): Problem[] =>
     ]
   );
 
+// Текст перевода — на языке пакета или ветки пакета: на другом его не покажут ни сайт (`t()` берёт язык
+// страницы, затем язык сайта), ни менеджер — колонки там по языкам сайта.
+const _translationProblems = (
+  manifest: Manifest,
+  pages: readonly _Placed[],
+  known: _Known
+): Problem[] =>
+  ((languages) =>
+    Object.entries(manifest.translations ?? {}).flatMap(({ 0: key, 1: _ }) =>
+      Object.entries(translationTexts(_, manifest.language)).flatMap(
+        ({ 0: language, 1: text }) => [
+          ...(languages.includes(language)
+            ? []
+            : [
+                _problem(
+                  MANIFEST,
+                  'package.unknown_language',
+                  `translations.${key}: ${language} is neither the package language (${manifest.language}) nor the language of a page${languages.length > 1 ? ` (${languages.slice(1).join(', ')})` : ''}`
+                ),
+              ]),
+          ..._refProblems(
+            MANIFEST,
+            `translations.${key}.${language}`,
+            text,
+            known.keys
+          ),
+        ]
+      )
+    ))([
+    ...new Set([
+      manifest.language,
+      ...pages.flatMap((_) => (_.page.language ? [_.page.language] : [])),
+    ]),
+  ]);
+
 const _KIT_NAMES = new Set(KIT.map((_) => _.name));
 const _PLUGIN_NAME = /^[A-Z][A-Za-z0-9]{0,63}$/;
 
@@ -357,6 +393,19 @@ const _staticProblems = (
           known.keys
         )
       ),
+      ..._translationProblems(manifest, pages, known),
+      ...(manifest.redirects ?? []).flatMap((_, index) => [
+        ..._refProblems(MANIFEST, `redirects[${index}]`, _.to, known.keys),
+        ...(_NUMERIC_LINK.test(_.to)
+          ? [
+              _problem(
+                MANIFEST,
+                'package.numeric_link',
+                `redirects[${index}]: links by id do not survive install; write [~@{key}~]`
+              ),
+            ]
+          : []),
+      ]),
       ...[...files.keys()]
         .filter((_) => _.startsWith('media/'))
         .flatMap(_mediaProblems),

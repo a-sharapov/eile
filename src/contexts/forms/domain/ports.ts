@@ -127,8 +127,11 @@ export type FormMarkup = {
   readonly fields: (source: string) => FieldSpec[];
   /** Форма для посетителя: исходник с состоянием, служебные поля и кнопка. */
   readonly render: (view: FormView) => string;
-  /** Вместо формы после отправки без JS. */
-  readonly sent: (name: string, text: string) => string;
+  /**
+   * Вместо формы после отправки без JS: разметка ответа из `<template data-sent>` исходника, иначе текст
+   * «спасибо».
+   */
+  readonly sent: (name: string, text: string, source: string) => string;
   /** Стили по умолчанию и скрипт улучшения — в <head> страницы, один раз на страницу. */
   readonly head: string;
 };

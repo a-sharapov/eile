@@ -18,6 +18,7 @@ export type {
   ScaffoldReport,
   ScaffoldServices,
   ScaffoldSetting,
+  ScaffoldTranslation,
 } from './scaffold.ts';
 export {
   applyScaffold,

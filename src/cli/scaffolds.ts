@@ -62,6 +62,10 @@ const _SAY = {
     elements: 'Элементы',
     fieldsAndForms: 'Поля и формы',
     media: 'Медиатека',
+    translations: 'Переводы',
+    keys: (n: number) => `ключей ${n}`,
+    redirects: 'Редиректы',
+    rules: (n: number) => `правил ${n}`,
     templates: (n: number) => `шаблонов ${n}`,
     components: (n: number) => `компонентов ${n}`,
     scripts: (n: number) => `скриптов ${n}`,
@@ -128,6 +132,10 @@ const _SAY = {
     elements: 'Elements',
     fieldsAndForms: 'Fields, forms',
     media: 'Media',
+    translations: 'Translations',
+    keys: (n: number) => `keys ${n}`,
+    redirects: 'Redirects',
+    rules: (n: number) => `rules ${n}`,
     templates: (n: number) => `templates ${n}`,
     components: (n: number) => `components ${n}`,
     scripts: (n: number) => `scripts ${n}`,
@@ -228,6 +236,12 @@ const _reportLines = (
   ),
   ...(report.media > 0
     ? [_row(paint, say.media, say.files(report.media))]
+    : []),
+  ...(report.translations > 0
+    ? [_row(paint, say.translations, say.keys(report.translations))]
+    : []),
+  ...(report.redirects > 0
+    ? [_row(paint, say.redirects, say.rules(report.redirects))]
     : []),
 ];
 

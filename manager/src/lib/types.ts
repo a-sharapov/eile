@@ -676,6 +676,8 @@ export type FormDetail = FormSummary & {
   /** Доказательство работы в браузере: выключено или сложность задачи (ADR 0053). */
   proof: ProofLevel;
   goal: string;
+  /** Хранить ли с заявкой IP и браузер посетителя (ADR 0059). */
+  storeClientInfo: boolean;
   /** Письмо отправителю: адрес из поля, тема и текст с подстановками. */
   confirmation: {
     enabled: boolean;

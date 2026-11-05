@@ -28,6 +28,11 @@ export type AgentTool = {
   readonly destructive?: boolean;
   /** Запрос к API менеджера; у инструмента с `answer` его нет. */
   readonly request?: (args: Args) => ToolRequest;
+  /**
+   * Ещё чтения к ответу `request`: ответ каждого ложится в итог под своим именем. Право проверяет
+   * маршрут: чего роли читать нельзя, того в ответе нет.
+   */
+  readonly also?: Readonly<Record<string, ToolRequest>>;
   /** Ответ без API: памятка. */
   readonly answer?: (args: Args) => string;
   /** Ответ API — короче и понятнее модели; `args` — аргументы вызова. */
@@ -188,11 +193,15 @@ export var AGENT_TOOLS: readonly AgentTool[] = [
     name: 'get_settings',
     title: 'Site settings',
     description:
-      'Site name, language, address, home and 404 pages and the other settings.',
+      'Site name, language and other languages, address, home and 404 pages and the other settings; translations (key and text per language: site.i18n.key and t(key) in templates, {i18n.key} in page text) and custom settings (key, value and a note for people: site.custom.key, [@key]). A value may have several lines: a list is one item per line.',
     access: 'user',
     input: _object({}),
     readOnly: true,
     request: () => ({ method: 'GET', path: '/settings' }),
+    also: {
+      translations: { method: 'GET', path: '/translations' },
+      customSettings: { method: 'GET', path: '/custom-settings' },
+    },
   },
   {
     name: 'list_pages',
@@ -450,7 +459,7 @@ export var AGENT_TOOLS: readonly AgentTool[] = [
     name: 'save_element',
     title: 'Save element',
     description:
-      'Creates or replaces a template, component or site script. The source is compiled (a script is parsed as an ES module) first: an error comes back with line and column, and the site keeps the previous version.',
+      'Creates or replaces a template, component or site script. The source is compiled (a script is parsed as an ES module) first: an error comes back with line and column, and the site keeps the previous version. A script may import other site scripts as ./name.js; each of them must exist or come in `scripts` of the same call. Chunks of one build that import each other in a loop (an entry that lazily imports a chunk which imports the entry back) can only be saved together: pass them all in `scripts`.',
     access: 'design.edit',
     guarded: true,
     input: _object(
@@ -458,15 +467,24 @@ export var AGENT_TOOLS: readonly AgentTool[] = [
         kind: _ELEMENT_KIND,
         name: _ELEMENT_NAME,
         source: _string(
-          'The whole Svelte 5 file; for a script the whole ES module, dependencies bundled in'
+          'The whole Svelte 5 file; for a script the whole ES module: its own code plus imports of other site scripts (./name.js) and https:// URLs'
         ),
+        scripts: {
+          type: 'object',
+          additionalProperties: { type: 'string' },
+          description:
+            'Only with kind script: other scripts of the same build, name → whole source, saved in the same step, all or nothing; they may reference each other in any order',
+        },
       },
       ['kind', 'name', 'source']
     ),
     request: (_) => ({
       method: 'PUT',
       path: `/elements/${_seg(_.kind)}/${_seg(_.name)}`,
-      body: { source: _.source },
+      body: {
+        source: _.source,
+        ...(_.scripts === undefined ? {} : { scripts: _.scripts }),
+      },
     }),
     result: (_) =>
       ((element) => ({
@@ -537,6 +555,9 @@ export var AGENT_TOOLS: readonly AgentTool[] = [
         },
         subject: _string('Notification subject: {form} and {field name}'),
         goal: _string('Analytics goal in the cms:form-sent event'),
+        storeClientInfo: _boolean(
+          'Keep the visitor IP address and browser with each submission (default true); false when the privacy policy promises not to store them. The rate limit still counts the address in memory'
+        ),
         proof: {
           type: 'string',
           enum: ['off', 'light', 'standard', 'strong'],
@@ -709,6 +730,40 @@ export var AGENT_TOOLS: readonly AgentTool[] = [
       ),
     }),
     request: (_) => ({ method: 'PATCH', path: '/settings', body: _ }),
+  },
+  {
+    name: 'update_translations',
+    title: 'Change translations',
+    description:
+      "Adds, changes and removes translations, many keys in one call, all or nothing: the UI texts of templates and components (site.i18n.key, t(key)) and of page text ({i18n.key}). For a key, the given languages are replaced and the others stay; an empty text removes that language; null removes the key. A text goes only into a language of the site (get_settings: language and languages). A list, like the options of a radio group, is one item per line: t(key).split('\\n') in a template.",
+    access: 'site.edit',
+    guarded: true,
+    input: _object(
+      {
+        translations: {
+          type: 'object',
+          description:
+            'Key → { language: text } or null to remove the key, for example { "menuHome": { "de": "Start", "en": "Home" }, "oldKey": null }. A key is latin letters, digits and _, starting with a letter: footerText',
+          additionalProperties: {
+            type: ['object', 'null'],
+            additionalProperties: { type: 'string' },
+          },
+        },
+      },
+      ['translations']
+    ),
+    request: (_) => ({ method: 'PATCH', path: '/translations', body: _ }),
+    // Ответ — только тронутые ключи: словарь целиком модели не нужен, его отдаёт get_settings.
+    result: (body, args) =>
+      ((changed) => ({
+        translations: (body as { key: string }[]).filter((_) =>
+          changed.includes(_.key)
+        ),
+        removed: changed.filter(
+          (key) => !(body as { key: string }[]).some((_) => _.key === key)
+        ),
+        total: (body as unknown[]).length,
+      }))(Object.keys((args.translations ?? {}) as object)),
   },
   {
     name: 'get_stats',

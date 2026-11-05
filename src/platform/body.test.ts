@@ -1,8 +1,14 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type BodyBytes, bytesOf, readBody, spoolBody } from './body.ts';
+import {
+  type BodyBytes,
+  bytesOf,
+  openFile,
+  readBody,
+  spoolBody,
+} from './body.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'cms-body-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -126,5 +132,22 @@ describe('тело запроса во временном файле', () => {
       await failure(spoolBody(chunked(big), _MB, tooLarge, paths[1]!))
     ).toBe('too large');
     expect(paths.filter((_) => existsSync(_))).toEqual([]);
+  });
+});
+
+describe('файл с диска', () => {
+  it('читается окнами, а close его закрывает и не удаляет', () => {
+    const bytes = pattern(2 * _MB + 33);
+    const path = join(dir, 'kept.bin');
+    writeFileSync(path, bytes);
+    const file = openFile(path);
+    expect(file.size).toBe(bytes.byteLength);
+    expect(file.read(_MB - 3, _MB + 3)).toEqual(
+      bytes.subarray(_MB - 3, _MB + 3)
+    );
+    expect(file.read(2 * _MB, 3 * _MB)).toEqual(bytes.subarray(2 * _MB));
+    file.close();
+    file.close();
+    expect(existsSync(path)).toBe(true);
   });
 });

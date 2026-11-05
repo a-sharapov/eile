@@ -469,6 +469,8 @@ const _compose = (
   const dictionary = {
     text: site.translations.text,
     value: site.customSettings.value,
+    translationKeys: () => site.translations.list().map((_): string => _.key),
+    settingKeys: () => site.customSettings.list().map((_): string => _.key),
   };
   // Скрипты хранит design, а он создаётся ниже и хостит этот рантайм: адрес нужен только при рендере.
   const runtime = defineComponentRuntime(
@@ -478,7 +480,10 @@ const _compose = (
     media,
     dictionary,
     search.search,
-    { url: (name) => design.scripts.url(name) }
+    {
+      url: (name) => design.scripts.url(name),
+      closure: (name) => design.scripts.closure(name),
+    }
   );
   const searchHandler = search.handler(runtime.link);
   const design = defineDesign({
@@ -639,6 +644,7 @@ const _compose = (
       forms,
       media,
       extensions,
+      redirects,
     })
   );
 

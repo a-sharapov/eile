@@ -103,13 +103,3 @@ export var fieldInput = (field: Field): NewField => ({
   inherit: field.inherit,
   templates: field.templates,
 });
-
-/** Строка и столбец места в исходнике: по нему ошибка печатается как `файл:строка:столбец`. */
-export var pointAt = (
-  source: string,
-  index: number
-): { readonly line: number; readonly column: number } =>
-  ((before) => ({
-    line: before.split('\n').length,
-    column: index - before.lastIndexOf('\n'),
-  }))(source.slice(0, index));

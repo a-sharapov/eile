@@ -227,9 +227,78 @@ describe('манифест', () => {
     );
   });
 
+  it('переводы — с формата 2: строкой на языке пакета или по языкам; формат 1 читается по-прежнему', () => {
+    const base = manifestOf(sample());
+    expect(base.format).toBe(1);
+    expect(parseManifest(JSON.stringify(base)).problems).toEqual([]);
+    const translations = {
+      fussKontakt: 'Kontakt',
+      themen: { de: 'Küche\nBad' },
+    };
+    expect(
+      parseManifest(JSON.stringify({ ...base, format: 2, translations }))
+        .manifest?.translations
+    ).toEqual(translations);
+    expect(
+      parseManifest(JSON.stringify({ ...base, translations })).problems.map(
+        (_) => _.message
+      )
+    ).toEqual(['translations is part of format 2: write "format": 2']);
+    expect(
+      parseManifest(
+        JSON.stringify({
+          ...base,
+          format: 2,
+          translations: {
+            '1kaputt': 'x',
+            leer: '',
+            ohneText: {},
+            sprache: { Deutsch: 'x' },
+            zahl: 3,
+          },
+        })
+      ).problems.map((_) => _.message)
+    ).toEqual([
+      expect.stringContaining('translations key "1kaputt" must be'),
+      'translations["leer"] must be a text that is not empty',
+      'translations["ohneText"] has no text',
+      expect.stringContaining('translations["sprache"] key "Deutsch" must be'),
+      'translations["zahl"] must be a text or an object of language → text',
+    ]);
+  });
+
+  it('редиректы — с формата 2: from, to, код 301 или 302, заметка', () => {
+    const base = manifestOf(sample());
+    const redirects = [
+      { from: '/cv', to: '[~@{kontakt}~]', status: 301, note: 'alte Seite' },
+      { from: '/en/*', to: '/*' },
+    ] as const;
+    expect(
+      parseManifest(JSON.stringify({ ...base, format: 2, redirects })).manifest
+        ?.redirects
+    ).toEqual(redirects);
+    expect(
+      parseManifest(JSON.stringify({ ...base, redirects })).problems.map(
+        (_) => _.message
+      )
+    ).toEqual(['redirects is part of format 2: write "format": 2']);
+    expect(
+      parseManifest(
+        JSON.stringify({
+          ...base,
+          format: 2,
+          redirects: [{ from: '/a', to: '/b', status: 307 }, { from: '/c' }],
+        })
+      ).problems.map((_) => _.message)
+    ).toEqual([
+      'redirects[0].status must be 301 or 302',
+      'redirects[1].to is required',
+    ]);
+  });
+
   it('формат новее — просит обновить cms; не JSON — отказ', () => {
     expect(
-      codes(parseManifest(JSON.stringify({ format: 2 })).problems)
+      codes(parseManifest(JSON.stringify({ format: 3 })).problems)
     ).toEqual(['package.newer_format']);
     expect(codes(parseManifest('{ nope').problems)).toEqual([
       'package.invalid_manifest',
@@ -364,6 +433,8 @@ describe('проверка до записи', () => {
       fields: 0,
       forms: 0,
       media: 1,
+      translations: 0,
+      redirects: 0,
     });
   });
 
@@ -436,6 +507,102 @@ describe('проверка до записи', () => {
     expect(check(files, true).report?.plugins).toBe(1);
   });
 
+  it('язык перевода — язык пакета или его ветки; @{key} в переводе — только на страницу пакета', () => {
+    const files = withManifest(sample(), (_) => ({
+      ..._,
+      format: 2,
+      translations: {
+        gruss: { de: 'Hallo', fr: 'Salut' },
+        link: 'Siehe @{weg}',
+      },
+    }));
+    const result = check(files);
+    expect(codes(result.problems)).toEqual([
+      'package.unknown_language',
+      'package.unknown_page',
+    ]);
+    expect(result.problems[0]?.message).toBe(
+      'translations.gruss: fr is neither the package language (de) nor the language of a page'
+    );
+    // Ветка на английском — английский текст перевода на месте.
+    const english = withManifest(sample(), (_) => ({
+      ..._,
+      format: 2,
+      translations: { gruss: { de: 'Hallo', en: 'Hello' } },
+      pages: [
+        ...(_.pages as object[]),
+        { key: 'en', title: 'English', template: 'Seite', language: 'en' },
+      ],
+    }));
+    expect(check(english).problems).toEqual([]);
+    expect(check(english).report?.translations).toBe(1);
+  });
+
+  it('переводы ставятся с пакетом: строка — на языке пакета, @{key} — id, языки веток — языки сайта', () => {
+    const files = withManifest(sample(), (_) => ({
+      ..._,
+      format: 2,
+      translations: {
+        fussKontakt: 'Kontakt',
+        gruss: { de: 'Hallo', en: 'Hello' },
+        kontaktId: '@{kontakt}',
+      },
+      pages: [
+        ...(_.pages as object[]),
+        { title: 'English', template: 'Seite', language: 'en' },
+      ],
+    }));
+    const app = createApp();
+    applyScaffold(check(files).scaffold!, app);
+    const kontakt = app.content.drafts
+      .tree()
+      .find((_) => _.title === 'Kontakt')!;
+    expect(
+      app.site.translations
+        .list()
+        .map((_) => ({ key: String(_.key), values: _.values }))
+    ).toEqual([
+      { key: 'fussKontakt', values: { de: 'Kontakt' } },
+      { key: 'gruss', values: { de: 'Hallo', en: 'Hello' } },
+      { key: 'kontaktId', values: { de: String(kontakt.id) } },
+    ]);
+    expect(app.site.settings.get().languages).toEqual(['en']);
+    app.close();
+  });
+
+  it('редиректы проверяются, как в менеджере: цепочки, служебные адреса, id и ключи — до записи', () => {
+    const withRedirects = (redirects: object[]) =>
+      check(withManifest(sample(), (_) => ({ ..._, format: 2, redirects })))
+        .problems;
+    expect(
+      codes(
+        withRedirects([
+          { from: '/alt', to: '[~12~]' },
+          { from: '/weg', to: '[~@{nope}~]' },
+        ])
+      )
+    ).toEqual(['package.numeric_link', 'package.unknown_page']);
+    expect(
+      codes(
+        withRedirects([
+          { from: '/a', to: '/b' },
+          { from: '/b', to: '/kontakt' },
+        ])
+      )
+    ).toEqual(['redirects.chain']);
+    expect(
+      codes(withRedirects([{ from: '/manager/x', to: '/kontakt' }]))
+    ).toEqual(['redirects.reserved']);
+    expect(
+      codes(
+        withRedirects([
+          { from: '/a', to: '/kontakt' },
+          { from: '/a/', to: '/' },
+        ])
+      )
+    ).toEqual(['redirects.rule_exists']);
+  });
+
   it('ссылки @{key} при установке становятся id', () => {
     const app = createApp();
     const result = check(sample());
@@ -475,6 +642,82 @@ describe('cms new <пакет>', () => {
     expect(open(db('zip'), (app) => app.site.settings.get()).language).toBe(
       'de'
     );
+  });
+
+  it('переводы и настройка в несколько строк: из папки на сайт, t(key) и site.custom.key в шаблоне', async () => {
+    const folder = join(dir, 'with-translations');
+    cpSync(SAMPLE, folder, { recursive: true });
+    const manifest = JSON.parse(
+      readFileSync(join(folder, 'manifest.json'), 'utf8')
+    );
+    writeFileSync(
+      join(folder, 'manifest.json'),
+      JSON.stringify(
+        {
+          ...manifest,
+          format: 2,
+          settings: {
+            ...manifest.settings,
+            kontakte:
+              'phone | +49 30 000000 | tel:+4930000000\nmail | hallo@example.com | mailto:hallo@example.com',
+          },
+          translations: {
+            fussKontakt: 'Kontakt',
+            themen: 'Küche\nBad\nWohnzimmer',
+          },
+          redirects: [
+            { from: '/cv', to: '[~@{kontakt}~]', note: 'alte Adresse' },
+            { from: '/en/*', to: '/*', status: 302 },
+            { from: '/index', to: '/' },
+          ],
+        },
+        null,
+        2
+      )
+    );
+    writeFileSync(
+      join(folder, 'templates/Seite.svelte'),
+      readFileSync(join(folder, 'templates/Seite.svelte'), 'utf8')
+        .replace(
+          '<a href={contact}>Kontakt</a>',
+          `<a href={contact}>{t('fussKontakt')}</a>
+  <ul class="themen">{#each t('themen').split('\\n') as thema (thema)}<li>{thema}</li>{/each}</ul>
+  <ul class="kontakte">{#each site.custom.kontakte.split('\\n') as line (line)}<li>{line.split(' | ')[1]}</li>{/each}</ul>`
+        )
+        .replace(
+          "import { children, link } from '$core';",
+          "import { children, link, t } from '$core';"
+        )
+    );
+    output.length = 0;
+    await run(['new', folder, '--db', db('translations')]);
+    expect(output.join('\n')).toMatch(/Переводы\s+ключей 2/);
+    expect(output.join('\n')).toMatch(/Редиректы\s+правил 3/);
+    const app = createApp({ databasePath: db('translations') });
+    const html = await app
+      .fetch(new Request('http://localhost/'))
+      .then((_) => _.text());
+    expect(html).toContain('>Kontakt</a>');
+    expect(html).toContain(
+      '<ul class="themen"><li>Küche</li><li>Bad</li><li>Wohnzimmer</li></ul>'
+    );
+    expect(html).toContain(
+      '<ul class="kontakte"><li>+49 30 000000</li><li>hallo@example.com</li></ul>'
+    );
+    expect(app.site.customSettings.value('kontakte')?.split('\n')).toHaveLength(
+      2
+    );
+    const location = (path: string) =>
+      app
+        .fetch(new Request(`http://localhost${path}`))
+        .then((_) => `${_.status} ${_.headers.get('location')}`);
+    expect(await location('/cv')).toBe('301 /kontakt');
+    expect(await location('/en/kontakt')).toBe('302 /kontakt');
+    expect(await location('/index')).toBe('301 /');
+    expect(app.redirects.rules.list().map((_) => _.note)).toContain(
+      'alte Adresse'
+    );
+    app.close();
   });
 
   it('сайт со своей работой пакет не трогает; --check ничего не пишет', async () => {
@@ -634,6 +877,33 @@ describe('cms scaffold pack', () => {
             ))(join(_.parentPath, _.name))
       );
     expect(built(windows).sha256).toBe(once.sha256);
+    // С переводами в несколько строк — так же: перевод строки внутри JSON — \n, а не байт CR.
+    const translated = join(dir, 'pack-translations');
+    cpSync(SAMPLE, translated, { recursive: true });
+    writeFileSync(
+      join(translated, 'manifest.json'),
+      JSON.stringify(
+        {
+          ...JSON.parse(readFileSync(join(SAMPLE, 'manifest.json'), 'utf8')),
+          format: 2,
+          translations: { themen: 'Küche\nBad', gruss: { de: 'Hallo' } },
+        },
+        null,
+        2
+      )
+    );
+    const first = built(translated);
+    cpSync(translated, `${translated}-crlf`, { recursive: true });
+    writeFileSync(
+      join(`${translated}-crlf`, 'manifest.json'),
+      readFileSync(join(translated, 'manifest.json'), 'utf8').replaceAll(
+        '\n',
+        '\r\n'
+      )
+    );
+    expect(built(`${translated}-crlf`).sha256).toBe(first.sha256);
+    expect(built(translated).bytes).toEqual(first.bytes);
+    expect(first.report.translations).toBe(2);
   });
 
   it('пишет архив и печатает сумму; собранный архив рядом не мешает', async () => {
@@ -706,9 +976,12 @@ describe('встроенный каркас → пакет → сайт', () => 
           .map((_) => app.forms.forms.get(_.name)?.source),
         fieldList: app.content.fields.list(),
         settings: app.site.customSettings.list(),
+        translations: app.site.translations.list(),
+        redirects: app.redirects.rules.list().map((_) => [_.from, _.to]),
         site: ((_) => ({
           name: _.name,
           language: _.language,
+          languages: _.languages,
           description: _.description,
         }))(app.site.settings.get()),
       });
@@ -717,6 +990,57 @@ describe('встроенный каркас → пакет → сайт', () => 
       viaPackage.close();
     }
   );
+
+  it('редиректы туда и обратно без потерь: цель-страница — ключом', () => {
+    const blog = SCAFFOLDS[0]!;
+    const redirects = [
+      { from: '/old-blog/*', to: '/blog/*', status: 302, note: 'старый блог' },
+      { from: '/about-us', to: `[~@{${blog.home}}~]` },
+    ];
+    const files = scaffoldPackage({ ...blog, redirects });
+    expect(manifestOf(files).format).toBe(2);
+    expect(manifestOf(files).redirects).toEqual(redirects);
+    const result = check(readPackageZip(packFiles(files)).files);
+    expect(result.problems).toEqual([]);
+    expect(result.report?.redirects).toBe(2);
+    expect(textOf(scaffoldPackage(result.scaffold!), 'manifest.json')).toBe(
+      textOf(files, 'manifest.json')
+    );
+    const app = createApp();
+    applyScaffold(result.scaffold!, app);
+    expect(
+      app.redirects.rules.list().map((_) => `${_.from} ${_.to} ${_.status}`)
+    ).toEqual([
+      `/about-us [~${app.site.settings.get().homePageId}~] 301`,
+      '/old-blog/* /blog/* 302',
+    ]);
+    app.close();
+  });
+
+  it('переводы туда и обратно без потерь; без переводов — формат 1, с ними — 2', () => {
+    const blog = SCAFFOLDS[0]!;
+    expect(manifestOf(scaffoldPackage(blog)).format).toBe(1);
+    const translations = {
+      menuHome: 'Главная',
+      topics: { ru: 'Кухня\nВанная', en: 'Kitchen\nBath' },
+    };
+    const files = scaffoldPackage({
+      ...blog,
+      translations,
+      pages: [
+        ...blog.pages,
+        { title: 'English', template: 'Page', language: 'en' },
+      ],
+    });
+    expect(manifestOf(files).format).toBe(2);
+    expect(manifestOf(files).translations).toEqual(translations);
+    const result = check(readPackageZip(packFiles(files)).files);
+    expect(result.problems).toEqual([]);
+    expect(result.scaffold?.translations).toEqual(translations);
+    expect(textOf(scaffoldPackage(result.scaffold!), 'manifest.json')).toBe(
+      textOf(files, 'manifest.json')
+    );
+  });
 
   it('cms scaffold export: папка пакета ставится cms new; непустая — только с --force', async () => {
     const folder = join(dir, 'export-blog');

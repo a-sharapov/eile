@@ -1,6 +1,6 @@
 import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { posixPath } from '../../platform/paths.ts';
+import { isJunk, posixPath } from '../../platform/paths.ts';
 import { listZip, readZipRecord } from '../../platform/zip.ts';
 import { attempt, isDomainError } from '../../shared/kernel/errors.ts';
 import { entryOf, type Problem } from '../../workspace/index.ts';
@@ -23,12 +23,11 @@ export type PackageFileKind =
   /** Следы архиваторов и систем (`__MACOSX/`, `.DS_Store`): не читаются вовсе. */
   | 'junk';
 
-const _JUNK = /(?:^|\/)(?:__MACOSX\/|\.DS_Store$|Thumbs\.db$|desktop\.ini$)/;
 const _DOC = /^(?:[^/]+\.(?:md|txt)|LICENSE|NOTICE|COPYING)$/;
 
 /** Вид файла по пути; null — такого файла в пакете быть не может. */
 export var kindOf = (path: string): PackageFileKind | null =>
-  _JUNK.test(path)
+  isJunk(path)
     ? 'junk'
     : path === MANIFEST
       ? 'manifest'
@@ -83,9 +82,7 @@ const _prefix = (names: readonly string[]): string =>
     names.includes(`${[...top][0]}/${MANIFEST}`)
       ? `${[...top][0]}/`
       : '')(
-    new Set(
-      names.filter((_) => !_JUNK.test(_)).map((_) => _.split('/')[0] ?? '')
-    )
+    new Set(names.filter((_) => !isJunk(_)).map((_) => _.split('/')[0] ?? ''))
   );
 
 const _entryProblems = (entry: _Entry, path: string): Problem[] =>
@@ -177,7 +174,7 @@ const _plan = (
         ...entries.flatMap((entry) =>
           _unsafe(entry.name)
             ? _entryProblems(entry, entry.name)
-            : entry.name.endsWith('/') || _JUNK.test(entry.name)
+            : entry.name.endsWith('/') || isJunk(entry.name)
               ? []
               : _entryProblems(entry, entry.name.slice(prefix.length))
         ),
@@ -186,7 +183,7 @@ const _plan = (
       ],
     }))(
       entries
-        .filter((_) => !_.name.endsWith('/') && !_JUNK.test(_.name))
+        .filter((_) => !_.name.endsWith('/') && !isJunk(_.name))
         .map((entry) => ({ entry, path: entry.name.slice(prefix.length) }))
     ))(_prefix(entries.map((_) => _.name)));
 

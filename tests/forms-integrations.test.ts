@@ -522,7 +522,7 @@ describe('плагины, менеджер и агенты', () => {
     ).toBe(200);
   });
 
-  it('агент ставит вебхук и письмо через MCP, но секрета не видит', async () => {
+  it('агент ставит вебхук, письмо и хранение адреса через MCP, но секрета не видит', async () => {
     const admin = app.identity.users
       .list()
       .find((_) => _.email === 'admin@example.com')!;
@@ -549,6 +549,7 @@ describe('плагины, менеджер и агенты', () => {
       name: 'order',
       webhook: { url: 'https://crm.example.com/agent' },
       confirmation: { enabled: true, text: 'Danke!' },
+      storeClientInfo: false,
     });
     expect(saved.webhook.url).toBe('https://crm.example.com/agent');
     expect(saved.webhook.secret).not.toBe(secret());
@@ -557,6 +558,7 @@ describe('плагины, менеджер и агенты', () => {
       secret()
     );
     expect(app.forms.forms.get('order')!.confirmation.enabled).toBe(true);
+    expect(app.forms.forms.get('order')!.storeClientInfo).toBe(false);
   });
 
   const secret = () => app.forms.forms.get('order')!.webhook.secret;

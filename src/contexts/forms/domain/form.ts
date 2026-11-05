@@ -65,6 +65,11 @@ export type Form = {
   readonly proof: ProofLevel;
   /** Метка для аналитики: уходит в событие `cms:form-sent`. */
   readonly goal: string;
+  /**
+   * Хранить ли с заявкой адрес и браузер посетителя (IP и User-Agent). Выключено — заявка без них; лимит
+   * частоты считает адрес в памяти процесса в любом случае (ADR 0059).
+   */
+  readonly storeClientInfo: boolean;
   readonly confirmation: Confirmation;
   readonly webhook: Webhook;
   readonly revision: number;
@@ -120,6 +125,7 @@ export var HONEYPOT = 'company_website';
 export var DEFAULTS = {
   retentionDays: 30,
   minSeconds: 3,
+  storeClientInfo: true,
 } as const;
 
 /** Тексты формы, которые посетитель или менеджер видят, если в настройке пусто. */
@@ -174,6 +180,15 @@ const _int = (value: unknown, low: number, high: number, code: string) =>
     Number.isInteger(number) && number >= low && number <= high
       ? number
       : fail(code, `A whole number from ${low} to ${high}`))(Number(value));
+
+// Настройка, от которой зависит, что хранится о посетителе, — только true или false: «false» строкой не включит
+// хранение молча.
+const _flag = (value: unknown, base: boolean, code: string): boolean =>
+  value === undefined
+    ? base
+    : typeof value === 'boolean'
+      ? value
+      : fail(code, 'Expected true or false');
 
 const _page = (value: unknown): number | null =>
   value === null || value === undefined || value === ''
@@ -278,6 +293,11 @@ const _settings = (input: FormInput, base: Form | null, setup: FormSetup) => ({
       ? (base?.proof ?? PROOF_DEFAULTS.created)
       : parseProofLevel(input.proof),
   goal: _text(input.goal ?? base?.goal, 100, 'forms.invalid_text'),
+  storeClientInfo: _flag(
+    input.storeClientInfo,
+    base?.storeClientInfo ?? DEFAULTS.storeClientInfo,
+    'forms.invalid_client_info'
+  ),
   confirmation: _confirmation(
     input.confirmation,
     base?.confirmation ?? NO_CONFIRMATION

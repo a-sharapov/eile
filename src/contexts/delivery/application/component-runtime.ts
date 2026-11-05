@@ -133,6 +133,8 @@ export type MediaCatalog = {
 /** Скрипты сайта по имени: адрес текущей версии. */
 export type ScriptCatalog = {
   readonly url: (name: string) => string | null;
+  /** Скрипты, правка которых меняет адрес: сам и все, до кого доходят его ссылки `./имя.js`. */
+  readonly closure: (name: string) => readonly string[];
 };
 
 export var defineComponentRuntime = (
@@ -147,7 +149,7 @@ export var defineComponentRuntime = (
     hits: [],
     total: 0,
   }),
-  scripts: ScriptCatalog = { url: () => null }
+  scripts: ScriptCatalog = { url: () => null, closure: (name) => [name] }
 ): ComponentRuntime => {
   // Неверный путь в шаблоне — пустое место, а не ошибка всей страницы.
   const lookup =
@@ -300,17 +302,21 @@ export var defineComponentRuntime = (
     listing,
     site: () =>
       ((site) =>
-        withSiteKeys(
-          site,
-          (key) => dictionary.text(key, scope.language() ?? site.language),
-          dictionary.value
-        ))(settings()),
+        withSiteKeys(site, {
+          ...dictionary,
+          text: (key) =>
+            dictionary.text(key, scope.language() ?? site.language),
+        }))(settings()),
     request: () => (scope.record(REQUEST_TAG), scope.request()),
     media: lookup(media.url),
     image: lookup(media.image),
-    // Тег — и у скрипта, которого пока нет: создадут его — страница перерисуется с адресом.
+    // Тег — у каждого скрипта, от которого зависит хэш адреса, и у того, которого пока нет: создадут его
+    // или поправят кусок сборки, что он импортирует, — страница перерисуется с новым адресом.
     script: (name) => (
-      scope.record(`element:script/${name}`),
+      attempt(
+        () => scripts.closure(name),
+        () => [name]
+      ).forEach((_) => void scope.record(`element:script/${_}`)),
       attempt(
         () => scripts.url(name),
         () => null

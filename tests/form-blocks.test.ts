@@ -221,6 +221,22 @@ it('шаг без названия — конец шагов: то, что ни�
   expect(source.trimEnd()).toEndWith('</fieldset>\n<p>После шагов</p>');
 });
 
+it('разметка ответа — текстовый блок: переживает сборку, а её поля сервер полями формы не считает', () => {
+  const sent =
+    '<template data-sent><h2 tabindex="-1">Спасибо!</h2><input name="again"></template>';
+  const source = serializeForm([
+    {
+      id: 1,
+      kind: 'field',
+      field: { ...emptyField('text'), label: 'Имя', name: 'name' },
+      original: null,
+    },
+    { id: 2, kind: 'text', html: sent },
+  ]);
+  expect(source.trimEnd()).toEndWith(sent);
+  expect(fieldsOf(source).map((_) => _.name)).toEqual(['name']);
+});
+
 // Перестановка блоков: поле — куда угодно, в том числе в другой шаг; шаг — целиком, на границу шагов.
 
 const _field = (id: number, name: string): FormBlock => ({

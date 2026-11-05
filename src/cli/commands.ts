@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { watch } from 'node:fs';
+import { statSync, watch } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { type App, createApp } from '../app.ts';
 import { LETS_ENCRYPT, parseDomains } from '../contexts/certificates/index.ts';
@@ -24,11 +24,16 @@ import {
   agentsGuide,
   CLAUDE_MD,
   type Files,
+  type KeptFile,
+  type MediaPushReport,
   type Problem,
   type PushReport,
+  parseInto,
   pull,
   push,
+  pushMedia,
   readFolder,
+  readMediaFolder,
 } from '../workspace/index.ts';
 import type { Options } from './args.ts';
 import {
@@ -425,6 +430,23 @@ const _SAY = {
       `Нет папки ${dir}. Выложить в неё элементы: cms elements pull ${dir}`,
     watching: (dir: string) =>
       `Слежу за ${dir}: сохранённый файл уходит в сайт. Остановить — Ctrl+C`,
+    mediaPushed: (n: number) => `В медиатеку — файлов ${n}`,
+    mediaInSync: 'Папка и медиатека совпадают',
+    mediaChecked: (n: number) =>
+      `Всё в порядке; при отправке изменится файлов ${n}`,
+    sameFiles: (n: number) => `без изменений ${n}`,
+    variantsMade: (n: number) => `вариантов картинок ${n}`,
+    altOnly: 'описание',
+    keptTitle: 'Нет в папке, но остались — на них ссылаются:',
+    keptPages: (ids: string) => `страницы ${ids}`,
+    keptSite: 'картинка сайта для соцсетей',
+    notInMediaFolder: 'Нет в папке, в медиатеке остались',
+    mediaPruneHint: 'удалить из медиатеки — --prune',
+    mediaPartly: (n: number) =>
+      `Сохранено не всё: ошибок ${n}. Повторите команду — совпавшие файлы она пропустит`,
+    noMediaCommand: (name: string | undefined) =>
+      `Нет подкоманды media ${name ?? ''}. Есть: push — cms help media`,
+    noMediaFolder: (dir: string) => `Нет папки ${dir}.`,
     healthy: 'Диагностика ничего не нашла',
     andMore: (n: number) => `и ещё ${n}`,
     siteErrors: (n: number) => `На сайте ошибок: ${n}`,
@@ -531,6 +553,22 @@ const _SAY = {
       `No folder ${dir}. Put the elements there first: cms elements pull ${dir}`,
     watching: (dir: string) =>
       `Watching ${dir}: a saved file goes to the site. Stop with Ctrl+C`,
+    mediaPushed: (n: number) => `${n} files saved to the media library`,
+    mediaInSync: 'The folder matches the media library',
+    mediaChecked: (n: number) => `All good; a push would change ${n} files`,
+    sameFiles: (n: number) => `${n} unchanged`,
+    variantsMade: (n: number) => `${n} image variants`,
+    altOnly: 'description',
+    keptTitle: 'Not in the folder but kept, because they are in use:',
+    keptPages: (ids: string) => `pages ${ids}`,
+    keptSite: 'the site’s social image',
+    notInMediaFolder: 'Not in the folder, kept in the media library',
+    mediaPruneHint: 'delete them from the library with --prune',
+    mediaPartly: (n: number) =>
+      `Not everything was saved; problems: ${n}. Run the command again: it skips the files that match`,
+    noMediaCommand: (name: string | undefined) =>
+      `No subcommand media ${name ?? ''}. There is push: cms help media`,
+    noMediaFolder: (dir: string) => `No folder ${dir}.`,
     healthy: 'Diagnostics found nothing',
     andMore: (n: number) => `and ${n} more`,
     siteErrors: (n: number) => `Errors on the site: ${n}`,
@@ -573,7 +611,7 @@ const _withApp = <T>(
   run: (app: App) => T | Promise<T>
 ): Promise<T> =>
   _existingDb(ctx).then((path) => {
-    const app = createApp({ databasePath: path });
+    const app = createApp({ databasePath: path, ..._mediaCache(ctx) });
     return Promise.resolve()
       .then(() => run(app))
       .finally(() => app.close());
@@ -1113,6 +1151,112 @@ const _elements = (ctx: Context): Promise<void> =>
     (() => _reject(_say(ctx).noElementsCommand(ctx.args[0])))
   )(ctx);
 
+// --- media -----------------------------------------------------------------
+
+const _keptLine = (say: _Say, kept: KeptFile): string =>
+  `    ${kept.path} — ${[
+    ...(kept.pages.length > 0
+      ? [say.keptPages(kept.pages.map((_) => _.id).join(', '))]
+      : []),
+    ...(kept.site ? [say.keptSite] : []),
+    ...kept.elements,
+  ].join('; ')}`;
+
+const _mediaLines = (ctx: Context, report: MediaPushReport): string[] =>
+  ((say, paint, count) => [
+    ...(report.problems.length > 0
+      ? report.problems.map(
+          (_) =>
+            `${paint.error('✗')} ${paint.path(_where(_))}  ${_.message.replace(/\s*\n\s*/g, ' ')} ${paint.dim(_.code)}`
+        )
+      : [
+          `${paint.ok('✓')} ${count === 0 ? say.mediaInSync : report.saved ? say.mediaPushed(count) : say.mediaChecked(count)}${[
+            ...(report.variants > 0 ? [say.variantsMade(report.variants)] : []),
+            ...(report.same > 0 && count > 0
+              ? [say.sameFiles(report.same)]
+              : []),
+          ]
+            .map((_) => `${_dot(paint)}${paint.dim(_)}`)
+            .join('')}`,
+          ...report.added.map((_) => `  ${paint.ok('+')} ${_}`),
+          ...report.changed.map((_) => `  ${paint.warn('~')} ${_}`),
+          ...report.described.map(
+            (_) => `  ${paint.warn('~')} ${_} ${paint.dim(`(${say.altOnly})`)}`
+          ),
+          ...report.removed.map((_) => `  ${paint.error('-')} ${_}`),
+        ]),
+    ...(report.kept.length > 0
+      ? [
+          `  ${paint.dim(say.keptTitle)}`,
+          ...report.kept.map((_) => paint.dim(_keptLine(say, _))),
+        ]
+      : []),
+    ...(report.missing.length > 0
+      ? [
+          `  ${paint.dim(`${say.notInMediaFolder}: ${report.missing.join(', ')}; ${say.mediaPruneHint}`)}`,
+        ]
+      : []),
+  ])(
+    _say(ctx),
+    ctx.paint,
+    report.added.length +
+      report.changed.length +
+      report.described.length +
+      report.removed.length
+  );
+
+// Ошибки папки — ничего не записано; сбой записи посреди отправки — записано не всё, повтор доделает.
+const _mediaReported =
+  (ctx: Context) =>
+  (report: MediaPushReport): Promise<void> => (
+    ctx.out(
+      ctx.options.json
+        ? JSON.stringify(report, null, 2)
+        : _mediaLines(ctx, report).join('\n')
+    ),
+    report.problems.length === 0
+      ? Promise.resolve()
+      : _reject(
+          (report.added.length + report.changed.length > 0 &&
+            !ctx.options.dryRun
+            ? _say(ctx).mediaPartly
+            : ctx.options.dryRun
+              ? _say(ctx).found
+              : _say(ctx).notSaved)(report.problems.length)
+        )
+  );
+
+const _mediaPush = (ctx: Context): Promise<void> =>
+  ((dir) =>
+    Promise.resolve(ctx.options.into ?? '')
+      .then(parseInto)
+      .then((into) =>
+        attempt(
+          () => statSync(dir).isDirectory(),
+          () => false
+        )
+          ? _withApp(ctx, (app) =>
+              readMediaFolder(dir, into).then((folder) =>
+                pushMedia(app, folder, {
+                  prune: ctx.options.prune,
+                  dryRun: ctx.options.dryRun,
+                })
+              )
+            )
+          : _reject(_say(ctx).noMediaFolder(dir))
+      )
+      .then(_mediaReported(ctx)))(_folderOf(ctx));
+
+const _MEDIA: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
+  push: _mediaPush,
+};
+
+const _media = (ctx: Context): Promise<void> =>
+  (
+    _MEDIA[ctx.args[0] ?? ''] ??
+    (() => _reject(_say(ctx).noMediaCommand(ctx.args[0])))
+  )(ctx);
+
 // --- diagnose --------------------------------------------------------------
 
 const _SEVERITY: Readonly<Record<string, (paint: Paint) => string>> = {
@@ -1504,6 +1648,7 @@ export var RUN: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
   'import-evo': _import,
   'import-wp': runImportWp,
   elements: _elements,
+  media: _media,
   mcp: _mcp,
   diagnose: _diagnose,
   update: _update,

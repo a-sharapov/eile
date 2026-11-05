@@ -164,6 +164,28 @@ const _errorText = (error: {
 }): string =>
   `${error.code ?? 'error'}: ${error.message ?? ''}${error.at ? ` (line ${error.at.line}, column ${error.at.column})` : ''}`;
 
+// Ответ вместе с чтениями `also`: каждое — тем же маршрутом с его правом; отказ — части нет в ответе.
+const _withAlso =
+  (tool: AgentTool, read: (request: ToolRequest) => Promise<Response>) =>
+  (response: Response): Promise<Response> =>
+    tool.also === undefined || !response.ok
+      ? Promise.resolve(response)
+      : Promise.all([
+          response.json() as Promise<object>,
+          Promise.all(
+            Object.entries(tool.also).map(({ 0: name, 1: request }) =>
+              read(request).then(
+                (_): Promise<(readonly [string, unknown])[]> =>
+                  _.ok
+                    ? _.json().then((body) => [[name, body] as const])
+                    : Promise.resolve([])
+              )
+            )
+          ),
+        ]).then(({ 0: body, 1: parts }) =>
+          Response.json({ ...body, ...Object.fromEntries(parts.flat()) })
+        );
+
 const _resultOf =
   (tool: AgentTool, args: Args) =>
   (response: Response): Promise<ToolResult> =>
@@ -224,6 +246,7 @@ export var defineToolbox = (
                 : Promise.resolve(args)
                     .then(tool.request!)
                     .then((request) => call(user, request, session))
+                    .then(_withAlso(tool, (_) => call(user, _, session)))
                     .then(_resultOf(tool, args))
                     // Текст посетителей попал в разговор — до конца сеанса агент ему не подчиняется.
                     .then(

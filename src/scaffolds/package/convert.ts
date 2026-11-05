@@ -3,13 +3,14 @@ import type { FormInput } from '../../contexts/forms/index.ts';
 import { entryOf } from '../../workspace/index.ts';
 import type { Scaffold, ScaffoldPage, ScaffoldSetting } from '../scaffold.ts';
 import {
+  formatFor,
   type Localized,
   localized,
   MANIFEST,
   type Manifest,
   type ManifestPage,
+  type ManifestRedirect,
   type ManifestSetting,
-  PACKAGE_FORMAT,
   type PackageFiles,
 } from './format.ts';
 
@@ -105,6 +106,8 @@ export var packageScaffold = (
       _setting(_),
     ])
   ),
+  translations: manifest.translations ?? {},
+  redirects: manifest.redirects ?? [],
   media: [...files.keys()]
     .filter((_) => _.startsWith('media/'))
     .sort(_byPath)
@@ -173,6 +176,25 @@ const _settingOut = (setting: string | ScaffoldSetting): ManifestSetting =>
       : setting.value
     : setting;
 
+// Правило — как в манифесте: поля без значения не пишутся.
+const _redirectOut = ({
+  from,
+  to,
+  status,
+  note,
+}: NonNullable<Scaffold['redirects']>[number]): ManifestRedirect => ({
+  from,
+  to,
+  ...(status === undefined ? {} : { status: status as 301 | 302 }),
+  ...(note ? { note } : {}),
+});
+
+// Версия формата — наименьшая, в которую ложится манифест: её прочтёт и cms старше этой.
+const _versioned = (manifest: Omit<Manifest, 'format'>): Manifest => ({
+  format: formatFor(manifest),
+  ...manifest,
+});
+
 /**
  * Каркас — файлами пакета: манифест, элементы в раскладке папки элементов, тексты страниц и медиатека.
  * `title` и `summary` — по языкам, если каркас есть на нескольких.
@@ -186,39 +208,46 @@ export var scaffoldPackage = (
       [
         [
           MANIFEST,
-          _json({
-            format: PACKAGE_FORMAT,
-            name: scaffold.name,
-            title: text.title ?? scaffold.title,
-            summary: text.summary ?? scaffold.summary,
-            language: scaffold.language ?? 'ru',
-            siteName: scaffold.siteName,
-            ...(scaffold.description
-              ? { description: scaffold.description }
-              : {}),
-            ...(scaffold.kit?.length ? { kit: scaffold.kit } : {}),
-            ...(Object.keys(scaffold.settings ?? {}).length > 0
-              ? {
-                  settings: Object.fromEntries(
-                    Object.entries(scaffold.settings ?? {}).map(
-                      ({ 0: key, 1: _ }) => [key, _settingOut(_)]
-                    )
-                  ),
-                }
-              : {}),
-            ...(scaffold.media?.some((_) => _.alt)
-              ? {
-                  media: Object.fromEntries(
-                    scaffold.media
-                      .filter((_) => _.alt)
-                      .map((_) => [_.path, { alt: _.alt }])
-                  ),
-                }
-              : {}),
-            pages: exported.pages,
-            home: scaffold.home,
-            ...(scaffold.notFound ? { notFound: scaffold.notFound } : {}),
-          } satisfies Manifest),
+          _json(
+            _versioned({
+              name: scaffold.name,
+              title: text.title ?? scaffold.title,
+              summary: text.summary ?? scaffold.summary,
+              language: scaffold.language ?? 'ru',
+              siteName: scaffold.siteName,
+              ...(scaffold.description
+                ? { description: scaffold.description }
+                : {}),
+              ...(scaffold.kit?.length ? { kit: scaffold.kit } : {}),
+              ...(Object.keys(scaffold.settings ?? {}).length > 0
+                ? {
+                    settings: Object.fromEntries(
+                      Object.entries(scaffold.settings ?? {}).map(
+                        ({ 0: key, 1: _ }) => [key, _settingOut(_)]
+                      )
+                    ),
+                  }
+                : {}),
+              ...(Object.keys(scaffold.translations ?? {}).length > 0
+                ? { translations: scaffold.translations }
+                : {}),
+              ...(scaffold.redirects?.length
+                ? { redirects: scaffold.redirects.map(_redirectOut) }
+                : {}),
+              ...(scaffold.media?.some((_) => _.alt)
+                ? {
+                    media: Object.fromEntries(
+                      scaffold.media
+                        .filter((_) => _.alt)
+                        .map((_) => [_.path, { alt: _.alt }])
+                    ),
+                  }
+                : {}),
+              pages: exported.pages,
+              home: scaffold.home,
+              ...(scaffold.notFound ? { notFound: scaffold.notFound } : {}),
+            })
+          ),
         ] as const,
         ...Object.entries(scaffold.templates).map(
           ({ 0: name, 1: source }) =>

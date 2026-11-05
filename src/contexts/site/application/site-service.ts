@@ -1,3 +1,4 @@
+import { fail } from '../../../shared/kernel/errors.ts';
 import type { EventBus } from '../../../shared/kernel/events.ts';
 import { pipe } from '../../../shared/kernel/pipe.ts';
 import {
@@ -6,6 +7,7 @@ import {
   createTranslation,
   type DictionaryRepository,
   parseKey,
+  patchTranslation,
   type Translation,
   translate,
 } from '../domain/dictionary.ts';
@@ -63,6 +65,40 @@ export var defineSiteService = ({
         dictionary.removeTranslation(parseKey(key)),
         changed('site.translations_changed')
       ),
+      /**
+       * Несколько ключей разом, всё или ничего: у ключа меняются названные языки, остальные остаются;
+       * null — удалить ключ. Новый текст — только на языках сайта.
+       */
+      update: (
+        changes: Readonly<
+          Record<string, Readonly<Record<string, unknown>> | null>
+        >
+      ): void =>
+        ((languages, entries) => (
+          dictionary.saveTranslations(
+            entries.flatMap(({ 0: key, 1: patch }) =>
+              patch === null
+                ? []
+                : typeof patch !== 'object' || Array.isArray(patch)
+                  ? fail(
+                      'site.invalid_translation',
+                      `Translation "${key}" must be an object of language → text, or null to remove it`
+                    )
+                  : [
+                      patchTranslation(
+                        key,
+                        translationMap().get(key),
+                        patch,
+                        languages
+                      ),
+                    ]
+            ),
+            entries
+              .filter(({ 1: patch }) => patch === null)
+              .map(({ 0: key }) => parseKey(key))
+          ),
+          changed('site.translations_changed')
+        ))([get().language, ...get().languages], Object.entries(changes)),
       /** Текст ключа на языке; null — ключа или текста нет. */
       text: (key: string, language: string): string | null =>
         translate(translationMap().get(key), language, get().language),
