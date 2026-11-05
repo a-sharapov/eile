@@ -1,12 +1,18 @@
 import type { Database } from '../../platform/database.ts';
 import type { EventBus } from '../../shared/kernel/events.ts';
-import { defineDesignService } from './application/design-service.ts';
+import {
+  defineDesignService,
+  type ScriptBatch,
+} from './application/design-service.ts';
 import type { SourceCompiler } from './application/source-compiler.ts';
 import type { Element, ElementKind } from './domain/element.ts';
 import { defineViewLoader } from './infrastructure/bun-view-loader.ts';
 import { defineClientRuntime } from './infrastructure/client-runtime.ts';
 import { defineClientViews } from './infrastructure/client-views.ts';
-import { checkScript } from './infrastructure/script-module.ts';
+import {
+  defineScriptModules,
+  type ScriptModules,
+} from './infrastructure/script-module.ts';
 import {
   defineSiteScripts,
   SCRIPTS_PREFIX,
@@ -24,8 +30,10 @@ import {
 import { defineAssetsHandler } from './interface/assets-handler.ts';
 import { defineFileHandler } from './interface/file-handler.ts';
 
+export type { ScriptBatch } from './application/design-service.ts';
 export type { ElementKind } from './domain/element.ts';
 export type { DesignEvent } from './domain/events.ts';
+export { parseScriptBatch } from './domain/script-graph.ts';
 export type {
   ComponentSignature,
   PropOption,
@@ -40,11 +48,12 @@ export { designMigrations } from './infrastructure/migrations.ts';
 
 // Шаблон и компонент компилирует Svelte; скрипт — готовый ES-модуль, его только разбирают.
 const _checks = (
-  compile: ServerCompiler
+  compile: ServerCompiler,
+  modules: ScriptModules
 ): Readonly<Record<ElementKind, (element: Element) => void>> => ({
   template: (element) => void compile(element),
   component: (element) => void compile(element),
-  script: checkScript,
+  script: modules.check,
 });
 
 /**
@@ -65,10 +74,13 @@ export var defineDesign = ({
   const elements = defineElementRepository(db);
   // Одна компиляция на версию элемента: проверка при сохранении, виды и стили сайта.
   const compile = defineServerCompiler();
-  const checks = _checks(compile);
+  // Один разбор на версию скрипта: проверка при сохранении, ссылки, адреса и отдача.
+  const modules = defineScriptModules();
+  const checks = _checks(compile, modules);
   const compiler: SourceCompiler = {
     ...svelteSourceCompiler,
     check: (element) => checks[element.kind](element),
+    references: modules.references,
   };
   const loader = defineViewLoader({ elements, runtime, builtins, compile });
   // Предпросмотр предложенных элементов: тот же рендер, но шаблон или компонент — из предложения.
@@ -93,7 +105,7 @@ export var defineDesign = ({
     elements,
     runtime: defineClientRuntime(),
   });
-  const scripts = defineSiteScripts(elements);
+  const scripts = defineSiteScripts(elements, modules);
   const styles = defineSiteStyles({ elements, compile });
   bus.onAny(
     (event) =>
@@ -114,7 +126,21 @@ export var defineDesign = ({
   const styleAssets = defineFileHandler('text/css; charset=utf-8', styles.file);
   return {
     ...service,
-    scripts: { ...service.scripts, url: scripts.url },
+    scripts: {
+      ...service.scripts,
+      /**
+       * Несколько скриптов одним шагом, всё или ничего: куски одной сборки, что ссылаются друг на друга
+       * (`./имя.js`) в любом порядке и по кругу, — по одному их не сохранить.
+       */
+      saveAll: (batch: ScriptBatch): void =>
+        db.transaction(() =>
+          batch.forEach(
+            (source, name) => void service.scripts.save(name, source, batch)
+          )
+        )(),
+      url: scripts.url,
+      closure: scripts.closure,
+    },
     views: {
       template: loader.template,
       component: loader.component,

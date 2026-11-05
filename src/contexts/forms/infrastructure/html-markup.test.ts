@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { HONEYPOT } from '../domain/form.ts';
 import type { FormView } from '../domain/ports.ts';
 import { checkValues, formTextsFor, MIN_TODAY } from '../domain/schema.ts';
-import { decodeEntities, fieldsOf, htmlMarkup } from './html-markup.ts';
+import { decodeEntities, fieldsOf, htmlMarkup, sentOf } from './html-markup.ts';
 
 // Форма, какой её собирает редактор блоков: обёртки data-field, подписи, правила HTML5.
 const _SOURCE = `<h3>Оставьте заявку</h3>
@@ -291,6 +291,35 @@ describe('форма для посетителя', () => {
     );
     expect(html.match(/<button/g)).toHaveLength(1);
     expect(html.match(/<form/g)).toHaveLength(1);
+  });
+
+  it('<template data-sent>: не поля, кнопка в нём не убирает кнопку отправки, id — с префиксом формы', () => {
+    const source = `${_SOURCE}<template data-sent><h2 id="done" tabindex="-1">Заявка у нас</h2><div class="field" data-field="text" data-label="Ещё"><label for="more">Ещё</label><input id="more" name="more" required></div><button type="button">Ещё одну</button></template>`;
+    expect(fieldsOf(source).map((_) => _.name)).not.toContain('more');
+    expect(fieldsOf(source)).toEqual(fieldsOf(_SOURCE));
+    const html = htmlMarkup.render(
+      view({ source, errors: { more: 'Нет' }, values: { more: ['x'] } })
+    );
+    expect(html).toContain('<button type="submit">Отправить</button>');
+    expect(html).toContain(
+      '<template data-sent><h2 id="callback-done" tabindex="-1">Заявка у нас</h2>'
+    );
+    expect(html).toContain('<label for="callback-more">');
+    expect(html).not.toContain('callback-err-more');
+    expect(html).not.toContain('value="x"');
+    expect(html).not.toContain('enctype');
+  });
+
+  it('после отправки без JS — разметка ответа из шаблона, без него — текст «спасибо»', () => {
+    const source = `${_SOURCE}<template data-sent><p id="thanks" tabindex="-1">Перезвоним <strong>сегодня</strong></p></template><template data-sent><p>второй</p></template>`;
+    expect(htmlMarkup.sent('callback', 'Спасибо!', source)).toBe(
+      '<div class="cms-form cms-form-sent" id="form-callback" role="status"><p id="callback-thanks" tabindex="-1">Перезвоним <strong>сегодня</strong></p></div>'
+    );
+    expect(htmlMarkup.sent('callback', 'Спасибо & до связи', _SOURCE)).toBe(
+      '<div class="cms-form cms-form-sent" id="form-callback" role="status"><p>Спасибо &amp; до связи</p></div>'
+    );
+    expect(sentOf('<template data-sent></template>', 'x-')).toBe('');
+    expect(sentOf('<template><p>не ответ</p></template>', 'x-')).toBeNull();
   });
 
   it('стили и скрипт — в шапку страницы', () => {

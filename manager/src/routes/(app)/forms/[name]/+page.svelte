@@ -60,6 +60,7 @@ type Settings = Pick<
   | 'allowLinks'
   | 'proof'
   | 'goal'
+  | 'storeClientInfo'
   | 'confirmation'
   | 'webhook'
 >;
@@ -506,7 +507,7 @@ crumbs={[{ label: t('nav.forms'), href: resolve('/(app)/forms') }]}
       <div class="fields">
         <label>{t('formEditor.title')}<input bind:value={settings.title} required maxlength="200" /></label>
         <label>{t('formEditor.submitLabel')}<input bind:value={settings.submitLabel} maxlength="100" /></label>
-        <label>{t('formEditor.successText')}<textarea rows="3" bind:value={settings.successText} maxlength="1000"></textarea></label>
+        <label>{t('formEditor.successText')}<textarea rows="3" bind:value={settings.successText} maxlength="1000"></textarea><small>{t('formEditor.successTextHint')}</small></label>
         <label>
           {t('formEditor.successPage')}
           <select bind:value={settings.successPage}>
@@ -638,6 +639,10 @@ crumbs={[{ label: t('nav.forms'), href: resolve('/(app)/forms') }]}
         <label>
           {t('formEditor.retention')}
           <input type="number" min="1" max="3650" bind:value={settings.retentionDays} />
+        </label>
+        <label class="option">
+          <input type="checkbox" bind:checked={settings.storeClientInfo} />
+          <span><strong>{t('formEditor.storeClientInfo')}</strong><small class="help">{t(settings.storeClientInfo ? 'formEditor.storeClientInfoHint' : 'formEditor.storeClientInfoOffHint')}</small></span>
         </label>
       </div>
     </section>

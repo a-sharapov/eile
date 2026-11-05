@@ -10,19 +10,23 @@ import {
 } from './infrastructure/sqlite-media.ts';
 import { defineMediaHandler } from './interface/media-handler.ts';
 
-export type {
-  ImageSet,
-  MediaService,
-  Upload,
-  UploadContent,
+export {
+  type ImageSet,
+  type MediaService,
+  mediaHash,
+  type Upload,
+  type UploadContent,
 } from './application/media-service.ts';
 export {
+  checkSize,
   contentTypeOf,
   MAX_MEDIA_SIZE,
   type MediaEvent,
   type MediaFile,
+  parseAlt,
   parseMediaPath,
   stemOf,
+  variantWidth,
 } from './domain/media.ts';
 export type { ImageResizer, MediaCache } from './domain/ports.ts';
 export { defineImageResizer } from './infrastructure/bun-image.ts';

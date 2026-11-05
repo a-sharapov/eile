@@ -420,14 +420,21 @@ const done = (form, reply) => {
     location.assign(reply.redirect);
     return;
   }
+  // Разметка ответа из <template data-sent> — вместо текста «спасибо»; фокус — на её элемент с tabindex="-1",
+  // иначе на сам блок, как без шаблона.
+  const template = form.querySelector('template[data-sent]');
   const sent = document.createElement('div');
   sent.className = 'cms-form cms-form-sent';
   sent.id = form.id;
   sent.setAttribute('role', 'status');
   sent.tabIndex = -1;
-  sent.append(paragraph('', reply.message));
+  sent.append(
+    template
+      ? document.importNode(template.content, true)
+      : paragraph('', reply.message)
+  );
   form.replaceWith(sent);
-  sent.focus();
+  (sent.querySelector('[tabindex="-1"]') ?? sent).focus();
 };
 
 // Файлы уходят только в multipart; без файлов — JSON, как раньше.
@@ -510,7 +517,14 @@ const today = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 };
 
-for (const form of document.querySelectorAll('form[data-cms-form]')) {
+// Метка улучшенной формы — свойство самого элемента, общее для всех копий скрипта на странице (после выпуска
+// новой версии роутер сайта может подгрузить скрипт с другим хэшем): форму улучшают один раз. Копия формы
+// (cloneNode) метки не несёт — и обработчиков тоже, поэтому её улучшают заново.
+const ENHANCED = Symbol.for('cms:form-enhanced');
+
+const enhance = (form) => {
+  if (form[ENHANCED]) return;
+  form[ENHANCED] = true;
   // Со скриптом поля проверяет он сам и пишет ошибку у поля; без скрипта — подсказки браузера.
   form.noValidate = true;
   for (const input of form.querySelectorAll(
@@ -534,4 +548,22 @@ for (const form of document.querySelectorAll('form[data-cms-form]')) {
     if (advance() || !valid()) return;
     if (!form.dataset.busy) send(form, false, reveal, guard);
   });
-}
+};
+
+const enhanceWithin = (root) => {
+  if (root.matches?.('form[data-cms-form]')) enhance(root);
+  for (const form of root.querySelectorAll?.('form[data-cms-form]') ?? []) {
+    enhance(form);
+  }
+};
+
+// Формы, что есть сейчас (скрипт мог загрузиться и после DOMContentLoaded), и те, что появятся потом: сайт с
+// переходами без перезагрузки вставляет новый <main> с формой в тот же документ.
+enhanceWithin(document);
+new MutationObserver((records) => {
+  for (const record of records) {
+    for (const node of record.addedNodes) {
+      if (node.nodeType === Node.ELEMENT_NODE) enhanceWithin(node);
+    }
+  }
+}).observe(document.documentElement, { childList: true, subtree: true });

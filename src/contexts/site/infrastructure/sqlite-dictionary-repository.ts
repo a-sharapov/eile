@@ -30,6 +30,14 @@ export var defineDictionaryRepository = (
     'DELETE FROM site_custom_settings WHERE key = ?'
   );
 
+  const write = (translation: Translation): void => {
+    clearTranslation.run(translation.key);
+    Object.entries(translation.values).forEach(
+      ({ 0: language, 1: value }) =>
+        void insertTranslation.run(translation.key, language, value)
+    );
+  };
+
   return {
     translations: () =>
       [...Map.groupBy(translations.all(), (_) => _.key).entries()].map(
@@ -38,14 +46,14 @@ export var defineDictionaryRepository = (
           values: Object.fromEntries(rows.map((_) => [_.language, _.value])),
         })
       ),
-    saveTranslation: db.transaction((translation: Translation) => {
-      clearTranslation.run(translation.key);
-      Object.entries(translation.values).forEach(
-        ({ 0: language, 1: value }) =>
-          void insertTranslation.run(translation.key, language, value)
-      );
-    }),
+    saveTranslation: db.transaction(write),
     removeTranslation: (key) => void clearTranslation.run(key),
+    saveTranslations: db.transaction(
+      (save: readonly Translation[], remove: readonly DictionaryKey[]) => {
+        save.forEach(write);
+        remove.forEach((_) => void clearTranslation.run(_));
+      }
+    ),
     settings: () =>
       settings.all().map(
         (_): CustomSetting => ({

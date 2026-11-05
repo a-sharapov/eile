@@ -60,15 +60,21 @@ description: Как устроены шаблоны и компоненты CMS 
     адреса `/blog/page-2` (ADR 0019); первый постраничный список на странице — главный, порция за
     пределами — 404;
   - `site()` — настройки сайта плюс `i18n` и `custom`: `site().i18n.footer`, `site().custom.phone`;
+    оба перечисляются (`Object.keys`, `entries`, `JSON.stringify`, `in`) — ключи со значением на языке
+    страницы, иначе сайта; отсутствующий ключ по-прежнему читается как `{i18n.key}` / `[@key]`. Словарь для
+    скрипта страницы — `{@html '<script type="application/json">' + JSON.stringify(site.i18n).replaceAll('<',
+    '\\u003c') + '</script>'}`: `<script>` прямо в разметке Svelte оставляет текстом (ADR 0061);
   - `request()` — запрос; читать только внутри `Uncached`;
   - `media(path)` — URL файла медиатеки с версией;
   - `image(path)` — `{ src, srcset, width, height, alt }` из вариантов `photo@960.webp`; `alt` —
     описание картинки из медиатеки (пусто — не описана).
-  - `script(name)` — адрес скрипта сайта `/_cms/scripts/<имя>.<хэш>.js` или `null`; вешает тег
-    `element:script/<имя>` — правка скрипта перерисует страницу с новым адресом (ADR 0039).
+  - `script(name)` — адрес скрипта сайта `/_cms/scripts/<имя>.<хэш>.js` или `null`; вешает теги
+    `element:script/<имя>` скрипта и всех, до кого доходят его ссылки `./имя.js`, — правка любого из них
+    перерисует страницу с новым адресом (ADR 0039, 0057).
     Подключение — в `<svelte:head>`: `<script type="module" src={script('kitchen-stage')}></script>`;
     тот же тег на верхнем уровне разметки — `script_duplicate`.
-  - `t(key)` — перевод на язык страницы (её ветки), иначе на язык сайта; нет ключа — `{i18n.key}`;
+  - `t(key)` — перевод на язык страницы (её ветки), иначе на язык сайта; нет ключа — `{i18n.key}`; список —
+    по пункту на строку: `t('topics').split('\n')` (переводы строк хранятся как LF);
   - `setting(key)` — своя настройка сайта; нет — `[@key]`;
   - `search(query, { limit, parent, page })` → `{ query, items: [{ id, title, url, snippet }], total,
     number, pages, url(n), pager(around) }` — поиск по опубликованным страницам на языке текущей (ADR 0030).
@@ -84,7 +90,8 @@ description: Как устроены шаблоны и компоненты CMS 
   В островах ключей нет (`design.island_placeholders`): в браузере нет словарей — тексты через props.
 - SEO-разметку (`canonical`, описание, `robots`, Open Graph, Twitter, JSON-LD, ссылку на Markdown-версию)
   добавляет рендер сам (`delivery/domain/discovery.ts`); если шаблон уже выводит такой тег — например
-  `<meta name="description">`, — свой тег рендер не добавляет. `<html lang>` — язык страницы.
+  `<meta name="description">`, — свой тег рендер не добавляет. `<html lang>` — язык страницы. Свой `<meta name="viewport">` шаблона (например, с `viewport-fit=cover`)
+  заменяет обычный — второго тега документ не ставит.
 
   Каждый экспорт — публичный API для разработчиков сайтов. Добавляй экспорты осознанно и описывай их в
   `docs/glossary.md`.
@@ -108,14 +115,27 @@ description: Как устроены шаблоны и компоненты CMS 
 ## Скрипты сайта
 
 - Элемент `kind: 'script'`, имя `kitchen-stage`, до 2 МиБ; в папке элементов — `scripts/<имя>.js` (ADR 0039).
-- При сохранении `Bun.Transpiler.scanImports` разбирает его как ES-модуль (`design.script_syntax` со строкой
-  и столбцом); `import`/`export from`/`import('…')` — только `https://…` (`design.script_import`). Голые
-  имена и пути — собрать в один файл заранее.
-- Отдаёт `design/interface/scripts-handler.ts`: `text/javascript`, `nosniff`, `immutable`, ETag, HEAD, br/gzip;
+- При сохранении `Bun.Transpiler.scanImports` проверяет синтаксис (`design.script_syntax` со строкой и
+  столбцом), пути берутся из дерева acorn (`platform/module-imports.ts`, `modulePaths`). `import`, `export from`
+  и `import('…')` — только `./имя.js` (другой скрипт сайта) и `https://…`, иначе `design.script_import`.
+- Куски одной сборки — отдельные скрипты (ADR 0057). Ссылка `./имя.js` — в `import`/`export from`, `import()` и
+  `new URL('./имя.js', import.meta.url)` (воркер); в `import()` и `new URL` — и шаблон без подстановок.
+  Строка, где просто написано `./x.js`, — не ссылка. Скрипт, на который есть ссылка, должен быть в базе или в
+  том же наборе (`ScriptBatch`), иначе `design.unknown_script`. Круг ссылок разрешён.
+- Набор: `design.scripts.save(name, source, batch)` ищет ссылки сначала в `batch`; `saveAll(batch)` —
+  транзакцией. Отправка папки, `PUT /elements/script/<имя>` со `scripts`, `save_element` со `scripts`, каркас и
+  принятие предложений — набором. Круг из новых скриптов по одному не сохранить.
+- Адрес (`design/infrastructure/site-scripts.ts`): у компоненты сильной связности один хэш — исходники членов по
+  имени плюс хэши внешних компонент; у скрипта без ссылок — хэш исходника. Тело ответа — исходник с
+  `./имя.<хэш>.js` на местах ссылок (`linkScript`). Разбор acorn запоминается по имени и хэшу исходника
+  (`defineScriptModules`): около 0,2 с на 1,1 МБ, раз на версию.
+- Отдаёт `design/interface/file-handler.ts`: `text/javascript`, `nosniff`, `immutable`, ETag, HEAD, br/gzip;
   прежний хэш — 404.
-- Удалить скрипт, который подключает `script('имя')` строкой, нельзя (`design.element_in_use`).
-- Цикл импортов (`design.import_cycle`) и ошибка компиляции (`design.compile_failed`) отклоняют сохранение,
-  а сайт продолжает работать на прежней версии.
+- Удалить скрипт, который подключает `script('имя')` строкой или на который ссылается другой скрипт, нельзя
+  (`design.element_in_use`). `remove(kind, name, together)` не считает держащими тех, кто уходит вместе:
+  `--prune` удаляет круг одной отправкой.
+- Цикл импортов компонентов (`design.import_cycle`) и ошибка компиляции (`design.compile_failed`) отклоняют
+  сохранение, а сайт продолжает работать на прежней версии.
 
 ## Формы
 
@@ -149,8 +169,13 @@ description: Как устроены шаблоны и компоненты CMS 
 
 - `src/scaffolds/<имя>/index.ts` — значение `Scaffold` (ADR 0022): `kit` (компоненты набора, зависимости
   ставятся сами), `components` (зависимости раньше зависящих), `templates`, `fields`, `forms`, `settings`
-  (свои настройки сайта: строка или `{ value, note }` с пояснением для менеджера, ADR 0055), `pages`
+  (свои настройки сайта: строка или `{ value, note }` с пояснением для менеджера, ADR 0055), `translations`
+  (ключ → текст на языке каркаса или `{ язык: текст }`; языки веток и переводов становятся языками сайта,
+  ADR 0061), `redirects` (правила `{ from, to, status, note }`, цель-страница — `[~@{key}~]`), `pages`
   (дерево), `home` и `notFound` — ключи страниц.
+- Пакет каркаса (ADR 0056) — тот же `Scaffold` файлами: `translations` и `redirects` в манифесте — формат 2,
+  без них выгрузка пишет формат 1; язык перевода — язык пакета или его ветки, иначе
+  `package.unknown_language`; правила проверяет контекст `redirects` при пробной установке.
 - Общие функции нескольких компонентов — в `<script module>` одного из них: `import Studio, { facts } from
   '$components/Studio'` (так устроен `kuechenstudio`).
 - `@{key}` в тексте страниц, исходнике форм и своих настройках — id страницы с этим `key`: `[~@{contacts}~]`,

@@ -89,7 +89,8 @@ const _contentOf = (data: Uint8Array | UploadContent): UploadContent =>
 // Хэш — по окну в 1 МиБ: файл загрузки с диска не поднимается в память целиком.
 const _WINDOW = 1024 * 1024;
 
-const _hashOf = (content: UploadContent): string =>
+/** Хэш содержимого, как у файла медиатеки: ETag, `?v=` и имя в кэше на диске. */
+export var mediaHash = (content: UploadContent): string =>
   Array.from({ length: Math.ceil(content.size / _WINDOW) })
     .reduce<Bun.CryptoHasher>(
       (hasher, _, n) =>
@@ -147,7 +148,7 @@ export var defineMediaService = ({
       path,
       contentType,
       size: checkSize(content.size),
-      hash: _hashOf(content),
+      hash: mediaHash(content),
       ..._measure(upload, content, contentType),
       // Замена файла не стирает описание: картинка та же по смыслу, сменилось только содержимое.
       alt: previous?.alt ?? '',

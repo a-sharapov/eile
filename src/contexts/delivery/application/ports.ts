@@ -177,6 +177,9 @@ export type Dictionary = {
   /** Текст ключа на языке (или на языке сайта); null — ключа нет. */
   readonly text: (key: string, language: string) => string | null;
   readonly value: (key: string) => string | null;
+  /** Ключи переводов и своих настроек: `site.i18n` и `site.custom` перечисляются. */
+  readonly translationKeys: () => readonly string[];
+  readonly settingKeys: () => readonly string[];
 };
 
 /** Страница, на которой стоит модуль: для скрытых полей формы и адреса возврата. */

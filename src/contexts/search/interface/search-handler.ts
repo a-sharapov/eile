@@ -1,3 +1,4 @@
+import { defineClientKey } from '../../../shared/kernel/client-key.ts';
 import type { SearchService } from '../application/search-service.ts';
 
 /** Поиск для островов и своих скриптов: `GET /_cms/search?q=…`, ответ — JSON. */
@@ -38,11 +39,13 @@ export var defineSearchHandler = ({
   language: () => string;
   now?: () => number;
 }) => {
-  // Окно в минуту на адрес: начало окна и сколько запросов в нём.
+  // Окно в минуту на адрес: начало окна и сколько запросов в нём. Ключ — хэш адреса с солью процесса, не IP.
   const windows = new Map<string, { start: number; count: number }>();
+  const clientKey = defineClientKey();
 
-  const allowed = (client: string): boolean => {
+  const allowed = (address: string): boolean => {
     const at = now();
+    const client = clientKey(address);
     const window = windows.get(client);
     const current =
       window && at - window.start < 60_000

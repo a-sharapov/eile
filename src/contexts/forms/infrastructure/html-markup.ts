@@ -40,6 +40,27 @@ const _attr = (value: string): string =>
 const _clean = (text: string): string =>
   decodeEntities(text).replace(/\s+/g, ' ').trim();
 
+/**
+ * Глубина внутри `<template>`: содержимое шаблона браузер не показывает и в FormData не берёт, поэтому и сервер
+ * не видит там ни полей, ни подписей, ни подсказок. Обработчик ставится первым, чтобы считать глубину до
+ * обработчиков потомков.
+ */
+const _templates = (
+  rewriter: HTMLRewriter
+): (<T>(handler: (arg: T) => void) => (arg: T) => void) => {
+  let depth = 0;
+  rewriter.on('template', {
+    element: (el) => {
+      depth++;
+      el.onEndTag(() => void depth--);
+    },
+  });
+  return (handler) => (arg) => void (depth === 0 && handler(arg));
+};
+
+/** Разметка ответа после отправки: `<template data-sent>` в исходнике формы (ADR 0060). */
+export var SENT_TEMPLATE = 'template[data-sent]';
+
 type Control = {
   readonly tag: 'input' | 'select' | 'textarea';
   readonly attributes: Readonly<Record<string, string>>;
@@ -90,10 +111,12 @@ const _scan = (source: string) => {
   let select: Control | null = null;
   let option: { value: string | null; text: string } | null = null;
   let legend: Wrapper | null = null;
+  const rewriter = new HTMLRewriter();
+  const outside = _templates(rewriter);
 
-  new HTMLRewriter()
+  rewriter
     .on('[data-field]', {
-      element: (el) => {
+      element: outside((el: HTMLRewriterTypes.Element) => {
         const wrapper: Wrapper = {
           kind: el.getAttribute('data-field') ?? '',
           label: _clean(el.getAttribute('data-label') ?? ''),
@@ -102,13 +125,13 @@ const _scan = (source: string) => {
         };
         wrappers.push(wrapper);
         el.onEndTag(() => void wrappers.pop());
-      },
+      }),
     })
     .on('legend', {
-      element: (el) => {
+      element: outside((el: HTMLRewriterTypes.Element) => {
         legend = wrappers.at(-1) ?? null;
         el.onEndTag(() => void (legend = null));
-      },
+      }),
       text: (chunk) =>
         void (
           legend &&
@@ -117,7 +140,7 @@ const _scan = (source: string) => {
         ),
     })
     .on('label', {
-      element: (el) => {
+      element: outside((el: HTMLRewriterTypes.Element) => {
         const box: Box = { text: '', target: el.getAttribute('for') ?? '' };
         boxes.push(box);
         el.onEndTag(
@@ -125,12 +148,12 @@ const _scan = (source: string) => {
             void (boxes.pop(),
             box.target && labelsFor.set(box.target, _clean(box.text)))
         );
-      },
+      }),
       text: (chunk) =>
         void (boxes.at(-1) && (boxes.at(-1)!.text += chunk.text)),
     })
     .on('input, select, textarea', {
-      element: (el) => {
+      element: outside((el: HTMLRewriterTypes.Element) => {
         const control: Control = {
           tag: el.tagName as Control['tag'],
           attributes: Object.fromEntries(
@@ -148,10 +171,10 @@ const _scan = (source: string) => {
           control.tag === 'select' &&
           ((select = control), el.onEndTag(() => void (select = null)))
         );
-      },
+      }),
     })
     .on('option', {
-      element: (el) => {
+      element: outside((el: HTMLRewriterTypes.Element) => {
         option = { value: el.getAttribute('value'), text: '' };
         el.onEndTag(
           () =>
@@ -163,7 +186,7 @@ const _scan = (source: string) => {
               }),
             (option = null))
         );
-      },
+      }),
       text: (chunk) => void (option && (option.text += chunk.text)),
     })
     .transform(source);
@@ -302,19 +325,21 @@ const _hintsOf = (
 ): readonly (string | null)[] => {
   const found: (string | null)[] = [];
   const open: { index: number; name: string | null; id: string | null }[] = [];
-  new HTMLRewriter()
+  const rewriter = new HTMLRewriter();
+  const outside = _templates(rewriter);
+  rewriter
     .on('[data-field]', {
-      element: (el) => {
+      element: outside((el: HTMLRewriterTypes.Element) => {
         open.push({ index: found.length, name: null, id: null });
         found.push(null);
         el.onEndTag(() => {
           const done = open.pop()!;
           found[done.index] = done.name ? done.id : null;
         });
-      },
+      }),
     })
     .on('input[name], select[name], textarea[name]', {
-      element: (el) => {
+      element: outside((el: HTMLRewriterTypes.Element) => {
         const wrapper = open.at(-1);
         const type = (el.getAttribute('type') ?? '').toLowerCase();
         void (
@@ -323,10 +348,10 @@ const _hintsOf = (
           type !== 'hidden' &&
           (wrapper.name = decodeEntities(el.getAttribute('name')!))
         );
-      },
+      }),
     })
     .on('.hint', {
-      element: (el) => {
+      element: outside((el: HTMLRewriterTypes.Element) => {
         const wrapper = open.at(-1);
         void (
           wrapper &&
@@ -335,7 +360,7 @@ const _hintsOf = (
             ? prefix + el.getAttribute('id')
             : `${prefix}hint-${found.length - 1}`)
         );
-      },
+      }),
     })
     .transform(source);
   return found;
@@ -374,8 +399,11 @@ const _filled = (view: FormView, prefix: string): string => {
         : (wrappers.at(-1)?.hint ?? null),
       view.errors[name] ? `${prefix}err-${name}` : null
     );
+  // Шаблоны (разметка ответа) — без полей и ошибок, но с id формы: скрипт покажет их копию после отправки.
+  const rewriter = new HTMLRewriter();
+  const outside = _templates(rewriter);
   return (
-    new HTMLRewriter()
+    rewriter
       .on('form', { element: (el) => void el.removeAndKeepContent() })
       // Значение атрибута сырое — дописываем префикс как есть, без второго экранирования.
       .on('[id]', {
@@ -387,7 +415,7 @@ const _filled = (view: FormView, prefix: string): string => {
           void el.setAttribute('for', prefix + el.getAttribute('for')),
       })
       .on('[data-field]', {
-        element: (el) => {
+        element: outside((el: HTMLRewriterTypes.Element) => {
           const wrapper = {
             names: new Set<string>(),
             hint: hints[wrapperCount++] ?? null,
@@ -405,11 +433,11 @@ const _filled = (view: FormView, prefix: string): string => {
                   })
               );
           });
-        },
+        }),
       })
       // Первая подсказка обёртки получает id, на который ссылаются её поля (свой id уже с префиксом).
       .on('.hint', {
-        element: (el) => {
+        element: outside((el: HTMLRewriterTypes.Element) => {
           const wrapper = wrappers.at(-1);
           void (
             wrapper?.hint &&
@@ -417,10 +445,10 @@ const _filled = (view: FormView, prefix: string): string => {
             ((wrapper.placed = true),
             el.getAttribute('id') || el.setAttribute('id', wrapper.hint))
           );
-        },
+        }),
       })
       .on('input[name], select[name], textarea[name]', {
-        element: (el) => {
+        element: outside((el: HTMLRewriterTypes.Element) => {
           const name = decodeEntities(el.getAttribute('name')!);
           const type = (el.getAttribute('type') ?? '').toLowerCase();
           const source = el.getAttribute('data-source');
@@ -449,18 +477,58 @@ const _filled = (view: FormView, prefix: string): string => {
               ((select = postedOf(name)),
               el.onEndTag(() => void (select = null))))
           );
-        },
+        }),
       })
       .on('option[value]', {
-        element: (el) =>
-          void (
-            select &&
-            (select.includes(decodeEntities(el.getAttribute('value')!))
-              ? el.setAttribute('selected', '')
-              : el.removeAttribute('selected'))
-          ),
+        element: outside(
+          (el: HTMLRewriterTypes.Element) =>
+            void (
+              select &&
+              (select.includes(decodeEntities(el.getAttribute('value')!))
+                ? el.setAttribute('selected', '')
+                : el.removeAttribute('selected'))
+            )
+        ),
       })
       .transform(view.source)
+  );
+};
+
+// Содержимое шаблонов — не часть формы: кнопка «Отправить ещё» в разметке ответа не убирает кнопку отправки.
+const _withoutTemplates = (source: string): string =>
+  source.includes('<template')
+    ? new HTMLRewriter()
+        .on('template', { element: (el) => void el.remove() })
+        .transform(source)
+    : source;
+
+// Начало и конец содержимого шаблона ответа в выводе HTMLRewriter: управляющих символов в разметке формы нет.
+const _OPEN = '\u0001cms-sent\u0001';
+const _CLOSE = '\u0002cms-sent\u0002';
+
+/** Содержимое первого `<template data-sent>` — с id формы, как в её разметке; null — шаблона нет. */
+export var sentOf = (source: string, prefix: string): string | null => {
+  let found = false;
+  const marked = new HTMLRewriter()
+    .on(SENT_TEMPLATE, {
+      element: (el) =>
+        void (found || ((found = true), el.prepend(_OPEN), el.append(_CLOSE))),
+    })
+    .on('[id]', {
+      element: (el) =>
+        void el.setAttribute('id', prefix + el.getAttribute('id')),
+    })
+    .on('label[for]', {
+      element: (el) =>
+        void el.setAttribute('for', prefix + el.getAttribute('for')),
+    })
+    .transform(source.includes('data-sent') ? source : '');
+  return ((start, end) =>
+    start < 0
+      ? null
+      : marked.slice(start + _OPEN.length, end < 0 ? undefined : end))(
+    marked.indexOf(_OPEN),
+    marked.indexOf(_CLOSE)
   );
 };
 
@@ -519,8 +587,9 @@ export var htmlMarkup: FormMarkup = {
   fields: fieldsOf,
   render: (view) => {
     const body = _filled(view, `${view.name}-`);
+    const form = _withoutTemplates(view.source);
     return [
-      `<form class="cms-form" id="form-${Bun.escapeHTML(view.name)}" data-cms-form="${Bun.escapeHTML(view.name)}" data-goal="${Bun.escapeHTML(view.goal)}" method="post" action="${Bun.escapeHTML(view.action)}"${_hasFiles(view.source) ? ' enctype="multipart/form-data"' : ''}${_data(view.texts, _hasSteps(view.source), view.proof)}>`,
+      `<form class="cms-form" id="form-${Bun.escapeHTML(view.name)}" data-cms-form="${Bun.escapeHTML(view.name)}" data-goal="${Bun.escapeHTML(view.goal)}" method="post" action="${Bun.escapeHTML(view.action)}"${_hasFiles(form) ? ' enctype="multipart/form-data"' : ''}${_data(view.texts, _hasSteps(form), view.proof)}>`,
       _hidden('_page', view.pageId === null ? '' : String(view.pageId)),
       _hidden('_stamp', view.stamp.token),
       _hidden('_iat', String(view.stamp.iat)),
@@ -532,14 +601,14 @@ export var htmlMarkup: FormMarkup = {
         ? `<p class="cms-form-message" role="alert">${Bun.escapeHTML(view.message)}</p>`
         : '',
       body,
-      _hasSubmit(view.source)
+      _hasSubmit(form)
         ? ''
         : `<div class="field field-submit"><button type="submit">${Bun.escapeHTML(view.submitLabel)}</button></div>`,
       _proofStatus(view),
       '</form>',
     ].join('');
   },
-  sent: (name, text) =>
-    `<div class="cms-form cms-form-sent" id="form-${Bun.escapeHTML(name)}" role="status"><p>${Bun.escapeHTML(text)}</p></div>`,
+  sent: (name, text, source) =>
+    `<div class="cms-form cms-form-sent" id="form-${Bun.escapeHTML(name)}" role="status">${sentOf(source, `${name}-`) ?? `<p>${Bun.escapeHTML(text)}</p>`}</div>`,
   head: `<style data-cms-form>${_STYLES}</style><script type="module" src="${ENHANCE_URL}"></script>`,
 };

@@ -125,7 +125,7 @@ export var defineServerCompiler = (): ServerCompiler => {
           ))(compileForServer(element)))(`${element.kind}/${element.name}`);
 };
 
-export var svelteSourceCompiler: SourceCompiler = {
+export var svelteSourceCompiler: Omit<SourceCompiler, 'references'> = {
   check: (element) => void compileForServer(element),
   describe: describeComponent,
 };

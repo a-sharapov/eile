@@ -133,12 +133,17 @@ describe('форма на странице', () => {
     expect(stampOf(await second.text())._iat).not.toEqual(stampOf(html)._iat);
   });
 
-  it('скрипт улучшения отдаётся навсегда', async () => {
+  it('скрипт улучшения отдаётся навсегда и улучшает формы, появившиеся позже, по разу', async () => {
     const html = await (await get('/kuhni')).text();
     const src = /src="(\/_cms\/forms\/enhance\.[a-z0-9]+\.js)"/.exec(html)![1]!;
     const script = await get(src);
     expect(script.headers.get('cache-control')).toContain('immutable');
-    expect(await script.text()).toContain('cms:form-sent');
+    const text = await script.text();
+    expect(text).toContain('cms:form-sent');
+    // Поведение в браузере проверено в Chrome (ADR 0060): здесь — что скрипт следит за документом и метит форму.
+    expect(text).toContain('new MutationObserver(');
+    expect(text).toContain("Symbol.for('cms:form-enhanced')");
+    expect(text).toContain("form.querySelector('template[data-sent]')");
   });
 
   it('ссылка [~id~] в форме — адрес страницы; подпись скрытого поля — data-label', async () => {
@@ -346,6 +351,31 @@ describe('без JS', () => {
       'class="cms-form cms-form-sent" id="form-callback" role="status"'
     );
     expect(html).not.toContain('data-cms-form="callback"');
+  });
+
+  it('своя разметка ответа: без JS — из <template data-sent> со ссылкой на страницу, с JS — в форме', async () => {
+    app.forms.forms.save('callback', {
+      source: `${_SOURCE}<template data-sent><h2 id="done" tabindex="-1">Перезвоним</h2><p>Пока — <a href="[~${page}~]">кухни</a>.</p></template>`,
+    });
+    expect(app.forms.forms.get('callback')!.fields.map((_) => _.name)).toEqual([
+      'name',
+      'phone',
+      'text',
+      'product',
+    ]);
+    const form = await (await get('/kuhni')).text();
+    expect(form).toContain(
+      '<template data-sent><h2 id="callback-done" tabindex="-1">Перезвоним</h2><p>Пока — <a href="/kuhni">кухни</a>.</p></template>'
+    );
+    seconds(5);
+    expect(
+      (await postForm({ ...stampOf(form), ..._GOOD })).headers.get('location')
+    ).toBe('/kuhni?sent=callback#form-callback');
+    const html = await (await get('/kuhni?sent=callback')).text();
+    expect(html).toContain(
+      '<div class="cms-form cms-form-sent" id="form-callback" role="status"><h2 id="callback-done" tabindex="-1">Перезвоним</h2><p>Пока — <a href="/kuhni">кухни</a>.</p></div>'
+    );
+    expect(html).not.toContain(app.forms.forms.get('callback')!.successText);
   });
 
   it('ошибка — обратно с введённым и ошибками у полей', async () => {

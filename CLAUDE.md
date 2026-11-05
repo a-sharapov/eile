@@ -20,6 +20,7 @@ dist/cms import-wp wp.xml --db site.db      # перенос сайта WordPres
 dist/cms backup copy.db --db site.db        # бэкап всего сайта одним файлом
 dist/cms --domain example.com --db site.db  # HTTPS без прокси: Let's Encrypt сам
 dist/cms elements pull site --db site.db    # элементы файлами и AGENTS.md; check — проверка, push — в сайт
+dist/cms media push media --db site.db      # папка → медиатека; --into, --prune, --dry-run, media.json — описания
 dist/cms mcp --db site.db                   # MCP для агентов по stdio; по HTTP — /manager/mcp с ключом API
 dist/cms update                             # новая версия со сверкой SHA256SUMS; служба — перезапуск и откат
 sudo dist/cms service install --domain a.de # сайт службой systemd; --print — только показать юнит

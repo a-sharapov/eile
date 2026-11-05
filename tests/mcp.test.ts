@@ -209,6 +209,91 @@ describe('инструменты', () => {
   });
 });
 
+describe('переводы у агента', () => {
+  it('get_settings отдаёт вместе с настройками переводы и свои настройки', async () => {
+    app.site.translations.save('greeting', { ru: 'Привет' });
+    app.site.customSettings.save(
+      'contacts',
+      'phone | +7\nmail | a@b.c',
+      'По строке на контакт'
+    );
+    const settings = json(await call(editor, 'get_settings'));
+    expect(settings.language).toBe(app.site.settings.get().language);
+    expect(settings.translations).toContainEqual({
+      key: 'greeting',
+      values: { ru: 'Привет' },
+    });
+    expect(settings.customSettings).toContainEqual({
+      key: 'contacts',
+      value: 'phone | +7\nmail | a@b.c',
+      note: 'По строке на контакт',
+    });
+  });
+
+  it('update_translations: много ключей разом, языки сливаются, null удаляет, список — по строке', async () => {
+    app.site.settings.update({ languages: ['en'] });
+    const first = json(
+      await call(admin, 'update_translations', {
+        translations: {
+          menuHome: { ru: 'Главная', en: 'Home' },
+          topics: { ru: 'Кухня\r\nВанная' },
+          greeting: null,
+        },
+      })
+    );
+    expect(first.translations).toEqual([
+      { key: 'menuHome', values: { en: 'Home', ru: 'Главная' } },
+      { key: 'topics', values: { ru: 'Кухня\nВанная' } },
+    ]);
+    expect(first.removed).toEqual(['greeting']);
+    await call(admin, 'update_translations', {
+      translations: { menuHome: { en: 'Start' }, topics: { ru: '' } },
+    });
+    expect(
+      app.site.translations
+        .list()
+        .filter((_) => _.key !== 'greeting')
+        .map((_) => ({ key: String(_.key), values: _.values }))
+    ).toEqual([{ key: 'menuHome', values: { en: 'Start', ru: 'Главная' } }]);
+    app.site.settings.update({ languages: [] });
+  });
+
+  it('текст на языке, которого нет у сайта, — отказ всего вызова', async () => {
+    const result = await call(admin, 'update_translations', {
+      translations: { fine: { ru: 'Да' }, foreign: { fr: 'Oui' } },
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toStartWith('site.unknown_language');
+    expect(app.site.translations.list().map((_) => _.key)).not.toContain(
+      'fine'
+    );
+  });
+
+  it('право — как у менеджера: редактор переводы читает, но не меняет; после заявок — закрыто', async () => {
+    const names = (await rpc(editor, 'tools/list')).result.tools.map(
+      (_: { name: string }) => _.name
+    );
+    expect(names).not.toContain('update_translations');
+    expect(
+      (
+        await call(editor, 'update_translations', {
+          translations: { x: { ru: 'x' } },
+        })
+      ).isError
+    ).toBe(true);
+    const session = defineAgentSession();
+    await call(admin, 'list_submissions', {}, session);
+    const tainted = await call(
+      admin,
+      'update_translations',
+      { translations: { x: { ru: 'x' } } },
+      session
+    );
+    expect(tainted.content[0]!.text).toStartWith('agent.tainted');
+    expect(app.site.translations.list().map((_) => _.key)).not.toContain('x');
+  });
+});
+
 describe('заявки не управляют агентом', () => {
   it('прочитал заявки — код, формы, поля и настройки в этом сеансе закрыты; новый сеанс — чистый', async () => {
     const session = defineAgentSession();

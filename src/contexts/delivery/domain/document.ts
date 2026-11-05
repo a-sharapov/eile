@@ -14,13 +14,19 @@ const _escapeAttribute = (value: string): string =>
     .replaceAll('"', '&quot;')
     .replaceAll('<', '&lt;');
 
+// Свой viewport шаблона (например, с `viewport-fit=cover` для вырезов экрана) заменяет обычный: два тега
+// браузеры сливают непредсказуемо.
+const _VIEWPORT = /<meta\b[^>]*\bname\s*=\s*["']?viewport\b/i;
+
 export var htmlDocument = (language: string, { head, body }: Rendered) =>
   [
     '<!doctype html>',
     `<html lang="${_escapeAttribute(language)}">`,
     '<head>',
     '<meta charset="utf-8">',
-    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    _VIEWPORT.test(head)
+      ? ''
+      : '<meta name="viewport" content="width=device-width, initial-scale=1">',
     head,
     '</head>',
     '<body>',

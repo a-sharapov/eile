@@ -444,7 +444,7 @@ export var messages: Dictionary['messages'] = {
     'TypeScript modules with render and notFound hooks and event subscriptions.',
   'elements.aboutFields': 'Custom page fields, assigned to templates.',
   'elements.aboutScripts':
-    'ES modules for the browser: a template includes them with script(name).',
+    'ES modules for the browser: a template includes them with script(name), and they import each other as ./name.js.',
   'plugins.one': 'Plugin',
   'nav.forms': 'Forms',
   'inbox.title': 'Submissions',
@@ -620,6 +620,8 @@ export var messages: Dictionary['messages'] = {
   'formEditor.title': 'Form title',
   'formEditor.submitLabel': 'Button text',
   'formEditor.successText': '“Thank you” text',
+  'formEditor.successTextHint':
+    'For your own markup — a heading, links, buttons — put a <template data-sent>…</template> block into the form’s HTML: it replaces this text.',
   'formEditor.successPage': 'Or go to a page',
   'formEditor.successPageHint':
     'A “Thank you” page is handy for analytics goals.',
@@ -672,6 +674,11 @@ export var messages: Dictionary['messages'] = {
   'formEditor.storeHint':
     'Submissions with personal data are deleted after a set period, as data protection laws require.',
   'formEditor.retention': 'Keep submissions, days',
+  'formEditor.storeClientInfo': 'Store the visitor’s IP address and browser',
+  'formEditor.storeClientInfoHint':
+    'Shown on the submission and in the CSV, they help to tell spam apart. Turn it off if the site’s privacy policy promises not to store IP addresses.',
+  'formEditor.storeClientInfoOffHint':
+    'Submissions are saved without the IP address and browser; notifications and the webhook never carry them anyway. The limit per address still works: the address stays only in the server’s memory and is never written to the database.',
   'formEditor.webhookTitle': 'Webhook',
   'formEditor.webhookHint':
     'Every accepted submission goes to this address as JSON, to a CRM for example. Spam is not sent; a failed delivery is retried up to five times, and the result shows on the submission.',
@@ -720,10 +727,11 @@ export var messages: Dictionary['messages'] = {
   'elements.hint':
     "Ctrl+S saves. Importing components: import X from '$components/X'.",
   'elements.scriptHint':
-    'Ctrl+S saves. An ES module for the browser, up to 2 MB: bundle its dependencies into this file; only https:// addresses can be imported.',
+    'Ctrl+S saves. An ES module for the browser, up to 2 MB. It can import other site scripts as ./name.js (chunks of one code-split build) and https:// addresses; bundle other dependencies into scripts.',
   'elements.scriptInclude': 'Include in a template’s <svelte:head>',
   'elements.scriptUrl': 'Current version’s address',
-  'elements.scriptUnused': 'no template or component includes it yet',
+  'elements.scriptUnused':
+    'no template or component includes it, and no script references it yet',
   'nav.plugins': 'Plugins',
   'nav.media': 'Media',
   'media.title': 'Media library',
@@ -1321,7 +1329,7 @@ export var messages: Dictionary['messages'] = {
     'One group per line, variants separated by commas; a variant can be a phrase. Someone searching for “couch” will also find pages about sofas.',
   'settings.files': 'Check what search engines and AI see:',
   'translations.intro':
-    'In page text, write a key as {i18n.key}; in a template, as {site.i18n.key}. On the site it turns into text in the page’s language, or in the default language if there’s no text in that one. Translations are optional: you can write text right in the page.',
+    'In page text, write a key as {i18n.key}; in a template, as {site.i18n.key}. On the site it turns into text in the page’s language, or in the default language if there’s no text in that one. Translations are optional: you can write text right in the page. Shift+Enter starts a new line in a text: a list, such as answer options, goes one item per line.',
   'translations.search': 'Find a key or text',
   'translations.newKey': 'New key',
   'translations.newText': 'Text',
@@ -1341,7 +1349,7 @@ export var messages: Dictionary['messages'] = {
   'translations.removeBody':
     'Wherever the key is used, the site will show the key itself in curly braces.',
   'custom.intro':
-    'A value you change in one place, like a phone number or an address. In page text, write its key as [@key]; in templates and components, as {site.custom.key}.',
+    'A value you change in one place, like a phone number or an address. In page text, write its key as [@key]; in templates and components, as {site.custom.key}. A value can span several lines (Shift+Enter), such as one contact per line.',
   'custom.key': 'Key',
   'custom.newKey': 'New key',
   'custom.removed': 'Setting deleted',
@@ -1690,7 +1698,7 @@ export var messages: Dictionary['messages'] = {
   'starter.componentTitle': 'Title',
   'starter.pluginHooks': 'Hooks are optional: keep the ones you need.',
   'starter.scriptAbout':
-    'An ES module for the browser. Bundle its dependencies into this file: only https:// addresses can be imported.',
+    'An ES module for the browser. It can import other site scripts as ./name.js and https:// addresses.',
   'aiFacts.components': 'Site components: {list}',
   'aiFacts.none': 'none',
   'aiFacts.media': 'media library',
@@ -2086,7 +2094,11 @@ export var errors: Dictionary['errors'] = {
     'A script name is lowercase letters a–z, digits and hyphens: kitchen-stage.',
   'design.script_syntax': 'The script doesn’t parse as an ES module — {detail}',
   'design.script_import':
-    'Bundle the script’s dependencies into it: only https:// addresses can be imported — {detail}',
+    'A script imports only other site scripts as ./name.js and https:// addresses; bundle the rest into scripts — {detail}',
+  'design.unknown_script':
+    'The script references a script that doesn’t exist: save that one first or together with this one — {detail}',
+  'design.invalid_scripts':
+    'Scripts of one build are passed as an object of name → source.',
   'extensions.empty_source': 'The plugin code can’t be empty.',
   'extensions.source_too_large': 'The plugin code is too large.',
   'extensions.compile_failed': 'The plugin doesn’t compile — {detail}',

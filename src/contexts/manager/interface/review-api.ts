@@ -5,7 +5,12 @@ import type {
   FieldValues,
   PageChanges,
 } from '../../content/index.ts';
-import type { DesignService, ElementKind } from '../../design/index.ts';
+import {
+  type DesignService,
+  type ElementKind,
+  parseScriptBatch,
+  type ScriptBatch,
+} from '../../design/index.ts';
 import {
   can,
   type IdentityService,
@@ -40,10 +45,12 @@ export type Operations = {
   readonly setFields: (actor: Actor, id: number, values: FieldValues) => number;
   readonly movePage: (id: number, parentId: number | null) => number;
   readonly pageAction: (id: number, action: PageVerb) => number;
+  /** `batch` — скрипты, что сохраняются вместе с этим: на них можно ссылаться как на `./имя.js`. */
   readonly saveElement: (
     kind: ElementKind,
     name: string,
-    source: string
+    source: string,
+    batch?: ScriptBatch
   ) => void;
   /** Без права на код — HTML чистится, типы, которые браузер исполняет, не выбрать. */
   readonly guardPage: <T extends PageChanges & { fields?: FieldValues }>(
@@ -94,6 +101,20 @@ const _withoutExtras = ({
 }: CreatePageInput): PageChanges => changes;
 
 /** Ответ агенту при проверке правок: квитанция вместо результата. */
+/** Элемент и куски той же сборки, если он скрипт: сам элемент — последним, его исходник главнее. */
+const _withScripts = (
+  kind: ElementKind,
+  name: string,
+  source: string,
+  scripts: unknown
+): ScriptBatch =>
+  new Map([
+    ...(kind === 'script' && scripts !== undefined
+      ? [...parseScriptBatch(scripts)].filter(({ 0: other }) => other !== name)
+      : []),
+    [name, source],
+  ]);
+
 const _receipt = (receipt: Receipt, extra: Record<string, unknown> = {}) =>
   json(202, {
     pending: true,
@@ -127,8 +148,11 @@ export var reviewApi = ({
   activity,
   ops,
 }: Deps) => {
-  const propose = (context: Context, op: Operation): Receipt =>
-    review.propose(agentOf(context)!, op);
+  const propose = (
+    context: Context,
+    op: Operation,
+    batch?: ScriptBatch
+  ): Receipt => review.propose(agentOf(context)!, op, batch);
 
   // Страница, которую агент сам предложил создать, ещё не в базе: её прежний текст — пустой.
   const currentOf = (id: number) =>
@@ -239,32 +263,47 @@ export var reviewApi = ({
             })
           ))(content.revisions.changes(id, Number(context.params.revision)))
     ),
+    // Со скриптом могут прийти куски той же сборки: каждый — своё предложение, ссылки между ними — в любом
+    // порядке.
     'PUT /elements/:kind/:name': (context) =>
-      context.body().then((body: { source?: unknown }) =>
-        ((kind) =>
-          kind
-            ? (void (
-                context.request.headers.get('if-none-match') === '*' &&
-                design.elements.get(kind, context.params.name!) !== null &&
-                fail(
-                  'design.element_exists',
-                  `"${context.params.name}" already exists`
-                )
-              ),
-              _receipt(
-                propose(context, {
-                  kind: 'element.save',
-                  element: kind,
-                  name: context.params.name!,
-                  source: String(body?.source ?? ''),
-                })
-              ))
-            : apiError(
-                404,
-                'design.element_not_found',
-                `Unknown kind "${context.params.kind}"`
-              ))(_KINDS.find((_) => _ === context.params.kind))
-      ),
+      context
+        .body()
+        .then((body: { source?: unknown; scripts?: unknown }) =>
+          ((kind) =>
+            kind
+              ? (void (
+                  context.request.headers.get('if-none-match') === '*' &&
+                  design.elements.get(kind, context.params.name!) !== null &&
+                  fail(
+                    'design.element_exists',
+                    `"${context.params.name}" already exists`
+                  )
+                ),
+                ((batch) =>
+                  _receipt(
+                    [...batch]
+                      .map(({ 0: name, 1: source }) =>
+                        propose(
+                          context,
+                          { kind: 'element.save', element: kind, name, source },
+                          batch
+                        )
+                      )
+                      .at(-1)!
+                  ))(
+                  _withScripts(
+                    kind,
+                    context.params.name!,
+                    String(body?.source ?? ''),
+                    body?.scripts
+                  )
+                ))
+              : apiError(
+                  404,
+                  'design.element_not_found',
+                  `Unknown kind "${context.params.kind}"`
+                ))(_KINDS.find((_) => _ === context.params.kind))
+        ),
   };
 
   // Не меняют сайт: чтение по POST и управление своими предложениями. Загрузка в медиатеку проверяет
@@ -323,11 +362,16 @@ export var reviewApi = ({
   // подписаны им, его HTML чистится.
   const applier =
     (agent: UserView) =>
-    (proposal: Proposal): void => {
+    (proposal: Proposal, batch: ScriptBatch): void => {
       _need(agent, proposal);
       const actor: Actor = { user: agent, agent: true };
       void (proposal.kind === 'element'
-        ? ops.saveElement(proposal.element, proposal.name, proposal.source)
+        ? ops.saveElement(
+            proposal.element,
+            proposal.name,
+            proposal.source,
+            batch
+          )
         : ((delta, id) =>
             delta.created
               ? (ops.createPage(

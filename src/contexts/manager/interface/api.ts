@@ -45,7 +45,11 @@ import type {
   PageView,
 } from '../../content/index.ts';
 import type { PageCacheStats } from '../../delivery/index.ts';
-import type { DesignService, ElementKind } from '../../design/index.ts';
+import {
+  type DesignService,
+  type ElementKind,
+  parseScriptBatch,
+} from '../../design/index.ts';
 import type { DiagnosticsReport } from '../../diagnostics/index.ts';
 import type { ExtensionsService } from '../../extensions/index.ts';
 import type {
@@ -289,8 +293,9 @@ const _MB = 1024 * _KB;
 const _BODY_LIMIT: Readonly<Record<string, number>> = {
   'POST /media': 32 * _MB,
   'POST /backup': 2048 * _MB,
-  // Скрипт сайта — до 2 МиБ, в JSON кавычки и обратные косые черты ещё и экранируются.
-  'PUT /elements/:kind/:name': 8 * _MB,
+  // Скрипт сайта — до 2 МиБ, в JSON кавычки и обратные косые черты ещё и экранируются; с ним могут прийти
+  // другие куски той же сборки (`scripts`).
+  'PUT /elements/:kind/:name': 32 * _MB,
 };
 
 // Большие тела маршрут читает сам — `bytes()` или `spooled()`: `_buffered` держал бы их в памяти трижды.
@@ -1011,8 +1016,8 @@ const _routes = (
       ),
     movePage: (id, parentId) => content.pages.move(id, parentId),
     pageAction: (id, action) => content.pages[action](id),
-    saveElement: (kind, name, source) =>
-      design[_ELEMENT_KINDS[kind]].save(name, source),
+    saveElement: (kind, name, source, batch) =>
+      design[_ELEMENT_KINDS[kind]].save(name, source, batch),
     guardPage,
     cleanFields,
   };
@@ -2193,7 +2198,7 @@ const _routes = (
         const set = elementSet(params.kind!);
         return set
           ? body().then(
-              (_: { source: string }) => (
+              (_: { source: string; scripts?: unknown }) => (
                 refuseExisting(
                   request,
                   design.elements.get(
@@ -2203,11 +2208,19 @@ const _routes = (
                   'design.element_exists',
                   params.name!
                 ),
-                ops.saveElement(
-                  elementKind(params.kind),
-                  params.name!,
-                  String(_.source ?? '')
-                ),
+                // Со скриптом — куски той же сборки: все одним шагом, ссылки между ними в любом порядке.
+                params.kind === 'script' && _.scripts !== undefined
+                  ? design.scripts.saveAll(
+                      new Map([
+                        ...parseScriptBatch(_.scripts),
+                        [params.name!, String(_.source ?? '')],
+                      ])
+                    )
+                  : ops.saveElement(
+                      elementKind(params.kind),
+                      params.name!,
+                      String(_.source ?? '')
+                    ),
                 _json(
                   200,
                   design.elements.get(elementKind(params.kind), params.name!)
@@ -2354,6 +2367,21 @@ const _routes = (
         body().then(
           (_: { values?: Record<string, unknown> }) => (
             site.translations.save(params.key!, _.values ?? {}),
+            _json(200, site.translations.list())
+          )
+        ),
+    ],
+    // Много ключей разом, одной транзакцией: так переводы ставит агент — словарь сайта в один вызов.
+    [
+      'PATCH',
+      '/translations',
+      'site.edit',
+      ({ body }) =>
+        body().then(
+          (_: {
+            translations?: Record<string, Record<string, unknown> | null>;
+          }) => (
+            site.translations.update(_.translations ?? {}),
             _json(200, site.translations.list())
           )
         ),

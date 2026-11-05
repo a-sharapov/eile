@@ -1,3 +1,4 @@
+import { defineClientKey } from '../../../shared/kernel/client-key.ts';
 import { attempt, fail } from '../../../shared/kernel/errors.ts';
 import type { DomainEvent, EventBus } from '../../../shared/kernel/events.ts';
 import type { ManagerLanguage } from '../../../shared/kernel/manager-language.ts';
@@ -273,6 +274,8 @@ export var defineFormsService = ({
 }: FormsPorts) => {
   // Поля формы — по ревизии: HTML разбирается раз на правку, а не на каждый показ.
   const parsed = new Map<string, { revision: number; fields: FieldSpec[] }>();
+  // Окна лимита и повторы — по ключу из соли процесса, а не по IP: в памяти нет ни адреса, ни значений заявки.
+  const clientKey = defineClientKey();
   let rates = new Map<string, { start: number; count: number }>();
   let recent = new Map<string, number>();
   let confirmations: ConfirmationLog = new Map();
@@ -511,9 +514,10 @@ export var defineFormsService = ({
         utm: parseUtm(_first(input.fields, '_utm')),
         ...(unproven ? { proof: 'missing' as const } : {}),
       },
-      // IPv4 за двойным стеком приходит как ::ffff:1.2.3.4 — храним привычный вид.
-      ip: input.ip.replace(/^::ffff:/i, ''),
-      userAgent: input.userAgent.slice(0, 500),
+      // IPv4 за двойным стеком приходит как ::ffff:1.2.3.4 — храним привычный вид. Форма без хранения адреса
+      // и браузера кладёт пустые строки: лимит частоты и повтор считают адрес в памяти, а не по заявке.
+      ip: form.storeClientInfo ? input.ip.replace(/^::ffff:/i, '') : '',
+      userAgent: form.storeClientInfo ? input.userAgent.slice(0, 500) : '',
       status: (spam ? 'spam' : 'new') as SubmissionStatus,
       createdAt: iso(),
     };
@@ -564,7 +568,7 @@ export var defineFormsService = ({
         userAgent: input.userAgent,
       }))
     );
-    count(`${input.ip}|${form.name}`);
+    count(`${clientKey(input.ip)}|${form.name}`);
     return sent(form, back);
   };
 
@@ -619,7 +623,7 @@ export var defineFormsService = ({
               }
             : clock().getTime() - iat < form.minSeconds * 1000
               ? { kind: 'wait', back, message: messages.fast }
-              : limited(`${input.ip}|${form.name}`)
+              : limited(`${clientKey(input.ip)}|${form.name}`)
                 ? { kind: 'wait', back, message: messages.many }
                 : Object.keys(checked.errors).length > 0
                   ? {
@@ -631,7 +635,9 @@ export var defineFormsService = ({
                   : // Повтор той же печатью (и тем же решением) — тот же успех без второй записи.
                     !stamps.spend(token) ||
                       duplicate(
-                        `${form.name}|${input.ip}|${JSON.stringify(checked.values)}`
+                        clientKey(
+                          `${form.name}|${input.ip}|${JSON.stringify(checked.values)}`
+                        )
                       )
                     ? sent(form, back)
                     : accept(
@@ -659,7 +665,10 @@ export var defineFormsService = ({
     return form === null
       ? { head: '', body: '' }
       : request.query.sent === name
-        ? { head: markup.head, body: markup.sent(name, form.successText) }
+        ? {
+            head: markup.head,
+            body: markup.sent(name, form.successText, linked(form.source)),
+          }
         : ((fresh) => ({
             head: markup.head,
             body: markup.render({
@@ -876,7 +885,7 @@ export var defineFormsService = ({
       ((form) =>
         form === null
           ? 'missing'
-          : limited(`${ip}|${form.name}`)
+          : limited(`${clientKey(ip)}|${form.name}`)
             ? 'limited'
             : fieldsOf(form).some((_) => _.kind === 'file')
               ? 'files'
