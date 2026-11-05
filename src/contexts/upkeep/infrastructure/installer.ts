@@ -10,6 +10,7 @@ import {
   statSync,
   symlinkSync,
 } from 'node:fs';
+import { open } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { unzipFile } from '../../../platform/zip.ts';
 import { attempt, fail, rethrow } from '../../../shared/kernel/errors.ts';
@@ -183,7 +184,14 @@ export var defineInstallFiles = (
   windows = process.platform === 'win32'
 ): InstallFiles => ({
   windows,
-  write: (path, data) => Bun.write(path, new Response(data)),
+  // Кусок за куском и закрытие до ответа: Bun.write(path, Response) отвечает раньше, чем закрывает файл, и
+  // пробный запуск только что записанного бинарника ловил ETXTBSY.
+  write: (path, data) =>
+    open(path, 'w').then((handle) =>
+      (async () => {
+        for await (const chunk of data) await handle.write(chunk);
+      })().finally(() => handle.close())
+    ),
   read: (path) => Bun.file(path).stream(),
   executable: (path) => void (windows || chmodSync(path, 0o755)),
   copy: (from, to) => copyFileSync(from, to),
@@ -211,14 +219,28 @@ export var defineInstallFiles = (
       () => readdirSync(dir),
       () => []
     ),
-  check: (path) =>
-    ((result) =>
-      result.exitCode === 0
-        ? null
-        : (result.stderr.toString().split('\n')[0] ?? ''))(
-      Bun.spawnSync([path, 'version'], { stdout: 'pipe', stderr: 'pipe' })
-    ),
+  check: (path) => _version(path, 5),
 });
+
+// Пробный запуск `version`. ETXTBSY — файл ещё держит открытым на запись другой процесс (дескриптор,
+// унаследованный порождённым в ту же минуту): запуск повторяется. Другой отказ запуска (чужой формат —
+// ENOEXEC) — ответ «не запускается», а не исключение мимо уборки временного файла.
+const _version = (path: string, tries: number): string | null =>
+  attempt(
+    () =>
+      ((result) =>
+        result.exitCode === 0
+          ? null
+          : (result.stderr.toString().split('\n')[0] ?? ''))(
+        Bun.spawnSync([path, 'version'], { stdout: 'pipe', stderr: 'pipe' })
+      ),
+    (error) =>
+      (error as { code?: unknown }).code === 'ETXTBSY' && tries > 1
+        ? (Bun.sleepSync(50), _version(path, tries - 1))
+        : error instanceof Error
+          ? error.message
+          : String(error)
+  );
 
 const _EXE = /\.exe$/i;
 
