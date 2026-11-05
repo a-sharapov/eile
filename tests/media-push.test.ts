@@ -117,7 +117,8 @@ describe('cms media push', () => {
   it('нарушения правил — все сразу, с путями, и тогда не сохраняется ничего', async () => {
     const app = createApp({ scaffold: DEMO });
     put('images/ok.png', 'png');
-    put('Images/Photo.JPG', 'jpg');
+    // Имена в другом регистре — новые: NTFS не различает images/ и Images/, price.pdf и Price.PDF.
+    put('Fotos/Photo.JPG', 'jpg');
     put('docs/отчёт.pdf', 'pdf');
     put('tools/run.exe', 'exe');
     put('empty.txt', '');
@@ -137,7 +138,7 @@ describe('cms media push', () => {
     const report = await run(app);
     expect(report.saved).toBe(false);
     expect(report.problems.map((_) => [_.file, _.code])).toEqual([
-      ['Images/Photo.JPG', 'media.invalid_path'],
+      ['Fotos/Photo.JPG', 'media.invalid_path'],
       ['docs/отчёт.pdf', 'media.invalid_path'],
       ['empty.txt', 'media.invalid_size'],
       ...(WINDOWS ? [] : [['link.csv', 'workspace.symlink']]),
@@ -385,7 +386,7 @@ describe('cms media push из командной строки', () => {
     output.length = 0;
     await RUN.media!(context(['push', folder], db));
     expect(output.join('\n')).toContain('Папка и медиатека совпадают');
-    put('docs/Price.PDF', '%PDF-1.4');
+    put('docs/Preise.PDF', '%PDF-1.4');
     output.length = 0;
     await expect(RUN.media!(context(['push', folder], db))).rejects.toThrow(
       'Ничего не сохранено: ошибок 1'
