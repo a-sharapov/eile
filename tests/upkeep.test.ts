@@ -31,7 +31,7 @@ import { parseSchedule } from '../src/contexts/upkeep/domain/schedule.ts';
 import { isPrerelease } from '../src/contexts/upkeep/domain/version.ts';
 import { defineReleases, updateProgram } from '../src/contexts/upkeep/index.ts';
 import { startUpkeep } from '../src/contexts/upkeep/infrastructure/background.ts';
-import { isDomainError } from '../src/shared/kernel/errors.ts';
+import { attempt, isDomainError } from '../src/shared/kernel/errors.ts';
 import { expectMode, removeTemp, WINDOWS } from './fixtures/platform.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'cms-upkeep-'));
@@ -262,7 +262,29 @@ describe('обновления', () => {
   // Сколько раз скачан архив; в SHA256SUMS нет строки архива; большой выпуск — файлом на диске.
   let archives = 0;
   let unlisted = false;
-  let large: { readonly path: string; readonly sums: string } | null = null;
+  // Большой выпуск отдаётся кусками по мегабайту, по запросу; перед последним куском — сколько скачанного
+  // уже на диске (probe — файл, куда пишет обновление).
+  let large: {
+    readonly path: string;
+    readonly sums: string;
+    readonly probe: string;
+    written: number | null;
+  } | null = null;
+  const _pieces = (release: NonNullable<typeof large>) =>
+    ((file, step) => {
+      let at = 0;
+      return new ReadableStream<Uint8Array>({
+        pull: async (controller) =>
+          at >= file.size
+            ? controller.close()
+            : (at + step >= file.size &&
+                (release.written = attempt(
+                  () => statSync(release.probe).size,
+                  () => 0
+                )),
+              controller.enqueue(await file.slice(at, (at += step)).bytes())),
+      });
+    })(Bun.file(release.path), 1 << 20);
   const archive = Bun.gzipSync(_script('0.2.0'));
   const sums = `${new Bun.CryptoHasher('sha256').update(archive).digest('hex')}  cms-linux-x64.gz\n`;
 
@@ -289,7 +311,7 @@ describe('обновления', () => {
               ? ((archives += 1),
                 new Response(
                   large
-                    ? Bun.file(large.path)
+                    ? _pieces(large)
                     : tamper
                       ? Bun.gzipSync(_script('evil'))
                       : archive
@@ -463,18 +485,23 @@ describe('обновления', () => {
 
   // Архив и бинарник — по сотне мегабайт, а у сервера бывает 512 МБ памяти на всё. До 0.1.2 обновление
   // держало архив дважды и бинарник целиком (около 250 МБ), и рядом с работающим сайтом его убивал OOM.
-  // Теперь в памяти только куски потока.
+  // Теперь скачанное идёт на диск по мере загрузки: к последнему куску почти весь архив уже в файле, а
+  // прежний код к этому моменту не записал ничего. Память процесса на раннерах шумит (сборщик мусора
+  // приходит, когда хочет), поэтому её предел — с запасом: поток рос на 60–120 МБ, прежний код — на 250–300.
   unixIt(
-    'большой выпуск идёт через диск: ни архив, ни бинарник в памяти целиком не лежат',
+    'большой выпуск пишется на диск по мере загрузки, а не собирается в памяти',
     async () => {
       const size = 64 << 20;
       const path = join(dir, 'large.gz');
       writeFileSync(path, Bun.gzipSync(_large(size), { level: 1 }));
-      large = {
+      const binary = installed();
+      const release = {
         path,
         sums: `${new Bun.CryptoHasher('sha256').update(await Bun.file(path).bytes()).digest('hex')}  cms-linux-x64.gz\n`,
+        probe: join(binary, '..', `.cms.download.${process.pid}`),
+        written: null as number | null,
       };
-      const binary = installed();
+      large = release;
       // Буферы сборки архива — прочь до замера.
       await Bun.sleep(10);
       Bun.gc(true);
@@ -500,9 +527,8 @@ describe('обновления', () => {
         'cms.old',
         'eile',
       ]);
-      // Старый код рос на четыре размера архива (250 МБ здесь); поток — на постоянные 35–60 МБ буферов и
-      // рантайма, сколько бы ни весил выпуск.
-      expect(peak - before).toBeLessThan(size * 1.5);
+      expect(release.written).toBeGreaterThan(Bun.file(path).size / 2);
+      expect(peak - before).toBeLessThan(size * 3);
     },
     60_000
   );
