@@ -62,6 +62,22 @@ describe('HTML от редактора', () => {
     ).toBe('<img alt="">');
   });
 
+  it('ссылка с target получает rel=noopener noreferrer; свой rel сохраняется', () => {
+    expect(sanitizeHtml('<a href="/x" target="_blank">x</a>')).toBe(
+      '<a href="/x" target="_blank" rel="noopener noreferrer">x</a>'
+    );
+    expect(
+      sanitizeHtml('<a href="/x" target="_blank" rel="nofollow">x</a>')
+    ).toBe(
+      '<a href="/x" target="_blank" rel="nofollow noopener noreferrer">x</a>'
+    );
+    // Без target rel не навязывается; уже заданный noopener не дублируется.
+    expect(sanitizeHtml('<a href="/x">x</a>')).toBe('<a href="/x">x</a>');
+    expect(
+      sanitizeHtml('<a href="/x" target="_blank" rel="noopener">x</a>')
+    ).toBe('<a href="/x" target="_blank" rel="noopener noreferrer">x</a>');
+  });
+
   it('убирает служебные метки CMS: регионы и острова', () => {
     expect(
       sanitizeHtml(

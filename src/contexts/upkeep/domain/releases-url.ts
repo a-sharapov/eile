@@ -1,4 +1,5 @@
 import { attempt, fail } from '../../../shared/kernel/errors.ts';
+import { isLinkLocalHost } from '../../../shared/kernel/outbound.ts';
 
 const _LOOPBACK = /^(?:localhost|.+\.localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
 
@@ -14,8 +15,9 @@ const _url = (raw: string): URL | null =>
  * подменит любой на пути.
  */
 export var safeSource = (url: URL, insecure: boolean): boolean =>
-  url.protocol === 'https:' ||
-  (url.protocol === 'http:' && (insecure || _LOOPBACK.test(url.hostname)));
+  !isLinkLocalHost(url.hostname) &&
+  (url.protocol === 'https:' ||
+    (url.protocol === 'http:' && (insecure || _LOOPBACK.test(url.hostname))));
 
 /**
  * `CMS_RELEASES_URL` — свой адрес API релизов вместо `https://api.github.com`: зеркало, сеть без выхода

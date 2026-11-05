@@ -113,13 +113,20 @@ const _safeValue = (name: string, value: string): boolean =>
         ? !_RESERVED.test(value.trim())
         : true;
 
-const _clean = (element: HTMLRewriterTypes.Element): void =>
-  [...element.attributes]
-    .filter(
-      ({ 0: name, 1: value }) =>
-        !_allowedAttribute(element.tagName, name) || !_safeValue(name, value)
-    )
-    .forEach(({ 0: name }) => void element.removeAttribute(name));
+const _clean = (element: HTMLRewriterTypes.Element): void => {
+  for (const { 0: name, 1: value } of [...element.attributes])
+    if (!_allowedAttribute(element.tagName, name) || !_safeValue(name, value))
+      element.removeAttribute(name);
+  // Ссылка с target открывается в новой вкладке — навязываем rel=noopener noreferrer, чтобы чужая
+  // страница не достала window.opener (обратный табнаббинг); свой rel ссылки сохраняется.
+  if (element.tagName === 'a' && element.getAttribute('target') !== null) {
+    const rel = new Set(
+      (element.getAttribute('rel') ?? '').split(/\s+/).filter(Boolean)
+    );
+    rel.add('noopener').add('noreferrer');
+    element.setAttribute('rel', [...rel].join(' '));
+  }
+};
 
 // `<!--noindex-->` нужен Яндексу; остальные комментарии — в том числе метки регионов — убираем.
 const _KEPT_COMMENT = /^\s*\/?noindex\s*$/i;

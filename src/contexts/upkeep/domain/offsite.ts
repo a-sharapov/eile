@@ -1,4 +1,8 @@
 import { fail } from '../../../shared/kernel/errors.ts';
+import {
+  isLinkLocalHost,
+  isLoopbackHost,
+} from '../../../shared/kernel/outbound.ts';
 import type { BackupFailure } from './schedule.ts';
 
 /**
@@ -86,7 +90,10 @@ const _endpoint = (raw: string): string =>
         url.username === '' &&
         url.password === '' &&
         url.search === '' &&
-        url.hash === ''
+        url.hash === '' &&
+        // Link-local/метадата — никогда; http — только на этой машине (своё MinIO), иначе ключ уйдёт открытым.
+        !isLinkLocalHost(url.hostname) &&
+        (url.protocol === 'https:' || isLoopbackHost(url.hostname))
           ? `${url.origin}${url.pathname.replace(/\/+$/, '')}`
           : fail(
               'upkeep.invalid_endpoint',

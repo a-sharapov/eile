@@ -101,10 +101,10 @@ Windows (x64 и arm64, [ниже](#на-windows)), — проверяет SHA256
 Если каталога нет в `PATH`, установщик дописывает его в файл оболочки.
 
 ```sh
-curl -fsSL …/install.sh | bash -s -- v0.2.0    # конкретная версия
+curl -fsSL …/install.sh | bash -s -- v0.1.5    # конкретная версия
 CMS_INSTALL_DIR=/opt/bin bash install.sh       # свой каталог
 CMS_NO_MODIFY_PATH=1 bash install.sh           # не трогать файлы оболочки
-CMS_DOWNLOAD_URL=https://mirror.example/eile/v0.2.0 bash install.sh   # файлы релиза с зеркала
+CMS_DOWNLOAD_URL=https://mirror.example/eile/v0.1.5 bash install.sh   # файлы релиза с зеркала
 ```
 
 На Alpine сначала `apk add bash curl libgcc libstdc++`. Без установщика — скачайте
@@ -350,7 +350,7 @@ sudo cms restore --server server.enc --db /var/lib/cms/site.db   # служба 
 
 ```powershell
 irm https://github.com/a-sharapov/eile/releases/latest/download/install.ps1 | iex
-& ([scriptblock]::Create((irm https://github.com/a-sharapov/eile/releases/latest/download/install.ps1))) -Version v0.2.0
+& ([scriptblock]::Create((irm https://github.com/a-sharapov/eile/releases/latest/download/install.ps1))) -Version v0.1.5
 ```
 
 Установщик берёт сборку под процессор (x64 или arm64), сверяет `SHA256SUMS` и кладёт `cms.exe` в

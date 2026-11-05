@@ -108,12 +108,20 @@ const _fetch = (
           )
     )
     .then((response) =>
-      response.ok
-        ? response
-        : fail(
-            'upkeep.download_failed',
-            `${basename(new URL(url).pathname)} did not download: ${response.status}`
-          )
+      // Переадресацию GitHub на хранилище файлов идём до конца, но итоговый адрес проверяем снова: лента
+      // не уведёт скачивание на http или внутренний адрес (как это делает и загрузчик пакетов).
+      !safeDownload(response.url || url, source.insecure)
+        ? (void response.body?.cancel(),
+          fail(
+            'upkeep.insecure_download',
+            `The release redirected its file to an unsafe address: ${response.url}`
+          ))
+        : response.ok
+          ? response
+          : fail(
+              'upkeep.download_failed',
+              `${basename(new URL(url).pathname)} did not download: ${response.status}`
+            )
     );
 
 const _empty = (): ReadableStream<Uint8Array> => new Blob([]).stream();

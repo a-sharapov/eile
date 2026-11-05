@@ -4,6 +4,7 @@ export var messages = {
   'app.updateAvailable': 'Доступна версия {version}',
   'app.updateHint': 'Обновить: cms update на сервере',
   'nav.pages': 'Страницы',
+  'nav.more': 'Ещё',
   'nav.elements': 'Элементы',
   'nav.fields': 'Поля',
   'nav.settings': 'Настройки',

@@ -25,6 +25,7 @@ const _glue = (_: string): string =>
 
 <Layout {page}>
   <section class="hero">
+    <p class="kicker">{t.heroKicker}</p>
     <h1>{_glue(page.longTitle || page.title)}</h1>
     {#if page.introText}<p class="lead">{_glue(page.introText)}</p>{/if}
     <Install />
@@ -63,6 +64,14 @@ const _glue = (_: string): string =>
     margin: 0 auto;
     padding: clamp(3rem, 1.5rem + 4vw, 5rem) 0 clamp(2.5rem, 1.5rem + 2.5vw, 3.75rem);
     text-align: center;
+  }
+
+  .kicker {
+    margin: 0 0 1rem;
+    color: var(--accent);
+    font: 650 0.8125rem/1 var(--sans);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
   }
 
   h1 {

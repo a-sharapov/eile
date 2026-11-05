@@ -2,6 +2,7 @@
 import { tick } from 'svelte';
 import { agent } from '#lib/agent.svelte.ts';
 import { aiWands } from '#lib/ai-wands.ts';
+import { api } from '#lib/api.ts';
 import { chooseLanguage } from '#lib/appearance.svelte.ts';
 import { embedded } from '#lib/embed.ts';
 import { type MessageKey, t } from '#lib/i18n.ts';
@@ -46,6 +47,9 @@ type Section = {
   roles: readonly Role[];
   /** Пути, которые тоже относятся к разделу: плагины и поля — часть «Элементов», как в MODX. */
   also?: readonly ('/(app)/plugins' | '/(app)/fields')[];
+  /** Где раздел в шапке: основная навигация слева (по умолчанию), значком справа или значком со
+      счётчиком. Текущий раздел определяется по всему списку, где бы он ни стоял. */
+  slot?: 'right' | 'badge';
 };
 
 // Разделы — в шапке, как в Evo: страницы, элементы, медиа; дальше — администрирование, помощь последней.
@@ -82,6 +86,7 @@ const _NAV: readonly Section[] = [
     label: 'nav.proposals',
     icon: 'proposals',
     roles: ['admin', 'editor'],
+    slot: 'badge',
   },
   // Статистику смотрят все менеджеры; включает и настраивает её администратор во вкладке настроек.
   {
@@ -96,6 +101,7 @@ const _NAV: readonly Section[] = [
     label: 'nav.settings',
     icon: 'settings',
     roles: ['admin'],
+    slot: 'right',
   },
   // Копии — на виду, а не во вкладке настроек: о них вспоминают, когда уже поздно.
   {
@@ -110,35 +116,106 @@ const _NAV: readonly Section[] = [
     label: 'nav.help',
     icon: 'help',
     roles: ['admin', 'editor'],
+    slot: 'right',
   },
 ];
 
 const role = $derived(session.user?.role);
-const nav = $derived(_NAV.filter((_) => role && _.roles.includes(role)));
+const canSee = (_: Section): boolean =>
+  role !== undefined && _.roles.includes(role);
+// Основная навигация — подписями слева; настройки и помощь — значками справа; предложения — значком со
+// счётчиком. Текущий раздел ищется по всему списку, где бы он ни стоял (см. `current`).
+const nav = $derived(_NAV.filter((_) => canSee(_) && _.slot === undefined));
+const navRight = $derived(_NAV.filter((_) => canSee(_) && _.slot === 'right'));
+const proposals = $derived(_NAV.find((_) => _.slot === 'badge' && canSee(_)));
+
+// Счётчик на значке «Предложения» — число открытых наборов правок, ждущих проверки. Обновляется при
+// входе и после каждого перехода (разобрал набор — число падает). Тихо: ошибка оставляет прежнее число.
+let proposalsCount = $state(0);
+const refreshProposals = (): void =>
+  void (
+    proposals &&
+    api
+      .get<{ id: number }[]>('/review/sets')
+      .then((sets) => (proposalsCount = sets.length))
+      .catch(() => {})
+  );
+$effect(() => {
+  void proposals;
+  refreshProposals();
+});
 
 // Подписи разделов — пока помещаются с запасом в 1rem. Их ширина меряется, когда они видны, и хранится в rem:
 // шрифт растёт с окном, а сами разделы — нет. Другой набор разделов — ширина меряется заново.
 let navElement = $state<HTMLElement>();
 let navList = $state<HTMLUListElement>();
-let navCompact = $state(false);
-let labelsWidth = 0;
+// Ширины пунктов (в rem) снимаются один раз, пока видны все подписи; переснимаются при смене набора
+// разделов или языка. Столько подписей, сколько влезает, — слева; лишние уходят в «Ещё».
+let widths: number[] = [];
+let moreWidth = 0;
+let overflowCount = $state(0);
+let moreOpen = $state(false);
+let moreButton = $state<HTMLButtonElement>();
+let moreMenu = $state<HTMLDivElement>();
+const NAV_GAP = 0.5; // .main-nav ul { gap: 0.5rem }
+
+// Меню «Ещё» закрывается по Esc и клику мимо — как меню учётной записи.
+const closeMore = (event: Event): void =>
+  void (
+    moreOpen &&
+    (event.type === 'keydown'
+      ? (event as KeyboardEvent).key === 'Escape' &&
+        ((moreOpen = false), moreButton?.focus())
+      : !moreButton?.contains(event.target as Node) &&
+        !moreMenu?.contains(event.target as Node) &&
+        (moreOpen = false))
+  );
 
 const _rem = (): number =>
   Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
 
-const fitNav = () =>
-  void (
-    navElement &&
-    navList?.lastElementChild &&
-    ((rem) => (
-      navCompact ||
-        (labelsWidth =
-          (navList!.lastElementChild!.getBoundingClientRect().right -
-            navList!.getBoundingClientRect().left) /
-          rem),
-      (navCompact = navElement!.clientWidth / rem < labelsWidth + 1)
-    ))(_rem())
-  );
+// Мерить можно, только когда в списке видны все пункты (перелив ещё не сработал).
+const measureNav = (): void => {
+  const items = navList
+    ? [...navList.querySelectorAll<HTMLElement>('li.nav-item')]
+    : [];
+  if (items.length !== nav.length) return;
+  const rem = _rem();
+  widths = items.map((_) => _.getBoundingClientRect().width / rem);
+  const more = navList?.querySelector<HTMLElement>('li.nav-more');
+  if (more) moreWidth = more.getBoundingClientRect().width / rem;
+};
+
+const fitNav = (): void => {
+  if (!navElement) return;
+  // Узкий экран (< 64rem) — разделы значками и прокруткой (CSS прячет подписи); перелив там не нужен.
+  if (matchMedia('(width < 64rem)').matches) {
+    overflowCount = 0;
+    return;
+  }
+  if (!widths.length) {
+    measureNav();
+    if (!widths.length) return;
+  }
+  const avail = navElement.clientWidth / _rem();
+  const whole = widths.reduce((sum, w) => sum + w + NAV_GAP, -NAV_GAP);
+  if (whole <= avail) {
+    overflowCount = 0;
+    return;
+  }
+  // Резерв под «Ещё»; хотя бы один раздел (Страницы) всегда остаётся подписью.
+  let used = (moreWidth || 5) + NAV_GAP;
+  let fit = 0;
+  for (const w of widths) {
+    if (used + w > avail) break;
+    used += w + NAV_GAP;
+    fit += 1;
+  }
+  overflowCount = nav.length - Math.max(1, fit);
+};
+
+const visibleNav = $derived(nav.slice(0, nav.length - overflowCount));
+const overflowNav = $derived(nav.slice(nav.length - overflowCount));
 
 $effect(() => {
   const observer = new ResizeObserver(fitNav);
@@ -146,9 +223,13 @@ $effect(() => {
   return () => observer.disconnect();
 });
 
+// Смена набора разделов или языка меняет ширины подписей — мерим заново: показываем все, потом считаем.
 $effect(() => {
   void nav.length;
-  navCompact = false;
+  void t('nav.pages');
+  widths = [];
+  overflowCount = 0;
+  moreOpen = false;
   tick().then(fitNav);
 });
 const within = (section: Section): boolean =>
@@ -312,11 +393,13 @@ const drawerKey = (event: KeyboardEvent) =>
 // Переход на узком экране закрывает выдвижное дерево: человек хотел попасть на страницу.
 // Открытая страница запоминается — она первой в пустом окне быстрого перехода.
 afterNavigate(
-  () =>
+  () => (
+    refreshProposals(),
     void (drawer && openDrawer(false),
     Number(page.params.id) > 0 &&
       page.route.id === '/(app)/pages/[id]' &&
       rememberPage(Number(page.params.id)))
+  )
 );
 
 // Палочки ИИ у полей холстины — пока ИИ подключён; отключили — палочки убираются.
@@ -386,7 +469,7 @@ const closeAccount = (event: Event) =>
   );
 </script>
 
-<svelte:window onpointerdown={closeAccount} onkeydown={(e) => (closeAccount(e), drawerKey(e), paletteKey(e))} />
+<svelte:window onpointerdown={(e) => (closeAccount(e), closeMore(e))} onkeydown={(e) => (closeAccount(e), closeMore(e), drawerKey(e), paletteKey(e))} />
 
 {#snippet content()}
   {#if allowed}
@@ -413,15 +496,31 @@ const closeAccount = (event: Event) =>
     <header class="topbar">
       <button type="button" class="ghost icon drawer-toggle" bind:this={drawerToggle} aria-expanded={drawer} aria-controls="tree-panel" aria-label={t('shell.tree')} title={t('shell.tree')} onclick={() => openDrawer(!drawer)}>{@html icons.menu}</button>
       <a class="brand" href={resolve('/(app)/pages')} title={brand} aria-label={branded ? brand : undefined}>{#if branded}{@html logo}{:else}{brand}{/if}</a>
-      <nav class="main-nav" aria-label={t('shell.menu')} data-compact={navCompact || undefined} bind:this={navElement}>
+      <nav class="main-nav" aria-label={t('shell.menu')} bind:this={navElement}>
         <ul bind:this={navList}>
-          {#each nav as item (item.href)}
-            <li>
+          {#each visibleNav as item (item.href)}
+            <li class="nav-item">
               <a href={resolve(item.href)} aria-current={current?.href === item.href ? 'page' : undefined} title={t(item.label)}>
                 {@html icons[item.icon]}<span class="label">{t(item.label)}</span>
               </a>
             </li>
           {/each}
+          {#if overflowCount > 0}
+            <li class="nav-more">
+              <button type="button" class="more-button" class:current={overflowNav.some((_) => _.href === current?.href)} bind:this={moreButton} aria-haspopup="menu" aria-expanded={moreOpen} title={t('nav.more')} onclick={() => (moreOpen = !moreOpen)}>
+                {@html icons.more}<span class="label">{t('nav.more')}</span>
+              </button>
+              {#if moreOpen}
+                <div class="more-menu" role="menu" aria-label={t('nav.more')} bind:this={moreMenu}>
+                  {#each overflowNav as item (item.href)}
+                    <a role="menuitem" href={resolve(item.href)} aria-current={current?.href === item.href ? 'page' : undefined} onclick={() => (moreOpen = false)}>
+                      {@html icons[item.icon]}<span>{t(item.label)}</span>
+                    </a>
+                  {/each}
+                </div>
+              {/if}
+            </li>
+          {/if}
         </ul>
       </nav>
       <!-- Быстрый переход: страница, элемент или раздел по названию, алиасу или id — из любого места. -->
@@ -433,6 +532,15 @@ const closeAccount = (event: Event) =>
       {/if}
       <a class="button ghost icon site" href="/" target="_blank" rel="noopener" aria-label={t('nav.site')} title={t('nav.site')}>{@html icons.external}</a>
       <InboxBell />
+      {#if proposals}
+        <a class="button ghost icon badge-link" href={resolve(proposals.href)} aria-current={current?.href === proposals.href ? 'page' : undefined} aria-label={proposalsCount > 0 ? `${t(proposals.label)}: ${proposalsCount}` : t(proposals.label)} title={t(proposals.label)}>
+          {@html icons[proposals.icon]}
+          {#if proposalsCount > 0}<span class="count" aria-hidden="true">{proposalsCount > 99 ? '99+' : proposalsCount}</span>{/if}
+        </a>
+      {/if}
+      {#each navRight as item (item.href)}
+        <a class="button ghost icon" href={resolve(item.href)} aria-current={current?.href === item.href ? 'page' : undefined} aria-label={t(item.label)} title={t(item.label)}>{@html icons[item.icon]}</a>
+      {/each}
       <div class="account">
         <button type="button" class="user" bind:this={accountButton} aria-label={`${t('shell.account')}: ${session.user.name}${session.update ? ` · ${t('app.updateAvailable', { version: session.update.latest })}` : ''}`} aria-expanded={accountOpen} onclick={() => (accountOpen = !accountOpen)}>
           <span class="avatar" aria-hidden="true">{initials}{#if session.update}<span class="update-dot"></span>{/if}</span>
@@ -578,16 +686,90 @@ const closeAccount = (event: Event) =>
     min-width: 0;
   }
 
-  .main-nav[data-compact] a {
-    padding: 0 0.7rem;
+  /* «Ещё» — перелив разделов, не влезших подписями: кнопка в ряду + меню под ней. */
+  .nav-more {
+    position: relative;
   }
 
-  .main-nav[data-compact] .label {
+  .more-button {
+    display: flex;
+    gap: 0.55rem;
+    align-items: center;
+    min-height: 2.5rem;
+    padding: 0 1rem;
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    box-shadow: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .more-button :global(svg) {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  .more-button:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  .more-button.current {
+    background: var(--selected);
+    box-shadow: var(--shadow-s), 0 0 0 0.0625rem var(--line);
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .more-button.current :global(svg) {
+    color: var(--accent);
+  }
+
+  .more-menu {
     position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
+    top: calc(100% + 0.375rem);
+    inset-inline-start: 0;
+    z-index: 30;
+    display: grid;
+    gap: 0.125rem;
+    min-width: 12rem;
+    padding: 0.375rem;
+    border: 0.0625rem solid var(--line);
+    border-radius: var(--radius-l);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+
+  .more-menu a {
+    display: flex;
+    gap: 0.55rem;
+    align-items: center;
+    min-height: 2.25rem;
+    padding: 0 0.6rem;
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 0.9375rem;
+    text-decoration: none;
+  }
+
+  .more-menu a :global(svg) {
+    width: 1rem;
+    height: 1rem;
+    color: var(--muted);
+  }
+
+  .more-menu a:hover {
+    background: var(--accent-soft);
+  }
+
+  .more-menu a[aria-current='page'],
+  .more-menu a[aria-current='page'] :global(svg) {
+    color: var(--accent);
   }
 
   .main-nav ul {
@@ -634,6 +816,40 @@ const closeAccount = (event: Event) =>
 
   .main-nav a[aria-current='page'] :global(svg) {
     color: var(--accent);
+  }
+
+  /* Значки справа (Предложения со счётчиком, Настройки, Помощь): текущий раздел — мягкий акцент и
+     акцентный значок, как «выбранное», но без белой таблетки среди тихих значков. */
+  .badge-link {
+    position: relative;
+  }
+
+  .topbar .icon[aria-current='page'] {
+    background: var(--accent-soft);
+  }
+
+  .topbar .icon[aria-current='page'] :global(svg) {
+    color: var(--accent);
+  }
+
+  .count {
+    position: absolute;
+    top: 0.25rem;
+    inset-inline-end: 0.2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1rem;
+    height: 1rem;
+    padding: 0 0.22rem;
+    border-radius: 1rem;
+    background: var(--mark);
+    color: var(--mark-text);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 0 0 0.125rem var(--bg);
+    pointer-events: none;
   }
 
   /* Кнопка быстрого перехода — как поле поиска: подсказывает Ctrl+K, а не прячет его. */

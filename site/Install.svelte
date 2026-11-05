@@ -34,6 +34,10 @@ const book = link(
     <a class="secondary" href={c.repo}><Icon name="github" />{t.github}</a>
     {#if book}<a class="secondary" href={book}><Icon name="book" />{t.heroCookbook}</a>{/if}
   </div>
+  <p class="source">
+    <a href={c.installSource}>{t.viewScript}<Icon name="external" /></a>
+    <span>{t.checksSha}</span>
+  </p>
   <p class="meta">
     <span class="part">{t.platforms}</span>
     <span class="part">v{c.version}</span>
@@ -101,6 +105,43 @@ const book = link(
 
   .centered .actions {
     justify-content: center;
+  }
+
+  .source {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.65rem;
+    margin: 0;
+    color: var(--faint);
+    font-size: 0.875rem;
+  }
+
+  .centered .source {
+    justify-content: center;
+  }
+
+  .source a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: var(--muted);
+    font-weight: 500;
+    text-decoration: none;
+  }
+
+  .source a:hover {
+    color: var(--text);
+  }
+
+  .source a :global(.icon) {
+    width: 0.9em;
+    height: 0.9em;
+  }
+
+  .source span::before {
+    content: '·';
+    margin-right: 0.5rem;
   }
 
   .primary,

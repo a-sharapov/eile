@@ -612,7 +612,10 @@ export var reviewApi = ({
       'DELETE',
       '/review/links/:id',
       'content.edit',
-      ({ params }) => (review.links.revoke(Number(params.id)), json(200, {})),
+      // Свою ссылку отзывает её создатель: чужую по id не погасить (как со своими ключами API).
+      ({ params, user }) => (
+        review.links.revoke(Number(params.id), user!.id), json(200, {})
+      ),
     ],
     [
       // Наборы самого агента: тот же пользователь и тот же ключ.
