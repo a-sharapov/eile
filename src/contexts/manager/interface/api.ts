@@ -1710,7 +1710,8 @@ const _routes = (
     [
       'POST',
       '/inbox/:id/resend',
-      'inbox.read',
+      // Повтор отправки — не чтение: редактор видит заявки, но заново слать доставки может администратор.
+      'inbox.delete',
       ({ params }) =>
         ((deliveries) =>
           deliveries.length === 0
@@ -1723,7 +1724,8 @@ const _routes = (
     [
       'POST',
       '/inbox/:id/webhook',
-      'inbox.read',
+      // Повторный вызов вебхука — тоже администратору, не всякому, кто читает заявки.
+      'inbox.delete',
       ({ params }) => (
         forms.webhooks.retry(Number(params.id)), _json(200, { resent: 1 })
       ),

@@ -52,6 +52,19 @@ describe('настройки хранилища', () => {
     expect(
       codeOf(() => parseOffsite({ endpoint: 'https://user:pw@host' }))
     ).toBe('upkeep.invalid_endpoint');
+    // Метадата облака и http не на этой машине — режутся; своё MinIO в LAN и на петле — нет.
+    expect(
+      codeOf(() => parseOffsite({ endpoint: 'https://169.254.169.254' }))
+    ).toBe('upkeep.invalid_endpoint');
+    expect(
+      codeOf(() => parseOffsite({ endpoint: 'http://s3.example.com' }))
+    ).toBe('upkeep.invalid_endpoint');
+    expect(
+      codeOf(() => parseOffsite({ endpoint: 'https://192.168.1.9:9000' }))
+    ).toBe(null);
+    expect(
+      codeOf(() => parseOffsite({ endpoint: 'http://localhost:9000' }))
+    ).toBe(null);
     expect(codeOf(() => parseOffsite({ prefix: 'a/../b' }))).toBe(
       'upkeep.invalid_prefix'
     );

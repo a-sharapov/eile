@@ -1,4 +1,8 @@
 import { fail } from '../../../shared/kernel/errors.ts';
+import {
+  isLinkLocalHost,
+  isLoopbackHost,
+} from '../../../shared/kernel/outbound.ts';
 
 /**
  * Подключение ИИ: OpenAI-совместимый API (DeepSeek, OpenAI, локальная модель). Ключ живёт только на
@@ -23,8 +27,19 @@ export type ConnectionInput = {
   readonly vision?: unknown;
 };
 
-const _URL = /^https?:\/\/[^\s/$.?#][^\s]*$/i;
 const _MAX_INSTRUCTIONS = 2000;
+
+// Адрес API: http(s), без user:pass@, не link-local/метадата; https, кроме петли (там локальная модель).
+const _safeUrl = (raw: string): boolean =>
+  ((url) =>
+    url !== null &&
+    (url.protocol === 'https:' || url.protocol === 'http:') &&
+    url.username === '' &&
+    url.password === '' &&
+    !isLinkLocalHost(url.hostname) &&
+    (url.protocol === 'https:' || isLoopbackHost(url.hostname)))(
+    URL.parse(raw)
+  );
 
 const _text = (value: unknown): string =>
   typeof value === 'string' ? value.trim() : '';
@@ -42,9 +57,12 @@ export var parseConnection = (
   previous: Connection | null
 ): Connection =>
   ((url, model, key, instructions) => ({
-    url: _URL.test(url)
+    url: _safeUrl(url)
       ? url.replace(/\/+$/, '')
-      : fail('assistant.invalid_url', 'The API address must be http(s)://…'),
+      : fail(
+          'assistant.invalid_url',
+          'The API address must be https://… (http only on this machine) and not an internal address'
+        ),
     model: model || fail('assistant.no_model', 'The model is required'),
     key:
       key ||

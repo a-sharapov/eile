@@ -336,6 +336,9 @@ export var TEXTS: Readonly<Record<string, readonly [string, string]>> = {
     'Linux, macOS и Windows, x64 и arm64',
     'Linux, macOS and Windows, x64 and arm64',
   ],
+  heroKicker: ['CMS', 'CMS'],
+  viewScript: ['посмотреть скрипт', 'view the script'],
+  checksSha: ['проверяет SHA256', 'verifies SHA256'],
   shotEditor: [
     'Менеджер Eile: слева дерево страниц, справа редактор страницы проекта кухонной студии с заголовком, адресом, анонсом и текстом',
     'The Eile manager: the page tree on the left, a kitchen studio project page with title, address, summary and text on the right',
@@ -548,7 +551,7 @@ export var TEXTS: Readonly<Record<string, readonly [string, string]>> = {
   benchDetails: ['Подробности', 'Details'],
   benchRows: [
     '20 человек одновременно открывают страницы :: 1 900 страниц в секунду :: на одном ядре, из кэша; главная, самая тяжёлая страница, — 1 040|Сколько памяти берёт сайт :: 59 МБ в покое, до 93 МБ под этой нагрузкой :: после прогрева и в пике за 20 секунд|Вы загружаете видео на 21 МБ, пока идёт нагрузка :: загрузилось за 0,3 с, памяти — не больше 118 МБ :: три раза из трёх, сайт не падал; страницы в это время — около 1 700 в секунду',
-    '20 people open pages at the same time :: 1,900 pages per second :: on one core, from cache; the home page, the heaviest one, at 1,227|How much memory the site takes :: 59 MB at rest, up to 93 MB under that load :: after warm-up and at the peak over 20 seconds|You upload a 21 MB video while that load runs :: done in 0.3 s, at most 118 MB of memory :: three times out of three, the site stayed up; pages meanwhile at about 1,700 per second',
+    '20 people open pages at the same time :: 1,900 pages per second :: on one core, from cache; the home page, the heaviest one, at 1,040|How much memory the site takes :: 59 MB at rest, up to 93 MB under that load :: after warm-up and at the peak over 20 seconds|You upload a 21 MB video while that load runs :: done in 0.3 s, at most 118 MB of memory :: three times out of three, the site stayed up; pages meanwhile at about 1,700 per second',
   ],
   benchNote: [
     'Бинарник Eile 0.1.0 с этим сайтом, 4 ноября 2026: systemd-run с CPUQuota=100 % и MemoryMax=330M без подкачки, 20 клиентов с keep-alive, во время загрузки — ещё 8 скачиваний ролика. Память — anon из memory.stat. Процессор настольный (Ryzen 7 5700X3D), ядро VPS обычно медленнее: это верхняя оценка.',
@@ -622,8 +625,8 @@ export var TEXTS: Readonly<Record<string, readonly [string, string]>> = {
   ],
   vsLimitsTitle: ['Где Eile пока уступает', 'Where Eile falls short for now'],
   vsLimits: [
-    'Молодость :: Версия 0.1.3: до 1.0 возможны несовместимые изменения.|Один сервер :: Один процесс и одна база SQLite: сайт растёт вверх, а не вширь, реплик нет.|Svelte :: Шаблоны пишутся на Svelte: для своей вёрстки нужен разработчик, который его знает или готов выучить.|Готовое :: Каталога плагинов и тем нет: пять каркасов, пакет кухонной студии и набор компонентов, остальное пишется самому.',
-    'Youth :: Version 0.1.3: breaking changes may land before 1.0.|One server :: One process and one SQLite database: the site scales up, not out, with no replicas.|Svelte :: Templates are written in Svelte: custom layouts need a developer who knows it or is willing to learn.|Ready-made parts :: There is no plugin or theme directory: five starters, a kitchen studio package and a component kit, the rest you write yourself.',
+    'Молодость :: Версия 0.1.5: до 1.0 возможны несовместимые изменения.|Один сервер :: Один процесс и одна база SQLite: сайт растёт вверх, а не вширь, реплик нет.|Svelte :: Шаблоны пишутся на Svelte: для своей вёрстки нужен разработчик, который его знает или готов выучить.|Готовое :: Каталога плагинов и тем нет: пять каркасов, пакет кухонной студии и набор компонентов, остальное пишется самому.',
+    'Youth :: Version 0.1.5: breaking changes may land before 1.0.|One server :: One process and one SQLite database: the site scales up, not out, with no replicas.|Svelte :: Templates are written in Svelte: custom layouts need a developer who knows it or is willing to learn.|Ready-made parts :: There is no plugin or theme directory: five starters, a kitchen studio package and a component kit, the rest you write yourself.',
   ],
   vsSourcesTitle: ['Источники', 'Sources'],
   vsChecked: [
@@ -692,6 +695,7 @@ export var SITE: Scaffold = {
     repo: _REPO,
     download: `${_REPO}/releases/latest`,
     install: `curl -fsSL ${_SITE}/install.sh | bash`,
+    installSource: `${_REPO}/blob/HEAD/install.sh`,
   },
   pages: [
     {

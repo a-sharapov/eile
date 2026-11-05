@@ -317,6 +317,8 @@ const _STATUS = {
     background: transparent;
     box-shadow: none;
     font-size: 0.875rem;
+    /* Длинный адрес или заголовок в ячейке — с многоточием, а не жёстким срезом; в фокусе поле прокручивается. */
+    text-overflow: ellipsis;
   }
 
   .cell:hover {

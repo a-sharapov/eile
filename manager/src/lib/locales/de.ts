@@ -6,6 +6,7 @@ export var messages: Dictionary['messages'] = {
   'app.updateAvailable': 'Version {version} ist verfügbar',
   'app.updateHint': 'Aktualisieren: cms update auf dem Server',
   'nav.pages': 'Seiten',
+  'nav.more': 'Mehr',
   'nav.elements': 'Elemente',
   'nav.fields': 'Felder',
   'nav.settings': 'Einstellungen',

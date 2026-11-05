@@ -762,10 +762,14 @@ export var defineReviewService = ({
         ),
       list: (target: Partial<LinkTarget> = {}): LinkView[] =>
         links.of(target).map(linkView),
-      revoke: (id: number): void =>
-        void (
-          links.remove(Number(id)) ||
-          fail('review.link_not_found', `There is no preview link ${id}`)
+      // Отзывает только создатель ссылки (или ссылку без автора): чужую по id не погасить. Чужая и
+      // несуществующая отвечают одинаково — `link_not_found`, чтобы id не выдавал существование ссылки.
+      revoke: (id: number, userId: number): void =>
+        void ((link) =>
+          link && (link.createdBy === null || link.createdBy.id === userId)
+            ? links.remove(id)
+            : fail('review.link_not_found', `There is no preview link ${id}`))(
+          links.get(id)
         ),
       /**
        * Ссылка по токену из адреса. Секрет сравнивается за постоянное время; частые и неверные поиски с
