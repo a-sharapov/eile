@@ -13,13 +13,18 @@ import {
 // Каталог установки с правилами Windows: запущенный файл не удалить и не перезаписать, а переименовать можно
 // (ADR 0049). Жёсткая ссылка — тот же узел под вторым именем. Пути — через «/», ключи нормализуются: так тест
 // одинаков на Linux и на раннере Windows, где node:path пишет «\».
-type _Node = { content: string; running: boolean };
+// Содержимое — байты: через диск идут и архивы.
+type _Node = { content: Uint8Array; running: boolean };
 
 const _busy = (path: string): never => {
   throw Object.assign(new Error(`EBUSY: resource busy or locked, ${path}`), {
     code: 'EBUSY',
   });
 };
+
+const _bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
+const _text = (bytes: Uint8Array | undefined): string =>
+  new TextDecoder().decode(bytes ?? new Uint8Array());
 
 const defineDisk = (
   initial: Readonly<Record<string, string>>,
@@ -29,21 +34,20 @@ const defineDisk = (
   const nodes = new Map<string, _Node>(
     Object.entries(initial).map(({ 0: path, 1: content }) => [
       key(path),
-      { content, running: running.includes(path) },
+      { content: _bytes(content), running: running.includes(path) },
     ])
   );
   const locked = (path: string) => nodes.get(key(path))?.running === true;
   const files: InstallFiles = {
     windows,
-    write: (path, bytes) =>
-      Promise.resolve(
-        windows && locked(path)
-          ? _busy(path)
-          : void nodes.set(key(path), {
-              content: new TextDecoder().decode(bytes),
-              running: false,
-            })
-      ),
+    write: (path, data) =>
+      Promise.resolve(windows && locked(path) ? _busy(path) : undefined)
+        .then(() => new Response(data).bytes())
+        .then(
+          (content) => void nodes.set(key(path), { content, running: false })
+        ),
+    read: (path) =>
+      new Blob([nodes.get(key(path))?.content ?? _busy(path)]).stream(),
     executable: () => undefined,
     copy: (from, to) =>
       windows && locked(to)
@@ -74,11 +78,14 @@ const defineDisk = (
         .map((_) => _.slice(key(dir).length + 1))
         .filter((_) => !_.includes('/')),
     check: (path) =>
-      nodes.get(key(path))?.content.startsWith('Eile') ? null : 'not an exe',
+      _text(nodes.get(key(path))?.content).startsWith('Eile')
+        ? null
+        : 'not an exe',
   };
   return {
     files,
-    read: (path: string) => nodes.get(key(path))?.content ?? null,
+    read: (path: string) =>
+      nodes.has(key(path)) ? _text(nodes.get(key(path))?.content) : null,
     names: () =>
       [...nodes.keys()].map((_) => _.slice(_.lastIndexOf('/') + 1)).sort(),
     /** Процесс завершился: его файл снова можно удалить. */

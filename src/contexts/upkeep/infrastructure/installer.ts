@@ -10,6 +10,7 @@ import {
   statSync,
   symlinkSync,
 } from 'node:fs';
+import { open } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { unzipFile } from '../../../platform/zip.ts';
 import { attempt, fail, rethrow } from '../../../shared/kernel/errors.ts';
@@ -89,11 +90,11 @@ type _Source = {
 };
 
 // Бинарник и его сумма — только по https (http — на этой машине): по http их обе подменит кто угодно.
-const _download = (
+const _fetch = (
   url: string,
   version: string,
   source: _Source
-): Promise<Uint8Array> =>
+): Promise<Response> =>
   Promise.resolve(url)
     .then((_) =>
       safeDownload(_, source.insecure)
@@ -108,12 +109,34 @@ const _download = (
     )
     .then((response) =>
       response.ok
-        ? response.bytes()
+        ? response
         : fail(
             'upkeep.download_failed',
             `${basename(new URL(url).pathname)} did not download: ${response.status}`
           )
     );
+
+const _empty = (): ReadableStream<Uint8Array> => new Blob([]).stream();
+
+// Архив — потоком в файл, сумма считается по дороге: целиком в памяти он не лежит.
+const _save = (
+  files: InstallFiles,
+  path: string,
+  response: Response
+): Promise<string> =>
+  ((hasher) =>
+    files
+      .write(
+        path,
+        (response.body ?? _empty()).pipeThrough(
+          new TransformStream<Uint8Array, Uint8Array>({
+            transform: (chunk, controller) => (
+              hasher.update(chunk), controller.enqueue(chunk)
+            ),
+          })
+        )
+      )
+      .then(() => hasher.digest('hex')))(new Bun.CryptoHasher('sha256'));
 
 /** Сумма файла из SHA256SUMS: строки `<hex>  <имя>` или `<hex> *<имя>`. */
 export var checksumOf = (sums: string, name: string): string | null =>
@@ -133,7 +156,12 @@ const _asset = (release: Release, name: string): string =>
  */
 export type InstallFiles = {
   readonly windows: boolean;
-  readonly write: (path: string, bytes: Uint8Array) => Promise<unknown>;
+  /** Поток — в файл, не собирая его в памяти: архив и бинарник по сотне мегабайт, а у сервера бывает 512 МБ. */
+  readonly write: (
+    path: string,
+    data: ReadableStream<Uint8Array>
+  ) => Promise<unknown>;
+  readonly read: (path: string) => ReadableStream<Uint8Array>;
   /** Права 755; у Windows их нет. */
   readonly executable: (path: string) => void;
   readonly copy: (from: string, to: string) => void;
@@ -156,7 +184,15 @@ export var defineInstallFiles = (
   windows = process.platform === 'win32'
 ): InstallFiles => ({
   windows,
-  write: (path, bytes) => Bun.write(path, bytes),
+  // Кусок за куском и закрытие до ответа: Bun.write(path, Response) отвечает раньше, чем закрывает файл, и
+  // пробный запуск только что записанного бинарника ловил ETXTBSY.
+  write: (path, data) =>
+    open(path, 'w').then((handle) =>
+      (async () => {
+        for await (const chunk of data) await handle.write(chunk);
+      })().finally(() => handle.close())
+    ),
+  read: (path) => Bun.file(path).stream(),
   executable: (path) => void (windows || chmodSync(path, 0o755)),
   copy: (from, to) => copyFileSync(from, to),
   rename: renameSync,
@@ -183,14 +219,28 @@ export var defineInstallFiles = (
       () => readdirSync(dir),
       () => []
     ),
-  check: (path) =>
-    ((result) =>
-      result.exitCode === 0
-        ? null
-        : (result.stderr.toString().split('\n')[0] ?? ''))(
-      Bun.spawnSync([path, 'version'], { stdout: 'pipe', stderr: 'pipe' })
-    ),
+  check: (path) => _version(path, 5),
 });
+
+// Пробный запуск `version`. ETXTBSY — файл ещё держит открытым на запись другой процесс (дескриптор,
+// унаследованный порождённым в ту же минуту): запуск повторяется. Другой отказ запуска (чужой формат —
+// ENOEXEC) — ответ «не запускается», а не исключение мимо уборки временного файла.
+const _version = (path: string, tries: number): string | null =>
+  attempt(
+    () =>
+      ((result) =>
+        result.exitCode === 0
+          ? null
+          : (result.stderr.toString().split('\n')[0] ?? ''))(
+        Bun.spawnSync([path, 'version'], { stdout: 'pipe', stderr: 'pipe' })
+      ),
+    (error) =>
+      (error as { code?: unknown }).code === 'ETXTBSY' && tries > 1
+        ? (Bun.sleepSync(50), _version(path, tries - 1))
+        : error instanceof Error
+          ? error.message
+          : String(error)
+  );
 
 const _EXE = /\.exe$/i;
 
@@ -213,6 +263,19 @@ const _temporary = (binary: string, tag: string): string =>
 
 const _stem = (binary: string): string =>
   basename(binary).replace(_EXE, '').toLowerCase();
+
+// Скачанный архив — тоже рядом: `.cms.download.<pid>`. Удаляется при любом исходе.
+const _downloaded = (binary: string): string =>
+  join(
+    dirname(binary),
+    `.${basename(binary).replace(_EXE, '')}.download.${process.pid}`
+  );
+
+const _drop = (files: InstallFiles, path: string): void =>
+  attempt(
+    () => files.remove(path),
+    () => undefined
+  );
 
 /** Второе имя команды — как ставит install.sh. */
 export var ALIAS = 'eile';
@@ -331,18 +394,13 @@ const _swapWindows = (
 const _replace = (
   files: InstallFiles,
   binary: string,
-  bytes: Uint8Array
+  fill: (fresh: string) => Promise<unknown>
 ): Promise<_Placed> =>
   ((fresh) =>
-    files
-      .write(fresh, bytes)
+    fill(fresh)
       .then(
         () => files.executable(fresh),
-        () =>
-          fail(
-            'upkeep.no_write',
-            `No write access to ${dirname(binary)}: run cms update with sudo`
-          )
+        (error) => (_drop(files, fresh), rethrow(error))
       )
       .then(() =>
         ((problem) =>
@@ -408,29 +466,51 @@ export var installedBinary = (
         )
       : path)(_EXE.exec(path)?.[0] ?? '');
 
+// Вход DecompressionStream типы DOM пишут как BufferSource, поток файла — Uint8Array; для неё это одно и то же.
+const _gunzip = (): ReadableWritablePair<Uint8Array, Uint8Array> =>
+  new DecompressionStream('gzip') as ReadableWritablePair<
+    Uint8Array,
+    Uint8Array
+  >;
+
 // Архив выпуска: .gz с бинарником; для Windows — .zip с cms.exe, его открывает Проводник (ADR 0049).
 const _ARCHIVE: Readonly<
   Record<
     'gz' | 'zip',
     {
       readonly name: (target: string) => string;
-      readonly unpack: (bytes: Uint8Array) => Uint8Array;
+      /** Проверенный архив `from` — в бинарник `to`. */
+      readonly unpack: (
+        files: InstallFiles,
+        from: string,
+        to: string
+      ) => Promise<unknown>;
     }
   >
 > = {
   gz: {
     name: (target) => `cms-${target}.gz`,
-    unpack: (bytes) => Bun.gunzipSync(new Uint8Array(bytes)),
+    unpack: (files, from, to) =>
+      files.write(to, files.read(from).pipeThrough(_gunzip())),
   },
+  // Zip читается целиком: каталог файлов — в конце архива. Памяти у машин с Windows обычно хватает.
   zip: {
     name: (target) => `cms-${target}.zip`,
-    unpack: (bytes) => unzipFile(bytes, 'cms.exe'),
+    unpack: (files, from, to) =>
+      new Response(files.read(from))
+        .bytes()
+        .then((bytes) =>
+          files.write(to, new Blob([unzipFile(bytes, 'cms.exe')]).stream())
+        ),
   },
 };
 
 const _format = (target: string) =>
   _ARCHIVE[target.startsWith('windows-') ? 'zip' : 'gz'];
 
+// Сначала сумма из SHA256SUMS, потом архив — потоком в файл рядом с бинарником с суммой по дороге; не
+// совпала — файл удаляется, не распаковываясь. Распаковка — тоже потоком. Версии до 0.1.2 держали архив
+// дважды и бинарник целиком — около 250 МБ, и на сервере с 512 МБ рядом с сайтом их убивал OOM.
 const _install = (
   release: Release,
   target: string,
@@ -440,26 +520,42 @@ const _install = (
   files: InstallFiles
 ): Promise<_Placed> =>
   ((format) =>
-    ((archive) =>
-      Promise.all([
-        _download(_asset(release, archive), version, source),
-        _download(_asset(release, 'SHA256SUMS'), version, source).then((_) =>
-          new TextDecoder().decode(_)
-        ),
-      ]).then(({ 0: bytes, 1: sums }) =>
-        ((expected) =>
-          expected === null
-            ? fail('upkeep.asset_missing', `SHA256SUMS has no ${archive}`)
-            : expected !==
-                new Bun.CryptoHasher('sha256').update(bytes).digest('hex')
-              ? fail(
-                  'upkeep.checksum_mismatch',
-                  `${archive} does not match SHA256SUMS: the file is damaged or replaced`
-                )
-              : _replace(files, binary, format.unpack(bytes)))(
-          checksumOf(sums, archive)
+    ((archive, url, sums, download) =>
+      _fetch(sums, version, source)
+        .then((_) => _.text())
+        .then(
+          (_) =>
+            checksumOf(_, archive) ??
+            fail('upkeep.asset_missing', `SHA256SUMS has no ${archive}`)
         )
-      ))(format.name(target)))(_format(target));
+        .then((expected) =>
+          files
+            .write(download, _empty())
+            .then(undefined, () =>
+              fail(
+                'upkeep.no_write',
+                `No write access to ${dirname(binary)}: run cms update with sudo`
+              )
+            )
+            .then(() => _fetch(url, version, source))
+            .then((response) => _save(files, download, response))
+            .then((actual) =>
+              actual !== expected
+                ? fail(
+                    'upkeep.checksum_mismatch',
+                    `${archive} does not match SHA256SUMS: the file is damaged or replaced`
+                  )
+                : _replace(files, binary, (fresh) =>
+                    format.unpack(files, download, fresh)
+                  )
+            )
+            .finally(() => _drop(files, download))
+        ))(
+      format.name(target),
+      _asset(release, format.name(target)),
+      _asset(release, 'SHA256SUMS'),
+      _downloaded(binary)
+    ))(_format(target));
 
 /**
  * `cms update`: новый выпуск со страницы релизов — под эту платформу, со сверкой SHA256SUMS, пробным

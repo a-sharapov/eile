@@ -188,7 +188,12 @@ main() {
     *-musl) musl_ready || fail "$(t 'на musl cms нужны libgcc и libstdc++: apk add libgcc libstdc++' 'on musl, cms needs libgcc and libstdc++: apk add libgcc libstdc++')" ;;
   esac
   dir=$(install_dir)
-  tmp=$(mktemp -d)
+  mkdir -p "$dir" 2>/dev/null || fail "$(t "не создать $dir: задайте CMS_INSTALL_DIR или запустите через sudo" "cannot create $dir: set CMS_INSTALL_DIR or run with sudo")"
+  [ -w "$dir" ] || fail "$(t "нет прав на запись в $dir: задайте CMS_INSTALL_DIR или запустите через sudo" "no write access to $dir: set CMS_INSTALL_DIR or run with sudo")"
+  # Скачанное — в каталоге установки, а не в /tmp: там часто tmpfs, то есть та же память, а архив с
+  # бинарником — под 200 МБ, у маленького сервера столько нет. Заодно новый файл встаёт на место одним
+  # переименованием в той же файловой системе.
+  tmp=$(mktemp -d "$dir/.$BIN-install.XXXXXX")
   # shellcheck disable=SC2064 # путь нужен сейчас, а не при выходе
   trap "rm -rf '$tmp'" EXIT
 
@@ -208,11 +213,8 @@ main() {
   local about
   about=$("$tmp/$BIN" version 2>&1) || fail "$(t 'скачанный cms не запускается на этой системе' 'the downloaded cms does not run on this system'): ${about%%$'\n'*}"
 
-  mkdir -p "$dir" 2>/dev/null || fail "$(t "не создать $dir: задайте CMS_INSTALL_DIR или запустите через sudo" "cannot create $dir: set CMS_INSTALL_DIR or run with sudo")"
-  [ -w "$dir" ] || fail "$(t "нет прав на запись в $dir: задайте CMS_INSTALL_DIR или запустите через sudo" "no write access to $dir: set CMS_INSTALL_DIR or run with sudo")"
-  # Через временный файл в том же каталоге: замена атомарна, работающий сервер продолжит на старом файле.
-  cp "$tmp/$BIN" "$dir/.$BIN.new.$$"
-  mv -f "$dir/.$BIN.new.$$" "$dir/$BIN"
+  # Переименование в том же каталоге атомарно: работающий сервер продолжит на старом файле.
+  mv -f "$tmp/$BIN" "$dir/$BIN"
   local names=("$BIN") also=''
   if link_alias "$dir"; then
     names+=("$ALIAS")

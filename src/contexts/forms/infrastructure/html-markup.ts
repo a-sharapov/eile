@@ -46,8 +46,11 @@ const _clean = (text: string): string =>
  * обработчиков потомков.
  */
 const _templates = (
-  rewriter: HTMLRewriter
+  rewriter: HTMLRewriter,
+  source: string
 ): (<T>(handler: (arg: T) => void) => (arg: T) => void) => {
+  // Без шаблонов в исходнике — без лишнего селектора и обёрток: форма рисуется на каждом запросе.
+  if (!source.includes('<template')) return (handler) => handler;
   let depth = 0;
   rewriter.on('template', {
     element: (el) => {
@@ -112,7 +115,7 @@ const _scan = (source: string) => {
   let option: { value: string | null; text: string } | null = null;
   let legend: Wrapper | null = null;
   const rewriter = new HTMLRewriter();
-  const outside = _templates(rewriter);
+  const outside = _templates(rewriter, source);
 
   rewriter
     .on('[data-field]', {
@@ -326,7 +329,7 @@ const _hintsOf = (
   const found: (string | null)[] = [];
   const open: { index: number; name: string | null; id: string | null }[] = [];
   const rewriter = new HTMLRewriter();
-  const outside = _templates(rewriter);
+  const outside = _templates(rewriter, source);
   rewriter
     .on('[data-field]', {
       element: outside((el: HTMLRewriterTypes.Element) => {
@@ -401,7 +404,7 @@ const _filled = (view: FormView, prefix: string): string => {
     );
   // Шаблоны (разметка ответа) — без полей и ошибок, но с id формы: скрипт покажет их копию после отправки.
   const rewriter = new HTMLRewriter();
-  const outside = _templates(rewriter);
+  const outside = _templates(rewriter, view.source);
   return (
     rewriter
       .on('form', { element: (el) => void el.removeAndKeepContent() })

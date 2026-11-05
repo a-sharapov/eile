@@ -54,12 +54,21 @@ function Install-Eile {
   }
 
   # https and file:// only, like `curl --proto '=https,file'` in install.sh: over http anyone on the way
-  # could replace both the binary and its checksum.
+  # could replace both the binary and its checksum. Three tries, like `curl --retry 3`: a release can fail
+  # to answer for a few seconds right after it is published.
   function Get-ReleaseFile([string] $Url, [string] $OutFile) {
     if ($Url -like 'file:*') {
       Copy-Item -LiteralPath ([Uri] $Url).LocalPath -Destination $OutFile -Force
-    } else {
-      Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing
+      return
+    }
+    for ($try = 1; ; $try++) {
+      try {
+        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing
+        return
+      } catch {
+        if ($try -ge 3) { throw }
+        Start-Sleep -Seconds (2 * $try)
+      }
     }
   }
 
@@ -182,8 +191,9 @@ function Install-Eile {
     Write-Step "downloading $file ($Version)"
     $archive = Join-Path $tmp $file
     $sums = Join-Path $tmp 'SHA256SUMS'
-    try { Get-ReleaseFile "$base/$file" $archive } catch { throw "download failed: $base/$file" }
-    try { Get-ReleaseFile "$base/SHA256SUMS" $sums } catch { throw "download failed: $base/SHA256SUMS" }
+    # The reason goes along: a bare "download failed" cannot tell a missing file from a network error.
+    try { Get-ReleaseFile "$base/$file" $archive } catch { throw "download failed: $base/$file ($($_.Exception.Message))" }
+    try { Get-ReleaseFile "$base/SHA256SUMS" $sums } catch { throw "download failed: $base/SHA256SUMS ($($_.Exception.Message))" }
 
     $expected = Get-Checksum $sums $file
     if (-not $expected) { throw "SHA256SUMS has no $file" }
