@@ -14,7 +14,6 @@ import {
   branchOrder,
   childrenOf,
   selection,
-  sitePath,
   toggleSelected,
 } from '#lib/tree.svelte.ts';
 import type { PageNode } from '#lib/types.ts';
@@ -121,7 +120,8 @@ const items = $derived<Item[]>([
         {
           label: t('tree.onSite'),
           icon: 'external',
-          run: () => open(sitePath(node.id), '_blank', 'noopener'),
+          // Адрес считает сервер: окончание, папки и скрытые алиасы разделов (ADR 0063).
+          run: () => open(node.path, '_blank', 'noopener'),
         },
       ] satisfies Item[])
     : []),

@@ -25,6 +25,18 @@ export type ListingOptions = {
   readonly includeHidden?: boolean;
   /** Номер порции из адреса (`/blog/page-2`); false — всегда первая. */
   readonly paged?: boolean;
+  /**
+   * Свой отбор: остаются страницы, для которых функция вернула true. Кандидаты — те же страницы, что взял
+   * бы обычный список (ветка, `depth`, `includeHidden`), с полями; `total` и пейджер — по отобранным.
+   */
+  readonly filter?: (page: PageView) => boolean;
+  /** Свой порядок вместо `sort`, как у `Array.sort`: `(a, b) => a.fields.price - b.fields.price`. */
+  readonly order?: (a: PageView, b: PageView) => number;
+  /**
+   * Номер порции явно — например, из `request().query.page` в `Uncached`: важнее хвоста адреса, 404 за
+   * пределами нет — номер больше последнего становится последним. Адреса порций — тот же путь с `?page=N`.
+   */
+  readonly page?: number;
 };
 
 /** Перевод страницы для переключателя языка. */
@@ -43,7 +55,10 @@ export type Listing = {
   readonly number: number;
   readonly pages: number;
   readonly total: number;
-  /** Адрес порции; первая — адрес самой страницы. null — вне рендера страницы. */
+  /**
+   * Адрес порции; первая — адрес самой страницы. null — вне рендера страницы (в `Uncached` хвоста адреса
+   * нет). С явным `page` — путь запроса с `?page=N`.
+   */
   readonly url: (number: number) => string | null;
   /** Первая, последняя и `around` номеров вокруг текущей, разрывы — `{ kind: 'gap' }`. */
   readonly pager: (around?: number) => PagerItem[];
@@ -128,6 +143,8 @@ export type ComponentRuntime = {
 export type MediaCatalog = {
   readonly url: (path: string) => string | null;
   readonly image: (path: string) => ImageSet | null;
+  /** Путь медиатеки файла, найденного по исходному пути связанной папки; null — не нашёлся. */
+  readonly resolve?: (path: string) => string | null;
 };
 
 /** Скрипты сайта по имени: адрес текущей версии. */
@@ -151,11 +168,18 @@ export var defineComponentRuntime = (
   }),
   scripts: ScriptCatalog = { url: () => null, closure: (name) => [name] }
 ): ComponentRuntime => {
-  // Неверный путь в шаблоне — пустое место, а не ошибка всей страницы.
+  // Неверный путь в шаблоне — пустое место, а не ошибка всей страницы. Файл, найденный по исходному пути
+  // связанной папки, вешает тег своего пути медиатеки: его события сбрасывают страницу.
   const lookup =
     <T>(find: (path: string) => T | null) =>
     (path: string): T | null => (
       scope.record(`media:${stemOf(path)}`),
+      void ((found) => found && scope.record(`media:${stemOf(found)}`))(
+        attempt(
+          () => media.resolve?.(path) ?? null,
+          () => null
+        )
+      ),
       attempt(
         () => find(path),
         () => null
@@ -206,9 +230,25 @@ export var defineComponentRuntime = (
             return items.length < 2 ? [] : items;
           })(content.translationHub(target)))(id ?? scope.page()?.id);
   const urlOf = (number: number): string | null =>
-    ((paging) => paging && pagingPath(paging.base, paging.segment, number))(
+    ((paging) =>
+      paging && pagingPath(paging.base, paging.segment, number, paging.ending))(
       scope.paging()
     );
+  // Порция по явному номеру: тот же путь запроса с `page=N`, остальные параметры — как были.
+  const queryUrl = (number: number): string | null =>
+    ((request) =>
+      request &&
+      ((params) =>
+        ((query) => (query ? `${request.path}?${query}` : request.path))(
+          params.toString()
+        ))(
+        ((params) => (
+          number > 1
+            ? params.set('page', String(number))
+            : params.delete('page'),
+          params
+        ))(new URLSearchParams(request.query))
+      ))(scope.request());
   const listing = (
     parentId: number | null,
     options: ListingOptions = {}
@@ -218,28 +258,41 @@ export var defineComponentRuntime = (
       Math.max(1, Math.trunc(options.perPage ?? 10) || 10)
     );
     const depth = options.depth ?? 1;
-    const paged = options.paged ?? true;
-    const number = paged ? (scope.paging()?.number ?? 1) : 1;
+    const explicit = options.page !== undefined;
+    const paged = !explicit && (options.paged ?? true);
+    const wanted = explicit
+      ? Math.max(1, Math.trunc(Number(options.page)) || 1)
+      : paged
+        ? (scope.paging()?.number ?? 1)
+        : 1;
     content
       .containers(parentId, depth)
       .forEach((_) => void scope.record(`children:${_ ?? 'root'}`));
-    const { items, total } = content.list(parentId, {
-      sort: options.sort,
-      depth,
-      includeHidden: options.includeHidden ?? true,
-      offset: (number - 1) * perPage,
-      limit: perPage,
-    });
-    const pages = Math.max(1, Math.ceil(total / perPage));
+    const portion = (number: number) =>
+      content.list(parentId, {
+        sort: options.sort,
+        depth,
+        includeHidden: options.includeHidden ?? true,
+        offset: (number - 1) * perPage,
+        limit: perPage,
+        ...(options.filter ? { filter: options.filter } : {}),
+        ...(options.order ? { order: options.order } : {}),
+      });
+    const first = portion(wanted);
+    const pages = Math.max(1, Math.ceil(first.total / perPage));
+    // Явный номер за последней порцией — последняя: ссылка из старой выдачи не ведёт в пустоту.
+    const number = explicit ? Math.min(wanted, pages) : wanted;
+    const { items, total } = number === wanted ? first : portion(number);
+    const url = explicit ? queryUrl : urlOf;
     void (paged && scope.paged(pages));
     return {
       items,
       number,
       pages,
       total,
-      url: urlOf,
+      url,
       pager: (around = 1) =>
-        pagerWindow(number, pages, around, (_) => urlOf(_) ?? '#'),
+        pagerWindow(number, pages, around, (_) => url(_) ?? '#'),
     };
   };
   // Адрес порции выдачи — от пути текущего запроса: выдача рисуется регионом, у которого свой запрос.

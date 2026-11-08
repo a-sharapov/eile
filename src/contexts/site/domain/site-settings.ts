@@ -31,6 +31,15 @@ export type SiteSettings = {
   readonly pagingCanonical: PagingCanonical;
   /** Память сервера под кэш страниц, МБ: 64 — около 3000 страниц по 10 КБ кириллицы. */
   readonly pageCacheMb: number;
+  /**
+   * Окончание адреса документа (`friendly_url_suffix` в Evo): пусто — `/o-nas`, `.html` — `/o-nas.html`,
+   * `/` — `/o-nas/`. Алиас с точкой (`sitemap.xml`) его не получает.
+   */
+  readonly urlSuffix: string;
+  /** Адрес папки кончается на `/` (`make_folders` в Evo): `/katalog/`. */
+  readonly folderSlash: boolean;
+  /** Плавные переходы между страницами сайта (View Transitions между документами, ADR 0066). */
+  readonly viewTransitions: boolean;
 };
 
 export type PagingCanonical = 'self' | 'first';
@@ -51,6 +60,9 @@ export var DEFAULT_SETTINGS: SiteSettings = {
   pagingSegment: 'page',
   pagingCanonical: 'self',
   pageCacheMb: 64,
+  urlSuffix: '',
+  folderSlash: false,
+  viewTransitions: false,
 };
 
 const _LANGUAGE = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/;
@@ -162,6 +174,30 @@ const _cache = (settings: SiteSettings): SiteSettings =>
         `Page cache size is 16 to 4096 MB, not "${settings.pageCacheMb}"`
       );
 
+// Расширение — точка и до 10 латинских букв или цифр: оно стоит в каждом адресе сайта.
+const _SUFFIX = /^(?:|\/|\.[a-z0-9]{1,10})$/;
+
+const _address = (settings: SiteSettings): SiteSettings =>
+  ((suffix) =>
+    _SUFFIX.test(suffix) && typeof settings.folderSlash === 'boolean'
+      ? { ...settings, urlSuffix: suffix }
+      : fail(
+          'site.invalid_suffix',
+          `Address ending is empty, "/" or an extension like ".html", not "${settings.urlSuffix}"`
+        ))(
+    String(settings.urlSuffix ?? '')
+      .trim()
+      .toLowerCase()
+  );
+
+const _transitions = (settings: SiteSettings): SiteSettings =>
+  typeof settings.viewTransitions === 'boolean'
+    ? settings
+    : fail(
+        'site.invalid_view_transitions',
+        'Page transitions are on (true) or off (false)'
+      );
+
 export var changeSettings = (
   current: SiteSettings,
   patch: Partial<SiteSettings>
@@ -174,5 +210,7 @@ export var changeSettings = (
     _siteUrl,
     _discovery,
     _paging,
-    _cache
+    _cache,
+    _address,
+    _transitions
   )(patch);

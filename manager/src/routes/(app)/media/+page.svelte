@@ -30,6 +30,8 @@ let dragging = $state(false);
 let progress = $state({ done: 0, total: 0 });
 let query = $state('');
 let shownFolder = $state('');
+// Откуда файл: загружен в медиатеку или лежит в связанной папке на сервере (ADR 0065).
+let shownOrigin = $state<'' | 'uploaded' | 'linked'>('');
 let fileInput = $state<HTMLInputElement>();
 
 const load = () => api.get<MediaFile[]>('/media').then((_) => (files = _));
@@ -40,13 +42,26 @@ $effect(() => void loading.retry());
 
 const all = $derived(originals(files));
 const folders = $derived([...new Set(all.map((_) => folderOf(_.path)))].sort());
+const anyLinked = $derived(all.some((_) => _.linked));
 const shown = $derived(
   all.filter(
     (_) =>
       (shownFolder === '' || folderOf(_.path) === shownFolder) &&
+      (shownOrigin === '' ||
+        (shownOrigin === 'linked') === Boolean(_.linked)) &&
       _.path.toLowerCase().includes(query.trim().toLowerCase())
   )
 );
+// Превью плитки — вариант 480, если он есть: в связанной папке тысячи снимков по сотне КБ и больше.
+const thumbs = $derived(
+  new Map(
+    files
+      .filter((_) => _.path.endsWith('@480.webp'))
+      .map((_) => [_.path.slice(0, -'@480.webp'.length), _])
+  )
+);
+const thumbOf = (file: MediaFile): MediaFile =>
+  thumbs.get(file.path.slice(0, file.path.lastIndexOf('.'))) ?? file;
 const url = previewUrl;
 const size = fileSize;
 
@@ -291,6 +306,16 @@ const remove = (file: MediaFile) =>
         <span class="sr-only">{t('picker.search')}</span>
         <input type="search" bind:value={query} placeholder={t('picker.search')} />
       </label>
+      {#if anyLinked}
+        <label class="show-folder">
+          <span class="sr-only">{t('media.origin')}</span>
+          <select bind:value={shownOrigin}>
+            <option value="">{t('media.originAll')}</option>
+            <option value="uploaded">{t('media.originUploaded')}</option>
+            <option value="linked">{t('media.originLinked')}</option>
+          </select>
+        </label>
+      {/if}
       {#if folders.length > 1}
         <label class="show-folder">
           <span class="sr-only">{t('media.folder')}</span>
@@ -317,12 +342,13 @@ const remove = (file: MediaFile) =>
             <button type="button" class="tile" data-file={file.path} aria-pressed={selectedPath === file.path} aria-controls="file-details" onclick={() => select(file)}>
               <span class="thumb">
                 {#if file.contentType.startsWith('image/')}
-                  <img src={url(file)} alt="" loading="lazy" width={file.width} height={file.height} />
+                  <img src={url(thumbOf(file))} alt="" loading="lazy" width={file.width} height={file.height} />
                 {:else}
                   <span class="type">{@html icons.fileBlank}<span>{file.path.slice(file.path.lastIndexOf('.') + 1)}</span></span>
                 {/if}
               </span>
               <span class="path">{file.path}</span>
+              {#if file.linked}<span class="linked" title={t('media.linkedTitle')}>{t('media.linked')}</span>{/if}
               <span class="muted meta">
                 {size(file.size)}{#if file.width}{' · '}{file.width}×{file.height}{/if}{#if file.contentType.startsWith('image/') && !file.alt}<span class="no-alt">{' · '}{t('media.noAlt')}</span>{/if}
               </span>
@@ -352,7 +378,9 @@ const remove = (file: MediaFile) =>
           {#if selected.width}<dt>{t('media.dimensions')}</dt><dd>{selected.width}×{selected.height} px</dd>{/if}
           <dt>{t('media.type')}</dt><dd>{selected.contentType.split(';')[0]}</dd>
           {#if variantWidths.length > 0}<dt>{t('media.variantsShort')}</dt><dd>{variantWidths.join(', ')} px, webp</dd>{/if}
+          {#if selected.linked?.file}<dt>{t('media.linkedFrom')}</dt><dd class="code">{selected.linked.prefix}/{selected.linked.file}</dd>{/if}
         </dl>
+        {#if selected.linked}<p class="muted linked-hint">{t('media.linkedHint')}</p>{/if}
         {#if selected.contentType.startsWith('image/')}
           {#key selected.path}
             <label>
@@ -380,7 +408,9 @@ const remove = (file: MediaFile) =>
         <div class="details-actions">
           <button type="button" onclick={() => copy(selected!)}>{@html icons.copy}{t('media.copy')}</button>
           <a class="button" href={url(selected)} target="_blank" rel="noopener">{@html icons.external}{t('media.openFile')}</a>
-          <button type="button" class="danger" onclick={() => remove(selected!)}>{@html icons.trash}{t('media.remove')}</button>
+          {#if !selected.linked}
+            <button type="button" class="danger" onclick={() => remove(selected!)}>{@html icons.trash}{t('media.remove')}</button>
+          {/if}
         </div>
       </aside>
     {/if}
@@ -526,6 +556,22 @@ const remove = (file: MediaFile) =>
 
   .no-alt {
     color: var(--warn);
+  }
+
+  /* Метка файла из связанной папки: тихая, как подпись, но заметная в сетке. */
+  .linked {
+    justify-self: start;
+    padding: 0.05rem 0.45rem;
+    border: 0.0625rem solid var(--line);
+    border-radius: 999rem;
+    color: var(--muted);
+    font-size: 0.6875rem;
+    line-height: 1.4;
+  }
+
+  .linked-hint {
+    font-size: 0.8125rem;
+    line-height: 1.45;
   }
 
   /* Карточка файла — справа от плиток; на узкой холстине — над ними. */

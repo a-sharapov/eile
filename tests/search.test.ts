@@ -126,6 +126,53 @@ describe('индекс', () => {
   });
 });
 
+describe('поля страницы в индексе', () => {
+  it('ищет по тексту полей, а в отрывок не пускает JSON, выбор, флаги и умолчания', () => {
+    app.content.fields.save({
+      name: 'params',
+      label: 'Параметры',
+      type: 'text',
+      templates: ['Base'],
+    });
+    app.content.fields.save({
+      name: 'subheading',
+      label: 'Подзаголовок',
+      type: 'text',
+      defaultValue: 'Смотреть ещё цвета ([+rows.total+])',
+      templates: ['Base'],
+    });
+    app.content.fields.save({
+      name: 'feed',
+      label: 'Фид',
+      type: 'select',
+      options: ['Да', 'Нет'],
+      templates: ['Base'],
+    });
+    const id = page('Памятник АП-2152', '<p>Стела.</p>', {
+      fields: {
+        params: JSON.stringify({
+          fieldValue: [
+            {
+              name: 'Камень:',
+              value: 'Габбро-диабаз',
+              image: 'assets/images/a.jpg',
+            },
+          ],
+          fieldSettings: { autoincrement: 1 },
+        }),
+        feed: 'Да',
+      },
+    });
+    expect(find('габбро').map((_) => _.id)).toEqual([id]);
+    const snippet = find('габбро')[0]!.snippet;
+    expect(snippet).not.toContain('fieldValue');
+    expect(snippet).not.toContain('{');
+    expect(snippet).not.toContain('assets/images');
+    // Умолчание одинаково на всех страницах: по нему страница не находится.
+    expect(find('цвета')).toEqual([]);
+  });
+});
+
 describe('выдача на сайте', () => {
   it('$core.search в шаблоне: страница сбрасывается из кэша при новой странице', async () => {
     app.design.templates.save(

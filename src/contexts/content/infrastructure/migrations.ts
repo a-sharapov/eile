@@ -130,4 +130,16 @@ export var contentMigrations: readonly Migration[] = [
         WHERE translation_of IS NOT NULL;
     `,
   },
+  {
+    // Стиль адресов Evo (ADR 0063): папка и алиас в адресе потомков. Папка — у всех, у кого есть дети:
+    // так сайт, включивший «папки со слэшем», получит `/` у разделов, а не у листьев.
+    id: 'content/010_address_flags',
+    sql: `
+      ALTER TABLE content_pages ADD COLUMN folder INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE content_pages ADD COLUMN alias_in_path INTEGER NOT NULL DEFAULT 1;
+      UPDATE content_pages SET folder = 1
+        WHERE id IN (SELECT parent_id FROM content_pages WHERE parent_id IS NOT NULL);
+      CREATE INDEX content_pages_alias ON content_pages (alias);
+    `,
+  },
 ];

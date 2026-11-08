@@ -2,11 +2,16 @@
 import { api } from '#lib/api.ts';
 import { ask } from '#lib/dialog.svelte.ts';
 import { ago, moment } from '#lib/format.ts';
-import { type MessageKey, t } from '#lib/i18n.ts';
+import { type MessageKey, number, t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { fileSize } from '#lib/media.ts';
 import { describe, failed } from '#lib/notices.svelte.ts';
-import type { OffsiteStatus, RemoteCopy, UpkeepStatus } from '#lib/types.ts';
+import type {
+  LinkedFolder,
+  OffsiteStatus,
+  RemoteCopy,
+  UpkeepStatus,
+} from '#lib/types.ts';
 import PageHeader from '#lib/ui/PageHeader.svelte';
 import { resolve } from '$app/paths';
 
@@ -19,6 +24,8 @@ let backups = $state<UpkeepStatus['backups'] | null>(null);
 let offsite = $state<OffsiteStatus | null>(null);
 // Копии в хранилище: null — ещё не спрашивали или хранилище не настроено.
 let copies = $state<RemoteCopy[] | null>(null);
+// Связанные папки (ADR 0065): их файлы лежат на диске сервера, в копию базы не входят.
+let linked = $state<LinkedFolder[]>([]);
 let copiesError = $state<string | null>(null);
 
 const configured = (_: OffsiteStatus): boolean =>
@@ -36,6 +43,7 @@ $effect(
       (_) => (
         (backups = _.backups),
         (offsite = _.offsite),
+        (linked = _.linked ?? []),
         configured(_.offsite) ? loadCopies() : undefined
       ),
       () => undefined
@@ -121,6 +129,18 @@ const restoreFrom = (input: HTMLInputElement) =>
 
 <!-- Копии — отдельным разделом: скачать, восстановить и поставить на расписание. -->
 <div class="page">
+{#if linked.length > 0}
+  <!-- Связанные папки — первым делом: копия базы без них не вернёт их картинки и ролики. -->
+  <section class="linked" role="note" aria-labelledby="linked-title">
+    <h2 id="linked-title">{@html icons.alert}{t('backup.linkedTitle')}</h2>
+    <p>{t('backup.linkedBody')}</p>
+    <ul>
+      {#each linked as folder (folder.prefix)}
+        <li class="code">{t('backup.linkedFolder', { prefix: folder.prefix, dir: folder.dir, files: number(folder.files), size: _size(folder.bytes) })}{#if !folder.present}<span class="danger"> · {t('backup.linkedMissing')}</span>{/if}</li>
+      {/each}
+    </ul>
+  </section>
+{/if}
 <section class="form-section">
   <header>
     <h2>{t('backup.downloadTitle')}</h2>
@@ -320,5 +340,48 @@ const restoreFrom = (input: HTMLInputElement) =>
 
   .fields > .muted {
     margin: 0;
+  }
+
+  .linked {
+    display: grid;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    padding: 0.875rem 1rem;
+    border: 0.0625rem solid color-mix(in oklch, var(--warn) 45%, var(--line));
+    border-radius: var(--radius-l);
+    background: color-mix(in oklch, var(--warn) 7%, var(--surface));
+  }
+
+  .linked h2 {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin: 0;
+    font-size: 0.9375rem;
+  }
+
+  .linked h2 :global(svg) {
+    flex: none;
+    width: 1.125rem;
+    height: 1.125rem;
+    color: var(--warn);
+  }
+
+  .linked p,
+  .linked ul {
+    margin: 0;
+    font-size: 0.875rem;
+  }
+
+  .linked ul {
+    display: grid;
+    gap: 0.25rem;
+    padding: 0;
+    list-style: none;
+    overflow-wrap: anywhere;
+  }
+
+  .linked .danger {
+    color: var(--danger);
   }
 </style>

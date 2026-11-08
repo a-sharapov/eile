@@ -42,6 +42,7 @@ const _RU: readonly CommandHelp[] = [
       'Первый домен в --domain — основной. Когда сертификат есть, запросы на остальные (www.example.com) сервер ведёт на основной ответом 308 с тем же путём и query, с HTTP — сразу на HTTPS основного. /_cms/health отвечает на любом домене. Основным сделать www — поставить его первым: --domain www.example.com,example.com.',
       'На своём сервере проще всего — службой systemd: sudo cms service install --domain example.com берёт на себя порты, пользователя и перезапуск после сбоя (cms help service). Без неё порты 80 и 443 даёт root или sudo setcap cap_net_bind_service=+ep $(which cms).',
       'Медиатека живёт в базе. Чтобы отдавать картинки и видео без копии в памяти, сервер при первом запросе файла кладёт его в кэш на диске — папку site.media-cache рядом с базой (--media-cache — другая папка). Кэш можно удалить: он наберётся заново. Папка не пишется — файлы идут прямо из базы.',
+      'Задания плагинов по расписанию (schedule) работают только у serve: первый запуск — через 5 секунд после старта, дальше — по периоду плагина, один запуск за раз. Другие команды cms их не запускают (cms help elements).',
     ],
     options: [
       ['--port <порт>', 'Порт: 8080 или $PORT'],
@@ -200,6 +201,7 @@ const _RU: readonly CommandHelp[] = [
       'check компилирует всё (скрипт scripts/имя.js — разбирает как ES-модуль; другие скрипты он импортирует как ./имя.js, и они должны быть в папке или на сайте) и печатает ошибки как файл:строка:столбец. Ничего не сохраняет.',
       'push сохраняет изменённые файлы в сайт — все или ни одного. Сервер на этой базе подхватывает правку сам, перезапуск не нужен.',
       '--prune удаляет из сайта то, чего нет в папке (поля — никогда), --watch отправляет каждый сохранённый файл. Папка по умолчанию — текущая.',
+      "Плагин plugins/Имя.ts — export default { render?, notFound?, handle?, schedule?, on? }. handle(request, context) отвечает своим Response на запрос, на который сайт не ответил (нет страницы, правила, прежнего адреса), любым методом — так переезжают плагины Evo на OnPageNotFound: API, CORS, приём заявок (context.submit). schedule: { every: '12h', run(context) } — задание по расписанию у cms serve; context.setCustom пишет свою настройку сайта. Подробно — в AGENTS.md папки.",
     ],
     options: [
       ['--prune', 'Удалить из сайта то, чего нет в папке'],
@@ -215,9 +217,12 @@ const _RU: readonly CommandHelp[] = [
   },
   {
     name: 'media',
-    summary: 'Медиатека из папки: шрифты, картинки, видео из git',
+    summary: 'Медиатека из папки: файлы из git или связанная папка',
     usage: [
       'cms media push [<папка>] [--into <путь>] [--prune] [--dry-run] [--json]',
+      'cms media link [<папка>] [--into <приставка>] [--serve-original]',
+      'cms media link <папка> --into <приставка> --static',
+      'cms media unlink <приставка> [--dry-run] [--json]',
     ],
     details: [
       'push кладёт файлы папки в медиатеку сайта. Путь в медиатеке — путь файла от корня папки: fonts/pt-sans.woff2; с --into — под этим путём: cms media push static/fonts --into fonts. Пути — латиница в нижнем регистре, цифры и ._@-, типы — те же, что принимает медиатека, файл — до 25 МиБ.',
@@ -225,11 +230,23 @@ const _RU: readonly CommandHelp[] = [
       'Совпавшие файлы (тот же хэш содержимого) пропускаются, новые и изменённые сохраняются так же, как загрузка в менеджере: у них новый ?v=, страницы с ними перерисуются, варианты размеров картинок сервер делает тут же. Файлы пишутся по одному: прерванную отправку доделает повтор.',
       'media.json в корне папки — описания картинок: { "images/hero.jpg": { "alt": "…" } }, пути — от корня папки, без --into. Сам он в медиатеку не уходит.',
       '--prune удаляет из медиатеки файлы, которых нет в папке (с --into — только под этим путём), вместе с их вариантами размеров. Файлы, которые стоят на страницах, картинка сайта для соцсетей и файлы, чей путь есть в шаблонах, компонентах и скриптах, остаются — команда скажет, кто на них ссылается. Без --prune не удаляется ничего.',
+      'Варианты размеров называются по основе картинки — пути без расширения, поэтому две картинки с одной основой (photo.jpg и photo.png) в медиатеке быть не могут. Замена формата в папке — photo.jpg → photo.webp — проходит с --prune: прежняя уходит с вариантами, сервер режет новые; без --prune команда откажет и скажет почему.',
       '--dry-run показывает, что изменится, ничего не записывая. Сервер на этой базе подхватывает новые файлы сам, перезапуск не нужен.',
+      'link — связанная папка: файлы остаются на диске сервера, в базе — только их строки (путь, хэш, тип, размер, размеры картинки, описание). Так большая медиатека старого сайта не раздувает базу и копии. Предела 25 МиБ нет: файл отдаётся с диска. Повтор сверяет папку: новые, изменённые (по размеру и времени изменения, хэш — только у них) и исчезнувшие файлы; описания оставшихся сохраняются. Без папки — сверить все связанные папки там, где они записаны.',
+      "Путь в медиатеке — <приставка>/<путь на диске> по правилу: латиница (кириллица транслитом), всё, кроме a-z 0-9 . _ -, — дефис, лишние дефисы у точки и по краям снимаются: images/4a_(5).jpg → assets/images/4a-5.jpg, Притыцкого 89.JPG → pritytskogo-89.jpg. Совпавшие имена (и картинки с одной основой) получают -2, -3… по порядку путей на диске; имя файла, который уже в медиатеке, не меняется. media(), image() и /media/… принимают и исходный путь: image('assets/images/4a_(5).jpg').",
+      '--serve-original — файлы папки открываются и по старым адресам /<приставка>/<путь на диске> без переадресации; такой файл важнее страницы и правила переадресации с тем же адресом, иначе адрес идёт к страницам, как обычно. --no-serve-original выключает; без флага — как было. Приставки manager, media, _cms заняты сервером.',
+      'Скрытое, следы архиваторов и типы, которых не принимает медиатека, не связываются; ссылки за пределы папки пропускаются. Варианты картинок 480/960/1920 сервер делает сразу и держит в кэше медиатеки, не в базе. Путь к папке внутри каталога базы записывается от него — база и папка переезжают вместе.',
+      'Связанная папка не входит в копию базы (cms backup, автокопии, скачивание в менеджере): копируйте её отдельно. unlink убирает файлы папки из медиатеки вместе с их описаниями; сами файлы на диске остаются.',
+      '--static — папка-сайт: статический сайт (сборка Astro, старый лендинг) по адресам /<приставка>/…, файлы — не медиатека, в базе только сама папка. Адрес каталога — его index.html, каталог без / в конце — 301 на адрес со слэшем; нет файла — 404.html папки, без неё — страница 404 сайта: адреса под приставкой принадлежат папке, страницы и плагины их не получают. Отдаются html, css, js, json, xml, txt, webmanifest, svg, картинки, шрифты, видео, звук, pdf, glb, hdr, wasm; файлы _astro/… — навсегда в кэше браузера, остальное — со сверкой по ETag, текст — сжатым. Файл ищется на диске на каждый запрос: новая сборка видна сразу. Выход из папки, скрытое и ссылки наружу — 404. Вид папки задаётся при первой связке; сменить его — через unlink. HTML папки — код на адресе сайта, как шаблоны: кладите в неё только свою сборку.',
     ],
     options: [
       ['--into <путь>', 'Положить файлы под этим путём медиатеки'],
       ['--prune', 'Удалить из медиатеки то, чего нет в папке'],
+      [
+        '--serve-original',
+        'link: отдавать файлы и по исходным адресам /<приставка>/…',
+      ],
+      ['--static', 'link: папка — статический сайт по /<приставка>/…'],
       ['--dry-run', 'Только показать, что изменится'],
       ['--json', 'Итог в JSON: для скриптов и агентов'],
       _DB,
@@ -245,6 +262,15 @@ const _RU: readonly CommandHelp[] = [
         'Что изменится, если убрать лишнее',
         'cms media push media --prune --dry-run --db site.db',
       ],
+      [
+        'assets старого сайта — без байтов в базе, старые адреса работают',
+        'cms media link old/assets --into assets --serve-original --db site.db',
+      ],
+      [
+        'Сборка Astro (base /razbor) — сайт по /razbor/',
+        'cms media link razbor/dist --into razbor --static --db site.db',
+      ],
+      ['Сверить связанные папки', 'cms media link --db site.db'],
     ],
   },
   {
@@ -327,6 +353,7 @@ const _RU: readonly CommandHelp[] = [
     ],
     details: [
       'База, шаблоны, компоненты и медиатека — в одном файле SQLite. Можно на работающем сайте: копия согласованная (VACUUM INTO). Кэш медиатеки (site.media-cache) в копию не входит: он берётся из базы.',
+      'Связанные папки (cms media link) в копию не входят: в базе только строки их файлов. Команда напоминает о них после копии — копируйте папки отдельно.',
       'Имя с .json — те же записи текстом: можно открыть, сравнить две копии, перенести. Сеансов входа в копии нет.',
       'Без имени файла — cms-ГГГГ-ММ-ДД.db в текущем каталоге. Существующий файл не перезаписывается.',
       '--remote — копия сейчас, как кнопка «Сделать копию сейчас»: в каталог автокопий и в хранилище S3, настроенное в менеджере («Настройки» → «Копии и обновления»). В хранилище копия уходит зашифрованной ключом копий этого сервера.',
@@ -606,6 +633,7 @@ const _EN: readonly CommandHelp[] = [
       'The first domain in --domain is the primary one. Once there is a certificate, the server sends requests for the others (www.example.com) to the primary with a 308, keeping the path and query, from HTTP straight to HTTPS on the primary. /_cms/health answers on every domain. To make www the primary, put it first: --domain www.example.com,example.com.',
       'On your own server the easiest is a systemd service: sudo cms service install --domain example.com takes care of the ports, the user and restarts after a failure (cms help service). Without it, ports 80 and 443 need root or sudo setcap cap_net_bind_service=+ep $(which cms).',
       'The media library lives in the database. To serve images and video without a copy in memory, the server puts a file into a cache on disk the first time it is requested: the site.media-cache folder next to the database (--media-cache sets another one). The cache can be deleted: it fills up again. If the folder is not writable, files come straight from the database.',
+      'Scheduled plugin jobs (schedule) run only in serve: the first run about 5 seconds after the start, then every period of the plugin, one run at a time. Other cms commands do not run them (cms help elements).',
     ],
     options: [
       ['--port <port>', 'Port: 8080 or $PORT'],
@@ -782,6 +810,7 @@ const _EN: readonly CommandHelp[] = [
       'check compiles everything (a script scripts/name.js is parsed as an ES module; it imports other scripts as ./name.js, and they must be in the folder or on the site) and prints problems as file:line:column. Nothing is saved.',
       'push saves the changed files to the site, all of them or none. A server on this database picks the change up by itself, no restart needed.',
       '--prune deletes from the site what has no file (never fields), --watch sends every saved file. The folder is the current one by default.',
+      "A plugin plugins/Name.ts is export default { render?, notFound?, handle?, schedule?, on? }. handle(request, context) answers with its own Response a request the site did not answer (no page, redirect rule or old address), with any method: this is how Evo plugins on OnPageNotFound move over — APIs, CORS, accepting submissions (context.submit). schedule: { every: '12h', run(context) } is a timed job in cms serve; context.setCustom writes a custom site setting. Details are in the folder's AGENTS.md.",
     ],
     options: [
       ['--prune', 'Delete from the site what has no file'],
@@ -797,9 +826,12 @@ const _EN: readonly CommandHelp[] = [
   },
   {
     name: 'media',
-    summary: 'Media library from a folder: fonts, images, video',
+    summary: 'Media library from a folder: from git or linked',
     usage: [
       'cms media push [<folder>] [--into <path>] [--prune] [--dry-run] [--json]',
+      'cms media link [<folder>] [--into <prefix>] [--serve-original]',
+      'cms media link <folder> --into <prefix> --static',
+      'cms media unlink <prefix> [--dry-run] [--json]',
     ],
     details: [
       'push puts the files of a folder into the site’s media library. The library path is the file’s path from the folder root: fonts/pt-sans.woff2; with --into, under that path: cms media push static/fonts --into fonts. Paths are lowercase latin letters, digits and ._@-, the types are the ones the library accepts, a file is at most 25 MiB.',
@@ -808,10 +840,21 @@ const _EN: readonly CommandHelp[] = [
       'media.json at the folder root holds image descriptions: { "images/hero.jpg": { "alt": "…" } }, with paths from the folder root, without --into. It is not uploaded itself.',
       '--prune deletes library files that have no file in the folder (with --into, only under that path), together with their size variants. Files used on pages, the site’s social image and files whose path appears in templates, components and scripts are kept, and the command says what uses them. Without --prune nothing is deleted.',
       '--dry-run shows what would change and writes nothing. A server on this database picks up the new files by itself, no restart needed.',
+      'link makes a linked folder: the files stay on the server’s disk, the database keeps only their rows (path, hash, type, size, image dimensions, description). A large media library of an old site then does not bloat the database and its copies. There is no 25 MiB limit: a file is served from disk. Running it again resyncs the folder: new, changed (by size and modification time; only those are hashed) and vanished files; the descriptions of the files that stay are kept. Without a folder, every linked folder is resynced where it is recorded.',
+      "The library path is <prefix>/<path on disk> by a rule: latin letters (Cyrillic transliterated), everything except a-z 0-9 . _ - becomes a dash, extra dashes next to a dot and at the ends are dropped: images/4a_(5).jpg → assets/images/4a-5.jpg, Photo 89.JPG → photo-89.jpg. Equal names (and images with the same stem) get -2, -3… in the order of their paths on disk; a file already in the library keeps its name. media(), image() and /media/… also take the original path: image('assets/images/4a_(5).jpg').",
+      '--serve-original also serves the folder’s files at their old addresses /<prefix>/<path on disk>, without a redirect; such a file wins over a page or a redirect rule with the same address, otherwise the address goes to the pages as usual. --no-serve-original turns it off; without a flag it stays as it was. The prefixes manager, media and _cms belong to the server.',
+      'Hidden files, archiver leftovers and types the library does not take are not linked; links that lead out of the folder are skipped. The server makes the 480/960/1920 image variants right away and keeps them in the media cache, not in the database. A folder inside the database’s directory is recorded relative to it, so the database and the folder move together.',
+      'A linked folder is not part of the database copy (cms backup, automatic backups, the manager download): copy it separately. unlink removes the folder’s files from the library together with their descriptions; the files on disk stay.',
+      '--static makes a static site folder: a static site (an Astro build, an old landing page) at /<prefix>/…; its files are not media library files, the database keeps only the folder. A directory address serves its index.html, a directory without a trailing / gets a 301 to the address with it; a missing file gets the folder’s 404.html, or the site’s 404 page without one: the addresses under the prefix belong to the folder, pages and plugins do not get them. Served: html, css, js, json, xml, txt, webmanifest, svg, images, fonts, video, audio, pdf, glb, hdr, wasm; _astro/… files are cached by browsers forever, the rest is revalidated by ETag, text is compressed. A file is looked up on disk on every request, so a new build shows at once. Leaving the folder, hidden files and links that lead out of it get 404. The kind of a folder is set when it is first linked; to change it, unlink it. The folder’s HTML is code on the site’s address, like templates: put only your own build there.',
     ],
     options: [
       ['--into <path>', 'Put the files under this library path'],
       ['--prune', 'Delete from the library what has no file'],
+      [
+        '--serve-original',
+        'link: also serve the files at /<prefix>/… original addresses',
+      ],
+      ['--static', 'link: the folder is a static site at /<prefix>/…'],
       ['--dry-run', 'Only show what would change'],
       ['--json', 'The result as JSON: for scripts and agents'],
       _DB_EN,
@@ -830,6 +873,15 @@ const _EN: readonly CommandHelp[] = [
         'What pruning would change',
         'cms media push media --prune --dry-run --db site.db',
       ],
+      [
+        'An old site’s assets, no bytes in the database, old addresses kept',
+        'cms media link old/assets --into assets --serve-original --db site.db',
+      ],
+      [
+        'An Astro build (base /razbor) as a site at /razbor/',
+        'cms media link razbor/dist --into razbor --static --db site.db',
+      ],
+      ['Resync the linked folders', 'cms media link --db site.db'],
     ],
   },
   {
@@ -912,6 +964,7 @@ const _EN: readonly CommandHelp[] = [
     ],
     details: [
       'The database, templates, components and media in one SQLite file. Safe on a running site: the copy is consistent (VACUUM INTO). The media cache (site.media-cache) is not part of the copy: it comes from the database.',
+      'Linked folders (cms media link) are not part of the copy: the database holds only their files’ rows. The command reminds you of them after the copy; copy the folders separately.',
       'A name ending in .json writes the same records as text: you can open it, compare two copies, move it. Sign-in sessions are not copied.',
       'Without a file name: cms-YYYY-MM-DD.db in the current directory. An existing file is never overwritten.',
       '--remote makes a copy now, like the “Back up now” button: into the backup folder and to the S3 storage set up in the manager (Settings → Backups and updates). The copy leaves encrypted with this server’s backup key.',

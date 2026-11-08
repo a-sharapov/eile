@@ -23,6 +23,8 @@ type VariantUpload = {
   readonly data: Uint8Array | UploadContent;
   readonly width: number;
   readonly height: number;
+  /** Приставка связанной папки оригинала: вариант ляжет в кэш медиатеки, а не в базу. */
+  readonly link?: string;
 };
 
 // Падение процесса посреди задания (OOM, kill) засчитывается попыткой: после трёх картинку оставляем без
@@ -76,6 +78,8 @@ export var defineVariantJobs = ({
   report,
   maxPixels = MAX_DECODED_PIXELS,
   variantsOf,
+  read,
+  storable,
   store,
 }: {
   files: MediaRepository;
@@ -84,6 +88,10 @@ export var defineVariantJobs = ({
   report: Report;
   maxPixels?: number;
   variantsOf: (path: MediaPath) => MediaFile[];
+  /** Байты оригинала целиком: из базы или с диска связанной папки. */
+  read: (file: MediaFile) => Uint8Array;
+  /** Варианты этого оригинала есть где хранить: у картинки связанной папки — только кэш на диске. */
+  storable: (file: MediaFile) => boolean;
   /** Записать то, что вернёт `collect`, одной транзакцией с ним. */
   store: (collect: () => readonly VariantUpload[]) => MediaFile[];
 }) => {
@@ -119,7 +127,7 @@ export var defineVariantJobs = ({
     halted
       ? 0
       : store(() => {
-          const live = current(job) !== null;
+          const live = current(job);
           finish(job);
           return live
             ? variants.map((_, k) => ({
@@ -127,6 +135,7 @@ export var defineVariantJobs = ({
                 data: made[k]!,
                 width: _.width,
                 height: _.height,
+                ...(live.linked ? { link: live.linked.prefix } : {}),
               }))
             : [];
         }).length;
@@ -165,19 +174,17 @@ export var defineVariantJobs = ({
   const make = (job: VariantJob, file: MediaFile): Promise<number> =>
     Promise.resolve(file)
       .then(
-        pipe(
-          (_: MediaFile) => files.chunk(_.path, 0, _.size) ?? new Uint8Array(0),
-          (data) =>
-            act(
-              job,
-              data,
-              planVariants(
-                file.path,
-                imageSize(data),
-                imageTraits(data),
-                maxPixels
-              )
+        pipe(read, (data) =>
+          act(
+            job,
+            data,
+            planVariants(
+              file.path,
+              imageSize(data),
+              imageTraits(data),
+              maxPixels
             )
+          )
         )
       )
       .then(undefined, (error) => failed(job, error));
@@ -188,7 +195,10 @@ export var defineVariantJobs = ({
         ? Promise.resolve((finish(job), 0))
         : job.attempts > _MAX_ATTEMPTS
           ? Promise.resolve((finish(job), tell(job, _crashed(job.path)), 0))
-          : make(job, file))(current(job));
+          : // Кэша нет — картинка папки без вариантов, это не сбой: резать её впустую незачем.
+            storable(file)
+            ? make(job, file)
+            : Promise.resolve((finish(job), 0)))(current(job));
 
   const drain = (made: number): Promise<number> =>
     ((job) =>

@@ -1,3 +1,4 @@
+import type { AddressNode } from './address.ts';
 import type { Alias } from './alias.ts';
 import type { Moment, Page, PageId } from './page.ts';
 
@@ -28,7 +29,17 @@ export type PageRepository = {
   /** Страницы, в тексте которых есть подстрока: грубый отбор, точнее проверяет сценарий. */
   readonly mentioning: (text: string) => PageId[];
   /** Страницы, где встречается путь файла медиатеки: текст, значения полей, картинка для соцсетей. */
-  readonly referencingMedia: (path: string) => PageId[];
+  /** Страницы с файлом медиатеки; `original` — ещё и исходный путь файла связанной папки. */
+  readonly referencingMedia: (path: string, original?: string) => PageId[];
   /** Переводы этой страницы: страницы, у которых она исходная, включая корзину. */
   readonly translationsOf: (id: PageId) => PageId[];
+  /** Начало адреса детей страницы: видимые алиасы её и предков; null — ветка в корзине. */
+  readonly trail: (id: PageId) => string | null;
+  /** Потомки вне корзины — для адресов ветки. */
+  readonly descendants: (id: PageId) => AddressNode[];
+  /** Страницы вне корзины (и вне веток в корзине) с этими алиасами и ключи их адресов. */
+  readonly withAliases: (aliases: readonly string[]) => {
+    readonly node: AddressNode;
+    readonly key: string;
+  }[];
 };

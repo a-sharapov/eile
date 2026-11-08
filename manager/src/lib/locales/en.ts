@@ -329,6 +329,15 @@ export var messages: Dictionary['messages'] = {
   'page.sectionCache': 'Caching',
   'page.sectionCacheHint':
     'Usually on. Turn it off if the page shows something that changes from request to request.',
+  'page.sectionAddress': 'Addresses',
+  'page.sectionAddressHint':
+    'How this page and the pages inside it get their addresses. Usually left as is: it keeps the addresses of a site moved from Evo.',
+  'page.folder': 'Folder',
+  'page.folderHint':
+    'If folder addresses end with / in the site settings, this page’s address ends with / too: /catalog/. Turns on by itself when the page gets a child page.',
+  'page.aliasInPath': 'Alias in child page addresses',
+  'page.aliasInPathHint':
+    'Off — child pages live without this alias in their address: /cities/baran/ → /baran/. The page’s own address stays the same.',
   'page.fieldsIntro': 'Custom fields shown by the template',
   'page.language': 'Language',
   'page.languageInherit': 'Same as parent',
@@ -442,7 +451,7 @@ export var messages: Dictionary['messages'] = {
   'elements.aboutComponents':
     'Parts of templates and content blocks: import $components/Name.',
   'elements.aboutPlugins':
-    'TypeScript modules with render and notFound hooks and event subscriptions.',
+    'TypeScript modules with render, notFound, handle (their own answer to a request) and schedule (a timed job) hooks and event subscriptions.',
   'elements.aboutFields': 'Custom page fields, assigned to templates.',
   'elements.aboutScripts':
     'ES modules for the browser: a template includes them with script(name), and they import each other as ./name.js.',
@@ -767,12 +776,21 @@ export var messages: Dictionary['messages'] = {
   'media.remove': 'Delete file',
   'media.variants':
     'The server makes 480, 960 and 1920 px webp variants of JPEG, PNG and WebP images, never wider than the original.',
+  'media.linked': 'in a folder',
+  'media.linkedTitle': 'A file in a folder on the server',
+  'media.linkedFrom': 'On disk',
+  'media.linkedHint':
+    'The file lives in a linked folder on the server (cms media link): the database holds only its description. It can’t be deleted or replaced here — change the file in the folder and run cms media link again. The image description can be edited.',
+  'media.origin': 'Source',
+  'media.originAll': 'All files',
+  'media.originUploaded': 'Uploaded',
+  'media.originLinked': 'From a folder on the server',
   'media.empty': 'The media library is empty so far.',
   'plugins.title': 'Plugins',
   'plugins.new': 'New plugin',
   'plugins.empty': 'Choose a plugin or create a new one.',
   'plugins.hint':
-    'export default { render(html, { path, status }), notFound(path), on: { [event type]: (event) => … } }. Imports: $core only.',
+    "export default { render(html, { path, status }), notFound(path), handle(request, context), schedule: { every: '12h', run(context) }, on: { [event type]: (event) => … } }. Imports: $core only.",
   'fields.title': 'Page fields',
   'fields.typeText': 'Text',
   'fields.typeRichtext': 'Rich text',
@@ -1138,6 +1156,11 @@ export var messages: Dictionary['messages'] = {
   'backup.doneTitle': 'Site restored',
   'backup.donePages': 'Pages in the restored site:',
   'backup.doneSaved': 'The state before restoring is saved on the server:',
+  'backup.linkedTitle': 'Linked folders are not in the copy',
+  'backup.linkedBody':
+    'The files of these folders live on the server’s disk; the database copy holds only their descriptions. Copy the folders separately, together with the database copy: without them, their images and videos won’t open.',
+  'backup.linkedFolder': '{prefix}/ ← {dir} · {files} files · {size}',
+  'backup.linkedMissing': 'the folder is missing on disk',
   'backup.reload': 'Reopen the manager',
   'upkeep.backupsTitle': 'Automatic backups',
   'upkeep.backupsHint':
@@ -1270,6 +1293,9 @@ export var messages: Dictionary['messages'] = {
   'settings.sectionSite': 'Site',
   'settings.sectionSiteHint':
     'What the site is called and which pages it serves at “/” and for a wrong address.',
+  'settings.viewTransitions': 'Smooth transitions between pages',
+  'settings.viewTransitionsHint':
+    'Site pages change smoothly in browsers that support it (Chrome and Edge 126+, Safari 18.2+); other browsers just open pages as usual. Templates need no changes.',
   'settings.notFoundHint':
     'Visitors see it when an address doesn’t exist; the response has status 404.',
   'settings.sectionLanguages': 'Languages',
@@ -1291,6 +1317,21 @@ export var messages: Dictionary['messages'] = {
   'settings.pagingCanonicalFirst': 'First page of the list',
   'settings.pagingCanonicalHint':
     'If a search engine merges the pages into the first one, choose “First page of the list”.',
+  'settings.sectionAddresses': 'Address style',
+  'settings.sectionAddressesHint':
+    'How page addresses end. Useful for a site moved from Evo: its addresses stay the same.',
+  'settings.urlSuffix': 'Address ending',
+  'settings.urlSuffixExample': 'about',
+  'settings.urlSuffixNone': 'No ending',
+  'settings.urlSuffixOther': 'Other extension…',
+  'settings.urlSuffixHint':
+    'Empty — /about, .html — /about.html, / — /about/. Use what the site had on Evo; changing it changes the address of every page on the site.',
+  'settings.urlSuffixCustom': 'Extension',
+  'settings.urlSuffixCustomHint':
+    'A dot and up to 10 lowercase letters a–z or digits: .htm, .php.',
+  'settings.folderSlash': 'Folder addresses end with /',
+  'settings.folderSlashHint':
+    'Folder pages get a trailing slash: /catalog/. A page becomes a folder by itself when it gets a child page.',
   'settings.sectionRobots': 'robots.txt',
   'settings.sectionRobotsHint':
     'The file is built automatically: the manager is blocked, sitemap.xml is listed, and AI access follows your choice above.',
@@ -2037,6 +2078,8 @@ export var errors: Dictionary['errors'] = {
   'backup.newer':
     'The backup was made by a newer version of the program: update the program before restoring.',
   'content.alias_taken': 'A sibling page already has this address.',
+  'content.address_taken':
+    'Another page already has this address: they match because of a section alias hidden from addresses or the address ending.',
   'content.invalid_alias':
     'An address may use lowercase letters a–z, digits and hyphens, optionally with an extension: feed.xml.',
   'content.old_path_not_found': 'This page has no such old address.',
@@ -2106,7 +2149,7 @@ export var errors: Dictionary['errors'] = {
   'extensions.forbidden_import':
     'This import isn’t allowed in a plugin — {detail}',
   'extensions.invalid_plugin':
-    'The plugin must export { render?, notFound?, on? } by default.',
+    'The plugin must export { render?, notFound?, handle?, schedule?, on? } by default.',
   'site.invalid_name': 'The site name can’t be empty.',
   'site.invalid_language': 'The language must be a code like en, de or pt-BR.',
   'site.invalid_url':
@@ -2121,6 +2164,9 @@ export var errors: Dictionary['errors'] = {
     'The cache size must be a whole number from 16 to 4,096 MB.',
   'site.invalid_paging':
     'The word in list page addresses must be lowercase letters a–z with hyphens, for example page.',
+  'site.invalid_view_transitions': 'Transitions are either on or off.',
+  'site.invalid_suffix':
+    'The address ending is empty, / or an extension such as .html.',
   'site.invalid_key':
     'A key uses letters a–z, digits and _, and starts with a letter: phone, footerText.',
   'site.invalid_setting': 'The value is too long.',
@@ -2234,6 +2280,10 @@ export var errors: Dictionary['errors'] = {
   'extensions.plugin_exists': 'A plugin with this name already exists.',
   'content.field_exists': 'This field already exists.',
   'content.field_not_found': 'There’s no such field.',
+  'media.linked_file':
+    'The file lives in a linked folder on the server: change it there and run cms media link.',
+  'media.stem_taken':
+    'An image with the same name but another extension already exists, and resized copies are named without the extension. Give the file another name or replace that image.',
   'media.unsupported_type': 'This file type isn’t accepted.',
   'media.invalid_path':
     'Folder and file names use lowercase letters a–z, digits and hyphens.',

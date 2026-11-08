@@ -1,10 +1,18 @@
-import { mkdirSync, readdirSync, rmdirSync, rmSync, statSync } from 'node:fs';
+import {
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  rmdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { mkdir, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { attempt } from '../../../shared/kernel/errors.ts';
 import { pipe } from '../../../shared/kernel/pipe.ts';
 import type { MediaFile } from '../domain/media.ts';
-import type { MediaCache, MediaPiece } from '../domain/ports.ts';
+import type { MediaCache, MediaPiece, UploadContent } from '../domain/ports.ts';
 
 /** Каталог кэша рядом с базой: site.db → site.media-cache; у базы в памяти кэша нет. */
 export var mediaCacheDir = (databasePath: string): string | null =>
@@ -142,6 +150,9 @@ const _NONE: MediaCache = {
   forget: () => undefined,
   sweep: () => 0,
   spool: () => null,
+  writable: () => false,
+  stored: () => null,
+  put: () => false,
 };
 
 const _disk = (dir: string, now: () => number): MediaCache => {
@@ -225,6 +236,39 @@ const _disk = (dir: string, now: () => number): MediaCache => {
           () => []
         )
       ),
+    // Каталог проверяется сразу: иначе картинки папки резались бы впустую, а отказ пришёл бы только на записи.
+    writable: () =>
+      now() >= resumeAt &&
+      attempt(
+        () => (mkdirSync(dir, { recursive: true, mode: 0o700 }), true),
+        (error) => (failed(error), false)
+      ),
+    stored: (file) =>
+      ((target) =>
+        target !== null && _fresh(target, file.size) ? target : null)(
+        _target(dir, file)
+      ),
+    // Вариант картинки связанной папки — десятки и сотни КБ: пишется сразу, тем же временным файлом и
+    // переименованием, что и выгрузка из базы.
+    put: (file, content: UploadContent) =>
+      ((target) =>
+        target !== null &&
+        now() >= resumeAt &&
+        attempt(
+          () =>
+            ((part) => (
+              mkdirSync(dirname(target), { recursive: true, mode: 0o700 }),
+              writeFileSync(part, content.read(0, content.size)),
+              renameSync(part, target),
+              true
+            ))(
+              join(
+                dirname(target),
+                `.${basename(target)}.${Bun.randomUUIDv7()}.part`
+              )
+            ),
+          (error) => (failed(error), false)
+        ))(_target(dir, file)),
     // Пока кэш отдыхает после сбоя записи, тело загрузки идёт в память.
     spool: () =>
       now() < resumeAt

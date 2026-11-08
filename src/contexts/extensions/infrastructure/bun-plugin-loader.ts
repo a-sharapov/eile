@@ -65,7 +65,7 @@ const _hooks =
       ? (module.default as PluginHooks)
       : fail(
           'extensions.invalid_plugin',
-          `${name}: the module must export default { render?, notFound?, on? }`
+          `${name}: the module must export default { render?, notFound?, handle?, schedule?, on? }`
         );
 
 let _instances = 0;

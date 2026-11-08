@@ -15,7 +15,7 @@ export type FactPage = {
   readonly linkTo: string;
   readonly template: string;
   readonly contentType: string;
-  /** Адрес по алиасам предков; главная живёт и на `/`. */
+  /** Адрес по алиасам предков и стилю адресов; главная живёт и на `/`. */
   readonly path: string;
   /** Опубликована, не в корзине, и предки тоже: её видят посетители. */
   readonly live: boolean;
@@ -51,11 +51,21 @@ export type SiteFacts = {
   readonly robots: string;
   readonly aiSearch: boolean;
   readonly pagingSegment: string;
+  /**
+   * Ключ адреса — путь без окончания (`/katalog/` → `/katalog`): ссылка с другим окончанием ведёт на ту же
+   * страницу 301-й. Без него — путь без завершающего `/`.
+   */
+  readonly addressKey?: (path: string) => string;
   /** Правило переадресации для адреса: куда ведёт; null — правила нет. */
   readonly redirected: (path: string) => string | null;
   /** Страница, которая раньше жила по адресу: сайт отвечает 301 на её новый адрес. */
   readonly movedFrom: (path: string) => number | null;
   readonly media: readonly FactFile[];
+  /**
+   * Адрес отдаёт файл медиатеки, которого нет в `media` по пути: исходный путь файла связанной папки
+   * (`/media/assets/images/4a_(5).jpg`) или его исходный адрес (`/assets/images/4a_(5).jpg`), ADR 0065.
+   */
+  readonly fileAt?: (path: string) => boolean;
   readonly forms: readonly FactForm[];
   /** Уведомлений, которые канал так и не принял. */
   readonly undelivered: number;
@@ -71,14 +81,26 @@ export type Indexed = {
   readonly byId: ReadonlyMap<number, FactPage>;
   readonly livePaths: ReadonlyMap<string, FactPage>;
   readonly allPaths: ReadonlyMap<string, FactPage>;
+  /** Те же страницы по ключу адреса: ссылка с другим окончанием (`/katalog` у `/katalog/`) — тоже на неё. */
+  readonly liveKeys: ReadonlyMap<string, FactPage>;
+  readonly allKeys: ReadonlyMap<string, FactPage>;
   readonly files: ReadonlySet<string>;
 };
+
+const _unslashed = (path: string): string =>
+  path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
+
+const _keyOf = (facts: SiteFacts) => facts.addressKey ?? _unslashed;
 
 export var indexFacts = (facts: SiteFacts): Indexed => ({
   facts,
   byId: new Map(facts.pages.map((_) => [_.id, _])),
   livePaths: new Map(facts.pages.filter((_) => _.live).map((_) => [_.path, _])),
   allPaths: new Map(facts.pages.map((_) => [_.path, _])),
+  liveKeys: new Map(
+    facts.pages.filter((_) => _.live).map((_) => [_keyOf(facts)(_.path), _])
+  ),
+  allKeys: new Map(facts.pages.map((_) => [_keyOf(facts)(_.path), _])),
   files: new Set(facts.media.map((_) => _.path)),
 });
 
@@ -111,8 +133,12 @@ const _decoded = (path: string): string =>
     () => path
   );
 
+// Без пустых сегментов, но с завершающим `/`: у папки он — часть адреса.
 const _canonical = (path: string): string =>
-  `/${path.split('/').filter(Boolean).join('/')}`;
+  ((segments) =>
+    segments.length > 0 && path.endsWith('/')
+      ? `/${segments.join('/')}/`
+      : `/${segments.join('/')}`)(path.split('/').filter(Boolean));
 
 export var linksOf = (text: string): LinkRef[] => [
   ...[...text.matchAll(_ID)].map(
@@ -154,12 +180,15 @@ export var classifyPath = (index: Indexed, path: string): Target => {
       ? '/'
       : path.slice(0, -3)
     : null;
-  const paged = _pagingBase(path, facts.pagingSegment);
+  const key = _keyOf(facts)(path);
+  const paged = _pagingBase(key, facts.pagingSegment);
   return path.startsWith('/media/')
-    ? index.files.has(path.slice('/media/'.length))
+    ? index.files.has(path.slice('/media/'.length)) ||
+      facts.fileAt?.(path) === true
       ? 'ok'
       : 'broken'
-    : path.startsWith('/_cms/') ||
+    : facts.fileAt?.(path) === true ||
+        path.startsWith('/_cms/') ||
         path === '/manager' ||
         path.startsWith('/manager/') ||
         _DISCOVERY.has(path)
@@ -171,14 +200,14 @@ export var classifyPath = (index: Indexed, path: string): Target => {
             index.byId.get(facts.homePageId)?.live === true
             ? 'ok'
             : 'broken'
-          : index.livePaths.has(path)
+          : index.livePaths.has(path) || index.liveKeys.has(key)
             ? 'ok'
             : paged !== null && classifyPath(index, paged) === 'ok'
               ? 'ok'
-              : facts.redirected(path) !== null ||
+              : facts.redirected(_unslashed(path)) !== null ||
                   facts.movedFrom(path) !== null
                 ? 'redirected'
-                : _ofPage(index.allPaths.get(path));
+                : _ofPage(index.allPaths.get(path) ?? index.allKeys.get(key));
 };
 
 export var classifyLink = (index: Indexed, link: LinkRef): Target =>
@@ -296,7 +325,10 @@ export var reachable = (
     .flatMap((link) =>
       link.kind === 'id'
         ? [link.id]
-        : ((page) => (page ? [page.id] : []))(index.livePaths.get(link.path))
+        : ((page) => (page ? [page.id] : []))(
+            index.livePaths.get(link.path) ??
+              index.liveKeys.get(_keyOf(facts)(link.path))
+          )
     );
   // Список детей: шаблон страницы или компонент в её тексте; `parent=12` — список чужой ветки.
   const listed = facts.pages

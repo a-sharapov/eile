@@ -6,6 +6,7 @@ import { LETS_ENCRYPT, parseDomains } from '../contexts/certificates/index.ts';
 import type { Finding } from '../contexts/diagnostics/index.ts';
 import type { UserView } from '../contexts/identity/index.ts';
 import { defineAgentSession } from '../contexts/manager/index.ts';
+import type { LinkView, SkippedFile } from '../contexts/media/index.ts';
 import {
   defineReleases,
   GITHUB_API,
@@ -25,6 +26,8 @@ import {
   CLAUDE_MD,
   type Files,
   type KeptFile,
+  linkMedia,
+  type MediaLinkReport,
   type MediaPushReport,
   type Problem,
   type PushReport,
@@ -34,6 +37,8 @@ import {
   pushMedia,
   readFolder,
   readMediaFolder,
+  relinkMedia,
+  unlinkMedia,
 } from '../workspace/index.ts';
 import type { Options } from './args.ts';
 import {
@@ -132,6 +137,14 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
       'Это не домен для сертификата: нужно имя вроде example.com — без *, IP и localhost.',
     'certificates.no_domain': 'Нужен домен: --domain example.com',
     'backup.corrupt': 'Файл базы повреждён.',
+    'media.invalid_prefix':
+      'Приставка — латиница в нижнем регистре, цифры и ._-, части через /: --into assets',
+    'media.reserved_prefix':
+      'Эту приставку занимает сервер (manager, media, _cms): выберите другую, например --into assets',
+    'media.prefix_overlap':
+      'Приставка вкладывается в приставку другой связанной папки: путь файла принадлежал бы двум папкам',
+    'media.no_folder': 'Такой папки нет.',
+    'media.no_link': 'Связанной папки с этой приставкой нет. Список — cms info',
     'database.newer': `Эту базу уже вела более новая версия ${PRODUCT}: в ней миграции, которых эта программа не знает, и на ней сайт работал бы с ошибками. Обновите cms (cms update) или верните копию базы, снятую до обновления (site.db.before-<версия> рядом с базой).`,
     'service.no_mode':
       'Выберите, как служба встречает посетителей: --domain example.com — сама держит HTTPS, или --trust-proxy — за nginx или Caddy.',
@@ -445,8 +458,58 @@ const _SAY = {
     mediaPartly: (n: number) =>
       `Сохранено не всё: ошибок ${n}. Повторите команду — совпавшие файлы она пропустит`,
     noMediaCommand: (name: string | undefined) =>
-      `Нет подкоманды media ${name ?? ''}. Есть: push — cms help media`,
+      `Нет подкоманды media ${name ?? ''}. Есть: push, link, unlink — cms help media`,
     noMediaFolder: (dir: string) => `Нет папки ${dir}.`,
+    gb: 'ГБ',
+    linked: (dir: string, prefix: string) =>
+      `Папка ${dir} — в медиатеке под ${prefix}/`,
+    linkedSite: (dir: string, prefix: string) =>
+      `Папка ${dir} — сайт по адресу /${prefix}/`,
+    linkSiteChecked: (dir: string, prefix: string) =>
+      `Проверка: папка ${dir} — сайт по адресу /${prefix}/, ничего не записано`,
+    skippedSite: (n: number, list: string) =>
+      `Не отдаются — тип не для статического сайта: ${n} (${list})`,
+    siteFiles:
+      'Файлы папки-сайта ищутся на диске на каждый запрос: новые и изменённые видны сразу, повторять команду не нужно',
+    unlinkedSite: (prefix: string) =>
+      `Папка-сайт ${prefix}/ отвязана: её адреса больше не отвечают; на диске всё осталось`,
+    unlinkSiteChecked: (prefix: string) =>
+      `Проверка: отвязка папки-сайта ${prefix}/ — её адреса перестанут отвечать`,
+    linkSite: 'сайт',
+    linkChecked: (dir: string, prefix: string) =>
+      `Проверка: папка ${dir} под ${prefix}/, ничего не записано`,
+    linkSame: (dir: string, prefix: string) =>
+      `Папка ${dir} и медиатека (${prefix}/) совпадают`,
+    linkCounts: (added: number, changed: number, removed: number) =>
+      `добавлено ${added} · изменено ${changed} · убрано ${removed}`,
+    linkDescribed: (n: number) => `описаний ${n}`,
+    hashed: (n: number) => `прочитано ради хэша ${n}`,
+    skippedType: (n: number, list: string) =>
+      `Пропущено — тип не принимает медиатека: ${n} (${list})`,
+    skippedEmpty: (n: number) => `Пропущено пустых файлов: ${n}`,
+    skippedOutside: (n: number) => `Пропущено ссылок за пределы папки: ${n}`,
+    skippedUnreadable: (n: number) => `Не читаются (права?), пропущены: ${n}`,
+    servesOriginal: (prefix: string) =>
+      `Исходные адреса /${prefix}/… отдаются как есть, без переадресации`,
+    notInBackup:
+      'Связанная папка не входит в копию базы (cms backup, автокопии): копируйте её отдельно',
+    noLinks:
+      'Связанных папок нет. Связать: cms media link <папка> --into <приставка>',
+    noLinkDir: (dir: string) =>
+      `Нет папки ${dir}. Связать: cms media link <папка> --into <приставка>`,
+    needPrefix: 'Нужна приставка: cms media unlink <приставка>',
+    unlinked: (prefix: string, files: number, variants: number) =>
+      `Папка ${prefix}/ отвязана: из медиатеки ушло файлов ${files} и вариантов ${variants}; на диске всё осталось`,
+    unlinkChecked: (prefix: string, files: number, variants: number) =>
+      `Проверка: отвязка ${prefix}/ уберёт из медиатеки файлов ${files} и вариантов ${variants}`,
+    unlinkAlts:
+      'Описания картинок папки уходят вместе с ними; страницы с её файлами покажут пустые места',
+    linkRow: 'Папка',
+    linkLine: (prefix: string, dir: string) => `${prefix}/ ← ${dir}`,
+    linkMissing: 'нет на диске',
+    linkNotInCopy: 'не в копии базы',
+    copyLinks:
+      'Связанные папки не входят в копию: скопируйте их отдельно, рядом с копией базы:',
     healthy: 'Диагностика ничего не нашла',
     andMore: (n: number) => `и ещё ${n}`,
     siteErrors: (n: number) => `На сайте ошибок: ${n}`,
@@ -567,8 +630,60 @@ const _SAY = {
     mediaPartly: (n: number) =>
       `Not everything was saved; problems: ${n}. Run the command again: it skips the files that match`,
     noMediaCommand: (name: string | undefined) =>
-      `No subcommand media ${name ?? ''}. There is push: cms help media`,
+      `No subcommand media ${name ?? ''}. There are push, link, unlink: cms help media`,
     noMediaFolder: (dir: string) => `No folder ${dir}.`,
+    gb: 'GB',
+    linked: (dir: string, prefix: string) =>
+      `The folder ${dir} is in the media library under ${prefix}/`,
+    linkChecked: (dir: string, prefix: string) =>
+      `Check: the folder ${dir} under ${prefix}/, nothing written`,
+    linkSame: (dir: string, prefix: string) =>
+      `The folder ${dir} matches the media library (${prefix}/)`,
+    linkCounts: (added: number, changed: number, removed: number) =>
+      `added ${added} · changed ${changed} · removed ${removed}`,
+    linkDescribed: (n: number) => `descriptions ${n}`,
+    hashed: (n: number) => `read for the hash ${n}`,
+    skippedType: (n: number, list: string) =>
+      `Skipped, a type the media library does not take: ${n} (${list})`,
+    skippedEmpty: (n: number) => `Skipped empty files: ${n}`,
+    skippedOutside: (n: number) =>
+      `Skipped links that lead out of the folder: ${n}`,
+    skippedUnreadable: (n: number) =>
+      `Cannot be read (permissions?), skipped: ${n}`,
+    servesOriginal: (prefix: string) =>
+      `The original addresses /${prefix}/… are served as they are, without a redirect`,
+    linkedSite: (dir: string, prefix: string) =>
+      `The folder ${dir} is a site at /${prefix}/`,
+    linkSiteChecked: (dir: string, prefix: string) =>
+      `Check: the folder ${dir} as a site at /${prefix}/, nothing written`,
+    skippedSite: (n: number, list: string) =>
+      `Not served, a type a static site does not serve: ${n} (${list})`,
+    siteFiles:
+      'The files of a static site are looked up on disk on every request: new and changed ones show at once, no need to run the command again',
+    unlinkedSite: (prefix: string) =>
+      `The static site ${prefix}/ is unlinked: its addresses no longer answer; nothing on disk changed`,
+    unlinkSiteChecked: (prefix: string) =>
+      `Check: unlinking the static site ${prefix}/ stops its addresses from answering`,
+    linkSite: 'site',
+    notInBackup:
+      'A linked folder is not part of the database copy (cms backup, automatic backups): copy it separately',
+    noLinks:
+      'No linked folders. Link one: cms media link <folder> --into <prefix>',
+    noLinkDir: (dir: string) =>
+      `No folder ${dir}. Link one: cms media link <folder> --into <prefix>`,
+    needPrefix: 'A prefix is needed: cms media unlink <prefix>',
+    unlinked: (prefix: string, files: number, variants: number) =>
+      `The folder ${prefix}/ is unlinked: ${files} files and ${variants} variants left the media library; nothing on disk changed`,
+    unlinkChecked: (prefix: string, files: number, variants: number) =>
+      `Check: unlinking ${prefix}/ removes ${files} files and ${variants} variants from the media library`,
+    unlinkAlts:
+      'The image descriptions of the folder go with them; pages with its files will show empty spots',
+    linkRow: 'Folder',
+    linkLine: (prefix: string, dir: string) => `${prefix}/ ← ${dir}`,
+    linkMissing: 'missing on disk',
+    linkNotInCopy: 'not in the database copy',
+    copyLinks:
+      'Linked folders are not part of the copy: copy them separately, next to the database copy:',
     healthy: 'Diagnostics found nothing',
     andMore: (n: number) => `and ${n} more`,
     siteErrors: (n: number) => `Errors on the site: ${n}`,
@@ -592,7 +707,9 @@ const _dbSize = (db: string): number =>
 const _size = (bytes: number, say: _Say): string =>
   bytes < 1024 * 1024
     ? `${Math.max(1, Math.round(bytes / 1024))} ${say.kb}`
-    : `${(bytes / 1024 / 1024).toFixed(1).replace('.', say.decimal)} ${say.mb}`;
+    : bytes < 1024 ** 3
+      ? `${(bytes / 1024 / 1024).toFixed(1).replace('.', say.decimal)} ${say.mb}`
+      : `${(bytes / 1024 ** 3).toFixed(1).replace('.', say.decimal)} ${say.gb}`;
 
 // Команды, которые читают сайт, не создают новую пустую базу по опечатке в пути.
 const _existingDb = (ctx: Context): Promise<string> =>
@@ -778,6 +895,22 @@ const _schema = (db: string): { count: number; last: string } => {
 
 const _VARIANT = /@\d+\.[a-z0-9]+$/;
 
+// Связанная папка в сводке: где лежит, сколько в ней, и что в копию базы она не входит.
+const _linkRow = (paint: Paint, say: _Say, link: LinkView): string =>
+  _row(
+    paint,
+    say.linkRow,
+    [
+      say.linkLine(link.prefix, paint.path(link.dir)),
+      ...(link.staticSite ? [say.linkSite] : []),
+      say.files(link.files),
+      _size(link.bytes, say),
+      link.present
+        ? paint.warn(say.linkNotInCopy)
+        : paint.error(say.linkMissing),
+    ].join(_dot(paint))
+  );
+
 const _info = (ctx: Context): Promise<void> =>
   _withApp(ctx, (app) => {
     const { paint } = ctx;
@@ -788,6 +921,7 @@ const _info = (ctx: Context): Promise<void> =>
     const settings = app.site.settings.get();
     const kinds = (kind: string) =>
       elements.filter((_) => _.kind === kind).length;
+    const links = app.media.links.list();
     return {
       space: app.upkeep.database.status(),
       facts: {
@@ -806,6 +940,18 @@ const _info = (ctx: Context): Promise<void> =>
         },
         media: app.media.files.list().filter((_) => !_VARIANT.test(_.path))
           .length,
+        links: links.map((_) => ({
+          prefix: _.prefix,
+          dir: _.dir,
+          root: _.root,
+          present: _.present,
+          serveOriginal: _.serveOriginal,
+          staticSite: _.staticSite,
+          files: _.files,
+          bytes: _.bytes,
+          syncedAt: _.syncedAt,
+          inBackup: false,
+        })),
         users: {
           total: users.length,
           admins: users.filter((_) => _.role === 'admin').length,
@@ -844,6 +990,7 @@ const _info = (ctx: Context): Promise<void> =>
             app.media.files.list().filter((_) => !_VARIANT.test(_.path)).length
           )
         ),
+        ...links.map((_) => _linkRow(paint, say, _)),
         _row(
           paint,
           say.users,
@@ -1247,8 +1394,185 @@ const _mediaPush = (ctx: Context): Promise<void> =>
       )
       .then(_mediaReported(ctx)))(_folderOf(ctx));
 
+// Список изменений — по файлу, пока он короткий; первая связка тысяч файлов — только числами.
+const _LISTED = 20;
+
+const _skippedLines = (
+  say: _Say,
+  paint: Paint,
+  skipped: readonly SkippedFile[],
+  staticSite = false
+): string[] =>
+  ((types, empty, outside, unreadable) =>
+    [
+      ...(types.length > 0
+        ? [
+            (staticSite ? say.skippedSite : say.skippedType)(
+              types.length,
+              [
+                ...types
+                  .map((_) =>
+                    _.file.includes('.')
+                      ? `.${_.file.slice(_.file.lastIndexOf('.') + 1).toLowerCase()}`
+                      : _.file.slice(_.file.lastIndexOf('/') + 1)
+                  )
+                  .reduce(
+                    (counts, _) => counts.set(_, (counts.get(_) ?? 0) + 1),
+                    new Map<string, number>()
+                  ),
+              ]
+                .toSorted((a, b) => b[1] - a[1])
+                .slice(0, 6)
+                .map(({ 0: kind, 1: n }) => `${kind} ${n}`)
+                .join(', ')
+            ),
+          ]
+        : []),
+      ...(empty > 0 ? [say.skippedEmpty(empty)] : []),
+      ...(outside > 0 ? [say.skippedOutside(outside)] : []),
+      ...(unreadable > 0 ? [say.skippedUnreadable(unreadable)] : []),
+    ].map((_) => `  ${paint.dim(_)}`))(
+    skipped.filter((_) => _.reason === 'type'),
+    skipped.filter((_) => _.reason === 'empty').length,
+    skipped.filter((_) => _.reason === 'outside').length,
+    skipped.filter((_) => _.reason === 'unreadable').length
+  );
+
+const _linkLines = (ctx: Context, report: MediaLinkReport): string[] =>
+  ((say, paint, count) => [
+    ...(report.problems.length > 0
+      ? report.problems.map(
+          (_) =>
+            `${paint.error('✗')} ${paint.path(_where(_))}  ${_.message} ${paint.dim(_.code)}`
+        )
+      : [
+          `${paint.ok('✓')} ${
+            report.staticSite
+              ? (report.saved ? say.linkedSite : say.linkSiteChecked)(
+                  report.dir,
+                  report.prefix
+                )
+              : !report.saved
+                ? say.linkChecked(report.dir, report.prefix)
+                : count === 0 && !report.created
+                  ? say.linkSame(report.dir, report.prefix)
+                  : say.linked(report.dir, report.prefix)
+          }${[
+            say.files(report.files),
+            _size(report.bytes, say),
+            ...(report.variants > 0 ? [say.variantsMade(report.variants)] : []),
+          ]
+            .map((_) => `${_dot(paint)}${paint.dim(_)}`)
+            .join('')}`,
+          ...(count > 0
+            ? [
+                `  ${say.linkCounts(report.added.length, report.changed.length, report.removed.length)}${[
+                  ...(report.described.length > 0
+                    ? [say.linkDescribed(report.described.length)]
+                    : []),
+                  ...(report.same > 0 ? [say.sameFiles(report.same)] : []),
+                  ...(report.hashed > 0 ? [say.hashed(report.hashed)] : []),
+                ]
+                  .map((_) => `${_dot(paint)}${paint.dim(_)}`)
+                  .join('')}`,
+              ]
+            : []),
+          ...(count <= _LISTED
+            ? [
+                ...report.added.map((_) => `  ${paint.ok('+')} ${_}`),
+                ...report.changed.map((_) => `  ${paint.warn('~')} ${_}`),
+                ...report.described.map(
+                  (_) =>
+                    `  ${paint.warn('~')} ${_} ${paint.dim(`(${say.altOnly})`)}`
+                ),
+                ...report.removed.map((_) => `  ${paint.error('-')} ${_}`),
+              ]
+            : []),
+          ..._skippedLines(say, paint, report.skipped, report.staticSite),
+          ...(report.serveOriginal
+            ? [`  ${paint.dim(say.servesOriginal(report.prefix))}`]
+            : []),
+          ...(report.staticSite && report.created && report.saved
+            ? [`  ${paint.dim(say.siteFiles)}`]
+            : []),
+          ...(report.created && report.saved
+            ? [`  ${paint.warn('!')} ${say.notInBackup}`]
+            : []),
+        ]),
+  ])(
+    _say(ctx),
+    ctx.paint,
+    report.added.length +
+      report.changed.length +
+      report.described.length +
+      report.removed.length
+  );
+
+const _linkReported =
+  (ctx: Context) =>
+  (reports: readonly MediaLinkReport[]): Promise<void> =>
+    ((problems) => (
+      ctx.out(
+        ctx.options.json
+          ? JSON.stringify(reports.length === 1 ? reports[0] : reports, null, 2)
+          : reports.length === 0
+            ? _say(ctx).noLinks
+            : reports.flatMap((_) => _linkLines(ctx, _)).join('\n')
+      ),
+      problems > 0
+        ? _reject(
+            (ctx.options.dryRun ? _say(ctx).found : _say(ctx).notSaved)(
+              problems
+            )
+          )
+        : Promise.resolve()
+    ))(reports.reduce((sum, _) => sum + _.problems.length, 0));
+
+// С папкой — связать её или сверить; без папки — сверить все связанные (или одну, --into) там, где они записаны.
+const _mediaLink = (ctx: Context): Promise<void> =>
+  ((dir, options) =>
+    (dir === undefined
+      ? _withApp(ctx, (app) => relinkMedia(app, options))
+      : attempt(
+            () => statSync(dir).isDirectory(),
+            () => false
+          )
+        ? _withApp(ctx, (app) => linkMedia(app, dir, options).then((_) => [_]))
+        : _reject(_say(ctx).noLinkDir(dir))
+    ).then(_linkReported(ctx)))(ctx.args[1], {
+    ...(ctx.options.into ? { into: ctx.options.into } : {}),
+    ...(ctx.options.serveOriginal === undefined
+      ? {}
+      : { serveOriginal: ctx.options.serveOriginal }),
+    ...(ctx.options.staticSite ? { staticSite: true } : {}),
+    ...(ctx.options.dryRun ? { dryRun: true } : {}),
+  });
+
+const _mediaUnlink = (ctx: Context): Promise<void> =>
+  (ctx.args[1] ? Promise.resolve(ctx.args[1]) : _reject(_say(ctx).needPrefix))
+    .then((prefix) =>
+      _withApp(ctx, (app) =>
+        unlinkMedia(app, prefix, { dryRun: ctx.options.dryRun })
+      )
+    )
+    .then(
+      (report) =>
+        void ctx.out(
+          ctx.options.json
+            ? JSON.stringify(report, null, 2)
+            : report.staticSite
+              ? `${ctx.paint.ok('✓')} ${(report.saved ? _say(ctx).unlinkedSite : _say(ctx).unlinkSiteChecked)(report.prefix)}`
+              : [
+                  `${ctx.paint.ok('✓')} ${(report.saved ? _say(ctx).unlinked : _say(ctx).unlinkChecked)(report.prefix, report.removed.length, report.variants)}`,
+                  `  ${ctx.paint.dim(_say(ctx).unlinkAlts)}`,
+                ].join('\n')
+        )
+    );
+
 const _MEDIA: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
   push: _mediaPush,
+  link: _mediaLink,
+  unlink: _mediaUnlink,
 };
 
 const _media = (ctx: Context): Promise<void> =>
@@ -1405,19 +1729,31 @@ const _backup = (ctx: Context): Promise<void> =>
       .then((exists) =>
         exists
           ? _reject(_say(ctx).exists(target))
-          : _withApp(
-              ctx,
-              (app): Promise<unknown> =>
-                // Имя с .json — записи текстом, иначе — файл базы.
-                target.endsWith('.json')
-                  ? Bun.write(target, JSON.stringify(app.archive(), null, 2))
-                  : Promise.resolve(app.backup(target))
+          : _withApp(ctx, (app) =>
+              // Имя с .json — записи текстом, иначе — файл базы.
+              (target.endsWith('.json')
+                ? Bun.write(target, JSON.stringify(app.archive(), null, 2))
+                : Promise.resolve(app.backup(target))
+              ).then(() => app.media.links.list())
             )
       )
-      .then(() =>
-        ctx.out(
-          `${ctx.paint.ok('✓')} ${_say(ctx).copied} ${ctx.paint.path(target)}${_dot(ctx.paint)}${_size(Bun.file(target).size, _say(ctx))}`
-        )
+      .then((links) =>
+        ((say, paint) =>
+          ctx.out(
+            [
+              `${paint.ok('✓')} ${say.copied} ${paint.path(target)}${_dot(paint)}${_size(Bun.file(target).size, say)}`,
+              // Байты связанных папок — на диске, в копии базы только их строки (ADR 0065).
+              ...(links.length > 0
+                ? [
+                    `  ${paint.warn('!')} ${say.copyLinks}`,
+                    ...links.map(
+                      (_) =>
+                        `    ${say.linkLine(_.prefix, paint.path(_.dir))}${_dot(paint)}${say.files(_.files)}${_dot(paint)}${_size(_.bytes, say)}`
+                    ),
+                  ]
+                : []),
+            ].join('\n')
+          ))(_say(ctx), ctx.paint)
       ))(ctx.args[0] ?? `cms-${_today()}.db`);
 
 // Восстановление: база может быть и новой — так сайт переезжает на другой сервер.

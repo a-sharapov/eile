@@ -266,3 +266,163 @@ INSERT INTO \`modx_system_settings\` VALUES ('site_name','Co'),('site_start','1'
     expect(sitemap.content).toContain('<urlset>');
   });
 });
+
+// Сайт Evo со своим стилем адресов (ADR 0063): `.html`, папки со слэшем, скрытый из адресов раздел.
+const _ADDRESSED = (settings: string) => `
+CREATE TABLE \`modx_site_content\` (
+  \`id\` int(10) NOT NULL AUTO_INCREMENT,
+  \`type\` varchar(20) NOT NULL DEFAULT 'document',
+  \`contentType\` varchar(50) NOT NULL DEFAULT 'text/html',
+  \`pagetitle\` varchar(255) NOT NULL DEFAULT '',
+  \`alias\` varchar(245) DEFAULT '',
+  \`published\` int(1) NOT NULL DEFAULT '0',
+  \`parent\` int(10) NOT NULL DEFAULT '0',
+  \`isfolder\` int(1) NOT NULL DEFAULT '0',
+  \`content\` mediumtext,
+  \`template\` int(10) NOT NULL DEFAULT '0',
+  \`searchable\` int(1) NOT NULL DEFAULT '1',
+  \`deleted\` int(1) NOT NULL DEFAULT '0',
+  \`alias_visible\` int(2) NOT NULL DEFAULT '1',
+  PRIMARY KEY (\`id\`)
+);
+INSERT INTO \`modx_site_content\` VALUES
+(4,'document','text/html','Главная','index',1,0,0,'<p>Главная</p>',0,1,0,1),
+(11,'document','text/html','Каталог','katalog',1,0,1,'<p>Каталог</p>',0,1,0,1),
+(13,'document','text/html','Гранит','granit',1,11,1,'<p>Гранит</p>',0,1,0,1),
+(374,'document','text/html','Памятник','pamyatnik-c-52',1,13,0,'<p>П</p>',0,1,0,1),
+(2626,'document','text/html','Города','cities',1,0,1,'',0,0,0,0),
+(2627,'document','text/html','Барановичи','baran',1,2626,1,'<p>Город</p>',0,1,0,1),
+(2628,'document','text/html','Береза','bereza',1,2626,1,'<p>Город</p>',0,1,0,1),
+(2932,'document','text/html','Служебные','system',0,0,1,'',0,0,0,0),
+(2933,'document','text/html','Спасибо','thank-you',1,2932,0,'<p>Спасибо</p>',0,0,0,1),
+(1,'document','application/xml','Карта','sitemap.xml',1,0,0,'<urlset/>',0,0,0,1),
+(5,'reference','text/html','Памятники','pamyatniki',1,0,0,'[~13~]',0,1,0,1),
+(3125,'document','text/html','Без алиаса','',0,13,0,'<p>x</p>',0,1,0,1),
+(3200,'document','text/html','Тоже Барановичи','baran',1,2932,1,'<p>Дубль</p>',0,1,0,1);
+INSERT INTO \`modx_system_settings\` (\`setting_name\`,\`setting_value\`) VALUES ('site_start','4'),${settings};
+`;
+
+describe('перенос адресов Evo', () => {
+  let site: App;
+  let imported: ImportReport;
+
+  beforeEach(() => {
+    site = createApp();
+    imported = importEvo(
+      site,
+      parseDump(
+        _ADDRESSED(
+          "('friendly_urls','1'),('friendly_url_suffix','.html'),('make_folders','1'),('use_alias_path','1')"
+        )
+      )
+    );
+  });
+
+  afterEach(() => site.close());
+
+  const fetched = (path: string) =>
+    site.fetch(new Request(`http://localhost${path}`));
+
+  it('стиль адресов сайта — из friendly_url_suffix и make_folders', () => {
+    expect(site.site.settings.get()).toMatchObject({
+      urlSuffix: '.html',
+      folderSlash: true,
+    });
+  });
+
+  it('isfolder и alias_visible страниц — адреса как на сайте Evo', () => {
+    const path = (id: number) => site.content.drafts.view(id)!.path;
+    expect(path(11)).toBe('/katalog/');
+    expect(path(13)).toBe('/katalog/granit/');
+    expect(path(374)).toBe('/katalog/granit/pamyatnik-c-52.html');
+    expect(path(2627)).toBe('/baran/');
+    expect(path(2933)).toBe('/thank-you.html');
+    expect(path(1)).toBe('/sitemap.xml');
+    expect(site.content.drafts.page(2626)).toMatchObject({
+      folder: true,
+      aliasInPath: false,
+    });
+  });
+
+  it('пустой алиас — id документа, как в Evo', () => {
+    expect(site.content.drafts.view(3125)!.path).toBe(
+      '/katalog/granit/3125.html'
+    );
+  });
+
+  it('weblink с целью [~13~] — ссылка на страницу 13', async () => {
+    expect(site.content.drafts.page(5)).toMatchObject({
+      kind: 'link',
+      linkTo: '13',
+    });
+    const response = await fetched('/pamyatniki.html');
+    expect(response.status).toBe(301);
+    expect(response.headers.get('location')).toBe('/katalog/granit/');
+  });
+
+  it('searchable = 0 — страница скрыта от поиска', () => {
+    expect(site.content.drafts.page(2933).searchable).toBe(false);
+  });
+
+  it('занятый адрес — предупреждение, страница переносится с id в алиасе', () => {
+    expect(
+      imported.warnings.some((_) =>
+        /^page 3200: Address "\/baran\/" is already used by page 2627; imported with alias baran-3200$/.test(
+          _
+        )
+      )
+    ).toBe(true);
+    expect(site.content.drafts.view(3200)!.path).toBe('/baran-3200/');
+  });
+
+  it('адрес сайта Evo отдаётся 200, его варианты — 301', async () => {
+    expect((await fetched('/baran/')).status).toBe(200);
+    expect((await fetched('/katalog/granit/pamyatnik-c-52.html')).status).toBe(
+      200
+    );
+    const variant = await fetched('/katalog/granit/pamyatnik-c-52');
+    expect(variant.status).toBe(301);
+    expect(variant.headers.get('location')).toBe(
+      '/katalog/granit/pamyatnik-c-52.html'
+    );
+  });
+});
+
+describe('настройки адресов Evo, которых нет в Eile', () => {
+  it('use_alias_path = 0 — плоские адреса: алиасы всех страниц скрыты из адресов детей', () => {
+    const site = createApp();
+    const imported = importEvo(
+      site,
+      parseDump(
+        _ADDRESSED(
+          "('friendly_urls','1'),('friendly_url_suffix','.html'),('make_folders','0'),('use_alias_path','0'),('friendly_url_prefix','x-')"
+        )
+      )
+    );
+    expect(site.content.drafts.view(374)!.path).toBe('/pamyatnik-c-52.html');
+    expect(site.content.drafts.view(11)!.path).toBe('/katalog.html');
+    expect(imported.warnings).toContain(
+      'settings: use_alias_path = 0 — addresses are flat: every page hides its alias from the addresses of its children'
+    );
+    expect(imported.warnings).toContain(
+      'settings: URL prefix "x-" is not supported: addresses are left without it'
+    );
+    site.close();
+  });
+
+  it('без friendly_urls — адреса по алиасам и предупреждение', () => {
+    const site = createApp();
+    const imported = importEvo(
+      site,
+      parseDump(_ADDRESSED("('friendly_urls','0')"))
+    );
+    expect(site.site.settings.get()).toMatchObject({
+      urlSuffix: '',
+      folderSlash: false,
+    });
+    expect(imported.warnings[0]).toStartWith(
+      'settings: Evo friendly URLs are off'
+    );
+    site.close();
+  });
+});

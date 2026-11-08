@@ -30,6 +30,22 @@ describe('pagingTail', () => {
     expect(pagingTail(path, 'page')).toBeNull();
   });
 
+  it.each([
+    ['/katalog/page-2/', { base: '/katalog', number: 2 }],
+    ['/novosti/page-3.html', { base: '/novosti', number: 3 }],
+    ['/page-2/', { base: '/', number: 2 }],
+    ['/page-4.html', { base: '/', number: 4 }],
+  ])('%p — хвост с окончанием адреса', (path, paging) => {
+    expect(pagingTail(path, 'page')).toEqual(paging);
+  });
+
+  it.each(['/blog/page-2x', '/blog/page-2.', '/blog/page-2/x'])(
+    '%p — не хвост',
+    (path) => {
+      expect(pagingTail(path, 'page')).toBeNull();
+    }
+  );
+
   it('слово страниц задаёт сайт', () => {
     expect(pagingTail('/blog/stranica-2', 'stranica')).toEqual({
       base: '/blog',
@@ -95,5 +111,16 @@ describe('pagerWindow', () => {
       { kind: 'page', number: 1, url: '/p1', current: false },
       { kind: 'page', number: 2, url: '/p2', current: true },
     ]);
+  });
+});
+
+describe('pagingPath с окончанием адреса', () => {
+  it('окончание страницы — после номера', () => {
+    expect(pagingPath('/katalog/', 'page', 2, '/')).toBe('/katalog/page-2/');
+    expect(pagingPath('/novosti.html', 'page', 3, '.html')).toBe(
+      '/novosti/page-3.html'
+    );
+    expect(pagingPath('/', 'page', 2, '/')).toBe('/page-2/');
+    expect(pagingPath('/katalog/', 'page', 1, '/')).toBe('/katalog/');
   });
 });

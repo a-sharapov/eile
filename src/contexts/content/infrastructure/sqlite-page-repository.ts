@@ -1,4 +1,5 @@
 import type { Database } from '../../../platform/database.ts';
+import type { AddressNode } from '../domain/address.ts';
 import type { Alias } from '../domain/alias.ts';
 import type { FieldValue } from '../domain/field.ts';
 import {
@@ -19,6 +20,8 @@ export type PageRow = {
   description: string;
   intro_text: string;
   alias: string;
+  folder: number;
+  alias_in_path: number;
   template: string;
   content_type: string;
   content: string;
@@ -51,6 +54,8 @@ const _COLUMNS = {
   description: 'description',
   intro_text: 'introText',
   alias: 'alias',
+  folder: 'folder',
+  alias_in_path: 'aliasInPath',
   template: 'template',
   content_type: 'contentType',
   content: 'content',
@@ -109,6 +114,60 @@ const _NEXT = `
     SELECT unpublish_at FROM content_pages WHERE published = 1 AND unpublish_at IS NOT NULL
   )`;
 
+// Ключ адреса снизу вверх: к алиасу страницы — видимые алиасы предков. Дошли до корня (at IS NULL) —
+// ветка вне корзины; страница в ветке из корзины до корня не доходит и адреса не занимает.
+const _RIVALS = `
+  WITH RECURSIVE up (start, at, key) AS (
+    SELECT id, parent_id, '/' || alias FROM content_pages
+    WHERE alias IN (SELECT value FROM json_each(?)) AND trashed_at IS NULL
+    UNION ALL
+    SELECT up.start, page.parent_id,
+           CASE page.alias_in_path WHEN 1 THEN '/' || page.alias ELSE '' END || up.key
+    FROM content_pages AS page JOIN up ON page.id = up.at
+    WHERE page.trashed_at IS NULL
+  )
+  SELECT page.id, page.parent_id, page.alias, page.folder, page.alias_in_path, up.key
+  FROM up JOIN content_pages AS page ON page.id = up.start
+  WHERE up.at IS NULL`;
+
+const _TRAIL = `
+  WITH RECURSIVE up (at, trail) AS (
+    SELECT parent_id, CASE alias_in_path WHEN 1 THEN '/' || alias ELSE '' END
+    FROM content_pages WHERE id = ? AND trashed_at IS NULL
+    UNION ALL
+    SELECT page.parent_id,
+           CASE page.alias_in_path WHEN 1 THEN '/' || page.alias ELSE '' END || up.trail
+    FROM content_pages AS page JOIN up ON page.id = up.at
+    WHERE page.trashed_at IS NULL
+  )
+  SELECT trail FROM up WHERE at IS NULL`;
+
+const _DESCENDANTS = `
+  WITH RECURSIVE down (id) AS (
+    SELECT id FROM content_pages WHERE parent_id = ? AND trashed_at IS NULL
+    UNION ALL
+    SELECT page.id FROM content_pages AS page JOIN down ON page.parent_id = down.id
+    WHERE page.trashed_at IS NULL
+  )
+  SELECT id, parent_id, alias, folder, alias_in_path FROM content_pages
+  WHERE id IN (SELECT id FROM down)`;
+
+type AddressRow = {
+  id: number;
+  parent_id: number | null;
+  alias: string;
+  folder: number;
+  alias_in_path: number;
+};
+
+const _toNode = (row: AddressRow): AddressNode => ({
+  id: row.id,
+  parentId: row.parent_id,
+  alias: row.alias,
+  folder: row.folder === 1,
+  aliasInPath: row.alias_in_path === 1,
+});
+
 export var toFieldValues = (
   rows: FieldValueRow[]
 ): Readonly<Record<string, FieldValue>> =>
@@ -154,13 +213,15 @@ export var definePageRepository = (db: Database): PageRepository => {
   );
   const referencingMedia = db.query<
     { id: number },
-    { url: string; path: string }
+    { url: string; path: string; original: string }
   >(`
     SELECT id FROM content_pages
       WHERE instr(content, $url) > 0 OR instr(intro_text, $url) > 0
         OR social_image = $path
+        OR ($original <> '' AND (instr(content, $original) > 0 OR instr(intro_text, $original) > 0))
     UNION
-    SELECT page_id FROM content_field_values WHERE instr(value, $path) > 0
+    SELECT page_id FROM content_field_values
+      WHERE instr(value, $path) > 0 OR ($original <> '' AND instr(value, $original) > 0)
     ORDER BY 1`);
   const total = db.query<{ n: number }, []>(
     'SELECT count(*) AS n FROM content_pages'
@@ -194,6 +255,9 @@ export var definePageRepository = (db: Database): PageRepository => {
   const translations = db.query<{ id: number }, [number]>(
     'SELECT id FROM content_pages WHERE translation_of = ? ORDER BY id'
   );
+  const trail = db.query<{ trail: string }, [number]>(_TRAIL);
+  const descendants = db.query<AddressRow, [number]>(_DESCENDANTS);
+  const rivals = db.query<AddressRow & { key: string }, [string]>(_RIVALS);
 
   const toPage = (row: PageRow | null): Page | null =>
     row && {
@@ -206,6 +270,8 @@ export var definePageRepository = (db: Database): PageRepository => {
       description: row.description,
       introText: row.intro_text,
       alias: row.alias as Alias,
+      folder: row.folder === 1,
+      aliasInPath: row.alias_in_path === 1,
       template: row.template,
       contentType: row.content_type,
       content: row.content,
@@ -262,8 +328,14 @@ export var definePageRepository = (db: Database): PageRepository => {
     remove: (id) => void remove(id),
     withTemplate: (template) => ids(withTemplate.all(template)),
     mentioning: (text) => ids(mentioning.all(text)),
-    referencingMedia: (path) =>
-      ids(referencingMedia.all({ url: `/media/${path}`, path })),
+    referencingMedia: (path, original = '') =>
+      ids(referencingMedia.all({ url: `/media/${path}`, path, original })),
     translationsOf: (id) => ids(translations.all(id)),
+    trail: (id) => trail.get(id)?.trail ?? null,
+    descendants: (id) => descendants.all(id).map(_toNode),
+    withAliases: (aliases) =>
+      rivals
+        .all(JSON.stringify(aliases))
+        .map((_) => ({ node: _toNode(_), key: _.key })),
   };
 };

@@ -100,7 +100,7 @@ export var descendantsOf = (id: number): PageNode[] =>
   _nodes.filter((_) => _.id !== id && _ancestorsOf(_.id).has(id));
 
 /** В корзине сама страница или её раздел: на сайте её нет, в сводке её не считаем. */
-export var inTrash = (node: PageNode): boolean =>
+export var inTrash = (node: Pick<PageNode, 'id' | 'trashed'>): boolean =>
   node.trashed ||
   [..._ancestorsOf(node.id)].some(
     (id) => _nodes.find((_) => _.id === id)?.trashed === true
@@ -154,11 +154,17 @@ export var branchOrder = (
       ...branchOrder(without, node.id, depth + 1),
     ]);
 
-/** Путь на сайте из алиасов: главная по нему отдаст редирект на `/`. */
-export var sitePath = (id: number): string =>
-  `/${[..._chain(_parents.get(id) ?? null).toReversed(), id]
-    .map((_) => _nodes.find((node) => node.id === _)?.alias ?? '')
-    .join('/')}`;
+/**
+ * Начало адресов детей страницы: алиасы её и предков, кроме скрытых из адреса (`aliasInPath`), — как
+ * `childTrail` на сервере. Адрес самой страницы — `node.path` с сервера.
+ */
+export var childTrail = (id: number): string =>
+  _chain(id)
+    .toReversed()
+    .map((_) => _nodes.find((node) => node.id === _))
+    .filter((_): _ is PageNode => _ !== undefined && _.aliasInPath !== false)
+    .map((_) => `/${_.alias}`)
+    .join('');
 
 /** Страница изменилась не в редакторе (дерево, меню): открытый редактор перечитает её. */
 export var pageChanged = $state<{ id: number; at: number }>({ id: 0, at: 0 });
@@ -177,7 +183,7 @@ export var drag = $state<{
 
 /** Статус для точки в дереве: из нескольких признаков побеждает самый важный. */
 export var statusOf = (
-  node: PageNode
+  node: Pick<PageNode, 'id' | 'trashed' | 'published' | 'publishAt'>
 ): 'trashed' | 'scheduled' | 'published' | 'draft' =>
   // Раздел в корзине — и страница в корзине, хоть её флаг и не стоит: на сайте её нет.
   inTrash(node)

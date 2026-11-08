@@ -54,6 +54,18 @@ export var takesVariants = (
   file: Pick<MediaFile, 'path' | 'contentType' | 'width'>
 ): boolean => isResizable(file) && (file.width ?? 0) > VARIANT_WIDTHS[0]!;
 
+/**
+ * Другой оригинал JPEG, PNG или WebP с той же основой, что у `file`: варианты называются по основе
+ * (`photo@960.webp`), и у двух таких картинок они были бы общими. null — основа свободна.
+ */
+export var stemOwner = (
+  file: Pick<MediaFile, 'path' | 'contentType'>,
+  family: readonly Pick<MediaFile, 'path' | 'contentType'>[]
+): string | null =>
+  (isResizable(file) &&
+    family.find((_) => _.path !== file.path && isResizable(_))?.path) ||
+  null;
+
 // JPEG без прогрессии декодируется сразу уменьшенным в M/8, если вариант не больше половины кадра
 // (libjpeg-turbo в Bun.Image). PNG и WebP — кадр целиком.
 const _scale = (traits: ImageTraits, ratio: number): number =>

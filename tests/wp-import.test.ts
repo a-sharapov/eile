@@ -15,6 +15,7 @@ import { definePaint } from '../src/cli/paint.ts';
 import { runImportWp } from '../src/cli/wp-import.ts';
 import { parseDump } from '../src/evo-import/sql-dump.ts';
 import { importWordPress, type WpReport } from '../src/wp-import/import.ts';
+import { attachmentsOf } from '../src/wp-import/media.ts';
 import { siteFromDump, siteFromWxr } from '../src/wp-import/source.ts';
 import { DEMO } from './fixtures/demo.ts';
 import { picture } from './fixtures/images.ts';
@@ -602,6 +603,31 @@ describe('перенос из WXR в пустой сайт', () => {
 });
 
 describe('медиатека со старого сайта', () => {
+  it('картинки с одной основой (Kitchen-Foto.jpg и .png) получают разные основы: варианты не общие', () => {
+    const site = siteFromWxr(
+      WXR.replace(
+        '</channel>',
+        `${item({
+          id: 23,
+          type: 'attachment',
+          status: 'inherit',
+          title: 'Kitchen Foto PNG',
+          slug: 'kitchen-foto-png',
+          url: `${OLD}/wp-content/uploads/2024/05/Kitchen-Foto.png`,
+          extra: meta('_wp_attached_file', '2024/05/Kitchen-Foto.png'),
+        })}</channel>`
+      )
+    );
+    expect(
+      attachmentsOf(site)
+        .list.filter((_) => _.path.includes('kitchen-foto'))
+        .map((_) => _.path)
+    ).toEqual([
+      'uploads/2024/05/kitchen-foto.jpg',
+      'uploads/2024/05/kitchen-foto-2.png',
+    ]);
+  });
+
   it('скачивает по адресу; 404 и больше 25 МБ — пропуск с причиной', async () => {
     const app = createApp();
     const asked: string[] = [];

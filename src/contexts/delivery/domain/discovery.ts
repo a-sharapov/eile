@@ -129,6 +129,8 @@ export type SeoPage = {
   /** Язык страницы (её ветки): у WebPage в JSON-LD. */
   readonly language: string;
   readonly url: string;
+  /** Адрес Markdown-версии; без него — адрес страницы с `.md`. */
+  readonly markdown?: string;
   readonly searchable: boolean;
   readonly image: string | null;
   readonly publishedAt: string | null;
@@ -270,7 +272,7 @@ export var seoHead = (
       'markdown',
       // У порций 2, 3… Markdown-версии нет: она одна, у самой страницы.
       page.searchable && (page.pagination?.number ?? 1) === 1
-        ? `<link rel="alternate" type="text/markdown" href="${_attr(page.url === `${site.origin}/` ? `${site.origin}/index.md` : `${page.url}.md`)}">`
+        ? `<link rel="alternate" type="text/markdown" href="${_attr(page.markdown ?? (page.url === `${site.origin}/` ? `${site.origin}/index.md` : `${page.url}.md`))}">`
         : '',
     ],
     [

@@ -12,8 +12,15 @@ export type PageView = {
   readonly description: string;
   readonly introText: string;
   readonly alias: string;
-  /** Алиасы предков и страницы: `/blog/first-post`. Главная всё равно отдаётся по `/`. */
+  /**
+   * Адрес страницы: алиасы предков (кроме скрытых из адреса) и её алиас с окончанием по стилю адресов —
+   * `/blog/first-post`, `/katalog/`, `/o-nas.html`. Главная всё равно отдаётся по `/`.
+   */
   readonly path: string;
+  /** Папка: при «папках со слэшем» адрес кончается на `/`. */
+  readonly folder: boolean;
+  /** Алиас входит в адреса потомков. */
+  readonly aliasInPath: boolean;
   readonly template: string;
   /** MIME-тип ответа; не `text/html` — страница-файл без шаблона. */
   readonly contentType: string;
@@ -46,6 +53,10 @@ export type PageNode = {
   readonly title: string;
   readonly menuTitle: string;
   readonly alias: string;
+  /** Адрес по алиасам и стилю адресов — и у черновика, и у страницы в корзине. */
+  readonly path: string;
+  readonly folder: boolean;
+  readonly aliasInPath: boolean;
   readonly template: string;
   readonly contentType: string;
   readonly published: boolean;
@@ -100,6 +111,10 @@ export type ListOptions = {
   readonly includeHidden?: boolean;
   readonly offset?: number;
   readonly limit?: number;
+  /** Свой отбор: остаются страницы, для которых он вернул true. Кандидаты — вся ветка с полями. */
+  readonly filter?: (page: PageView) => boolean;
+  /** Свой порядок вместо `sort`, как у `Array.sort`; при равенстве остаётся порядок `sort`. */
+  readonly order?: (a: PageView, b: PageView) => number;
 };
 
 /** Порция списка и сколько страниц в нём всего. */
@@ -111,8 +126,14 @@ export type PageList = {
 /** Модель чтения: опубликованные страницы вне корзины, чьи предки тоже не в корзине. */
 export type PublishedContent = {
   readonly page: (id: number) => PageView | null;
+  /** Страница по её точному адресу. */
   readonly byPath: (path: string) => PageView | null;
-  /** Опубликованная страница, которая раньше жила по этому адресу: для 301 со старых адресов. */
+  /**
+   * Страница, к чьему адресу путь — точный или вариант: без окончания, с лишним `/` или суффиксом
+   * (`/katalog` → `/katalog/`). Сравнить её адрес с путём и ответить 301 — дело отдачи.
+   */
+  readonly locate: (path: string) => PageView | null;
+  /** Опубликованная страница, которая раньше жила по этому адресу или его варианту: для 301 со старых адресов. */
   readonly movedFrom: (path: string) => PageView | null;
   /** Предки страницы от ближайшего к корню. */
   readonly lineage: (id: number) => number[];

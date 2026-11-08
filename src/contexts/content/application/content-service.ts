@@ -2,6 +2,16 @@ import { type Changed, chain } from '../../../shared/kernel/changed.ts';
 import { attempt, fail } from '../../../shared/kernel/errors.ts';
 import type { EventBus } from '../../../shared/kernel/events.ts';
 import { pipe } from '../../../shared/kernel/pipe.ts';
+import {
+  type Address,
+  type AddressNode,
+  type AddressStyle,
+  addressClash,
+  addressEnding,
+  branchAddresses,
+  PLAIN_ADDRESS,
+  rivalAliases,
+} from '../domain/address.ts';
 import { aliasFromTitle, parseAlias } from '../domain/alias.ts';
 import type { ContentEvent } from '../domain/events.ts';
 import {
@@ -87,6 +97,9 @@ export type RestoreOptions = {
   readonly prepare?: (input: RestoreInput) => RestoreInput;
 };
 
+// Правки, после которых у страницы или её ветки другой адрес: прежний запоминается для 301.
+const _ADDRESS_KEYS = ['alias', 'folder', 'aliasInPath'] as const;
+
 const _removed = (pageId: PageId, parentId: PageId | null): ContentEvent => ({
   type: 'content.page_removed',
   pageId,
@@ -133,6 +146,7 @@ export var defineContentService = ({
   bus,
   clock,
   siteLanguage = () => '',
+  addressStyle = () => PLAIN_ADDRESS,
 }: {
   pages: PageRepository;
   fields: FieldRepository;
@@ -144,6 +158,8 @@ export var defineContentService = ({
   clock: Clock;
   /** Язык сайта — язык веток без своего: по нему алиас из заголовка. */
   siteLanguage?: () => string;
+  /** Стиль адресов сайта: окончание адреса папки и документа (ADR 0063). */
+  addressStyle?: () => AddressStyle;
 }) => {
   // undefined — ближайший момент расписания ещё не считан из базы.
   let nextScheduled: Moment | null | undefined;
@@ -184,6 +200,70 @@ export var defineContentService = ({
       : change;
   };
 
+  // Адрес страницы и ветки под ней меняют алиас, родитель, флаг алиаса в адресе и возврат из корзины;
+  // флаг папки — только окончание её собственного адреса.
+  const _MOVES_BRANCH = [
+    'alias',
+    'parentId',
+    'aliasInPath',
+    'trashedAt',
+  ] as const;
+
+  const addressedNode = (page: Page): AddressNode => ({
+    id: page.id,
+    parentId: page.parentId,
+    alias: page.alias,
+    folder: page.folder,
+    aliasInPath: page.aliasInPath,
+  });
+
+  // Чужие страницы, чей адрес может совпасть с адресами ветки: те же алиасы и их варианты с суффиксом.
+  const rivalsOf = (mine: readonly AddressNode[]): Address[] =>
+    ((style, own) =>
+      pages
+        .withAliases([
+          ...new Set(mine.flatMap((_) => rivalAliases(_.alias, style))),
+        ])
+        .filter((_) => !own.has(_.node.id))
+        .map((_) => ({
+          id: _.node.id,
+          key: _.key,
+          url: `${_.key}${addressEnding(_.node, style)}`,
+        })))(addressStyle(), new Set(mine.map((_) => _.id)));
+
+  /**
+   * Адрес страницы и её ветки не должен совпасть с чужим ни ключом, ни самим адресом: со скрытым из адреса
+   * алиасом (`aliasInPath`) соседями по адресу становятся страницы из разных веток.
+   */
+  const assertAddressFree = (change: PageChange): PageChange => {
+    const page = change.state;
+    const before = pages.get(page.id);
+    const trail = page.parentId === null ? '' : pages.trail(page.parentId);
+    const moved =
+      before === null ||
+      before.folder !== page.folder ||
+      _MOVES_BRANCH.some((_) => before[_] !== page[_]);
+    const nodes =
+      before !== null && _MOVES_BRANCH.some((_) => before[_] !== page[_])
+        ? [addressedNode(page), ...pages.descendants(page.id)]
+        : [addressedNode(page)];
+    const clash =
+      page.trashedAt !== null || trail === null || !moved
+        ? null
+        : addressClash(
+            branchAddresses(nodes[0]!, nodes.slice(1), trail, addressStyle()),
+            rivalsOf(nodes)
+          );
+    return clash === null
+      ? change
+      : fail(
+          'content.address_taken',
+          clash.page === page.id
+            ? `Address "${clash.url}" is already used by page ${clash.other}`
+            : `Address "${clash.url}" of page ${clash.page} is already used by page ${clash.other}`
+        );
+  };
+
   /**
    * Связь с исходной страницей: перевод перевода указывает на ту же исходную, а страница со своими
    * переводами сама переводом не становится — иначе набор распался бы на цепочку.
@@ -218,6 +298,7 @@ export var defineContentService = ({
 
   const store = pipe(
     (_: PageChange) => (_.state.trashedAt === null ? assertAliasFree(_) : _),
+    assertAddressFree,
     (_: PageChange) => (pages.save(_.state), (nextScheduled = undefined), _),
     publishEvents,
     (_: Page) => _.id
@@ -293,6 +374,19 @@ export var defineContentService = ({
         ? fail('content.invalid_page_id', `Page id ${id} is not reserved`)
         : parsed)(parsePageId(id));
 
+  /**
+   * Как в Evo: у страницы появилась дочерняя — она становится папкой. Флаг сам не снимается: у папки
+   * может не быть детей (разделы-города Evo). Прежний адрес (`/o-nas.html` → `/o-nas/`) ведёт на новый.
+   */
+  const asFolder = (parentId: PageId | null): void =>
+    void (
+      parentId !== null &&
+      !load(parentId).folder &&
+      keepingOldPaths(parentId, () =>
+        apply(editPage({ folder: true }))(parentId)
+      )
+    );
+
   /** `reserved` — id, занятый `reserveId` для предложенной агентом страницы. */
   const create = (input: CreatePageInput, reserved?: number): PageId =>
     pipe(
@@ -305,7 +399,8 @@ export var defineContentService = ({
           ))((_.parentId ?? null) === null ? null : load(_.parentId!).id),
       withFields(input.fields),
       (_: PageChange) => (input.publish ? chain(publishPage(now()))(_) : _),
-      store
+      store,
+      (_: PageId) => (asFolder(load(_).parentId), _)
     )(input);
 
   // Перенос с другой CMS: id сохраняются, чтобы старые ссылки `[~5~]` вели туда же; дата публикации —
@@ -363,6 +458,8 @@ export var defineContentService = ({
           page.language || branchLanguage(page.parentId)
         )
       ),
+      folder: page.folder,
+      aliasInPath: page.aliasInPath,
       template: page.template,
       contentType: page.contentType,
       content: page.content,
@@ -373,6 +470,18 @@ export var defineContentService = ({
       fields: page.fields,
     });
   };
+
+  const move = (id: number, parentId: number | null): PageId =>
+    ((moved) => (asFolder(load(moved).parentId), moved))(
+      keepingOldPaths(id, () =>
+        apply(
+          movePage(
+            parentId === null ? null : parsePageId(parentId),
+            lineage(parentId)
+          )
+        )(id)
+      )
+    );
 
   const siblingsOf = (parentId: number | null): number[] =>
     drafts
@@ -399,14 +508,7 @@ export var defineContentService = ({
     const page = load(id);
     void (
       page.parentId === (parentId === null ? null : parsePageId(parentId)) ||
-      keepingOldPaths(id, () =>
-        apply(
-          movePage(
-            parentId === null ? null : parsePageId(parentId),
-            lineage(parentId)
-          )
-        )(id)
-      )
+      move(id, parentId)
     );
     const others = siblingsOf(parentId).filter((_) => _ !== page.id);
     const at = Math.max(0, Math.min(index, others.length));
@@ -550,7 +652,7 @@ export var defineContentService = ({
       ): PageId =>
         ((linked) =>
           ((transition) =>
-            linked.alias === undefined
+            _ADDRESS_KEYS.every((_) => linked[_] === undefined)
               ? apply(transition, author)(id)
               : keepingOldPaths(id, () => apply(transition, author)(id)))(
             (page: Page) =>
@@ -558,15 +660,7 @@ export var defineContentService = ({
           ))(linkTranslation(changes, id)),
       publish: (id: number): PageId => apply(publishPage(now()))(id),
       unpublish: apply(unpublishPage),
-      move: (id: number, parentId: number | null): PageId =>
-        keepingOldPaths(id, () =>
-          apply(
-            movePage(
-              parentId === null ? null : parsePageId(parentId),
-              lineage(parentId)
-            )
-          )(id)
-        ),
+      move,
       setFields: (
         id: number,
         values: FieldValues,
@@ -653,9 +747,12 @@ export var defineContentService = ({
           .map(load)
           .filter((_) => _moduleTag(module, name).test(_.content))
           .map(_ref),
-      /** Страницы, где лежит файл медиатеки: в тексте, в полях или картинкой для соцсетей. */
-      media: (path: string): PageRef[] =>
-        pages.referencingMedia(path).map(load).map(_ref),
+      /**
+       * Страницы, где лежит файл медиатеки: в тексте, в полях или картинкой для соцсетей. `original` — исходный
+       * путь файла связанной папки (`assets/images/4a_(5).jpg`): перенесённый текст ссылается на него.
+       */
+      media: (path: string, original?: string): PageRef[] =>
+        pages.referencingMedia(path, original).map(load).map(_ref),
     },
     published,
     drafts: {

@@ -25,12 +25,12 @@ src/contexts/<ctx>/index.ts         define<Ctx>({ db, bus, … }) + публич
 
 Контексты и их API:
 
-| Контекст   | API                                                                                                                                                                              |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `content`  | `pages.{create,edit,publish,unpublish,move,setFields,trash,restore}`, `trash.empty`, `schedule.runDue`, `fields.{save,list}`, `published.{page,byPath,children,list}`, `isEmpty` |
-| `design`   | `templates.save`, `components.save`, `scripts.{save,saveAll,url,closure}`, `views.template`                                                                                      |
-| `site`     | `settings.{get,update}`                                                                                                                                                          |
-| `delivery` | `handle(Request)`; `defineComponentRuntime` — модуль `$core`                                                                                                                     |
+| Контекст   | API                                                                                                                                                                                     |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `content`  | `pages.{create,edit,publish,unpublish,move,setFields,trash,restore}`, `trash.empty`, `schedule.runDue`, `fields.{save,list}`, `published.{page,byPath,locate,children,list}`, `isEmpty` |
+| `design`   | `templates.save`, `components.save`, `scripts.{save,saveAll,url,closure}`, `views.template`                                                                                             |
+| `site`     | `settings.{get,update}`                                                                                                                                                                 |
+| `delivery` | `handle(Request)`; `defineComponentRuntime` — модуль `$core`                                                                                                                            |
 
 ## Правила зависимостей
 

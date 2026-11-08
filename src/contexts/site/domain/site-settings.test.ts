@@ -26,6 +26,10 @@ it.each([
   [{ pagingSegment: '-page' }, 'not a paging word'],
   [{ pagingSegment: '' }, 'not a paging word'],
   [{ pagingCanonical: 'next' as 'self' }, 'Paging canonical'],
+  [{ urlSuffix: 'html' }, 'Address ending'],
+  [{ urlSuffix: '.ht ml' }, 'Address ending'],
+  [{ urlSuffix: '//' }, 'Address ending'],
+  [{ folderSlash: 'yes' as unknown as boolean }, 'Address ending'],
 ])('%p отклоняется', (patch, message) => {
   expect(() => changeSettings(DEFAULT_SETTINGS, patch)).toThrow(message);
 });
@@ -53,5 +57,18 @@ it('объём кэша — целое число мегабайт от 16 до 
       void expect(() =>
         changeSettings(DEFAULT_SETTINGS, { pageCacheMb: _ })
       ).toThrow('Page cache size')
+  );
+});
+
+it('стиль адресов: суффикс пустой, «/» или расширение, по умолчанию — без окончания', () => {
+  expect(DEFAULT_SETTINGS).toMatchObject({ urlSuffix: '', folderSlash: false });
+  expect(
+    changeSettings(DEFAULT_SETTINGS, {
+      urlSuffix: ' .HTML ',
+      folderSlash: true,
+    })
+  ).toMatchObject({ urlSuffix: '.html', folderSlash: true });
+  expect(changeSettings(DEFAULT_SETTINGS, { urlSuffix: '/' }).urlSuffix).toBe(
+    '/'
   );
 });

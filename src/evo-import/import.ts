@@ -6,7 +6,12 @@ import type {
 import type { DesignService } from '../contexts/design/index.ts';
 import { sanitizeHtml } from '../contexts/manager/index.ts';
 import type { SiteService } from '../contexts/site/index.ts';
-import { attempt, fail, isDomainError } from '../shared/kernel/errors.ts';
+import {
+  attempt,
+  fail,
+  isDomainError,
+  rethrow,
+} from '../shared/kernel/errors.ts';
 import {
   camelCase,
   convertContent,
@@ -46,6 +51,54 @@ const _TV_TYPES: Readonly<Record<string, FieldType>> = {
 };
 
 const _BLANK_TEMPLATE = 'Blank';
+
+const _ALIAS = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+)?$/;
+
+// Weblink Evo, чья цель — ссылка на документ `[~13~]`: в Eile цель — сам id.
+const _PAGE_LINK = /^\s*\[~(\d+)~\]\s*$/;
+
+/** Стиль адресов сайта Evo из `system_settings` и что из них перенести не удалось (ADR 0063). */
+export var evoAddressStyle = (
+  settings: ReadonlyMap<string, string>
+): {
+  readonly urlSuffix: string;
+  readonly folderSlash: boolean;
+  /** `use_alias_path = 0`: адреса плоские — алиас каждой страницы скрыт из адресов её детей. */
+  readonly flat: boolean;
+  readonly warnings: readonly string[];
+} => {
+  const friendly = (settings.get('friendly_urls') ?? '1') === '1';
+  const suffix = (settings.get('friendly_url_suffix') ?? '').trim();
+  const valid = /^(?:|\/|\.[a-z0-9]{1,10})$/.test(suffix.toLowerCase());
+  const prefix = (settings.get('friendly_url_prefix') ?? '').trim();
+  return {
+    urlSuffix: friendly && valid ? suffix.toLowerCase() : '',
+    folderSlash: friendly && settings.get('make_folders') === '1',
+    flat: friendly && settings.get('use_alias_path') === '0',
+    warnings: [
+      ...(friendly
+        ? []
+        : [
+            'settings: Evo friendly URLs are off (index.php?id=N): pages get addresses from their aliases, old addresses need redirects',
+          ]),
+      ...(friendly && !valid
+        ? [
+            `settings: URL suffix "${suffix}" is not supported: addresses are left without a suffix`,
+          ]
+        : []),
+      ...(friendly && prefix
+        ? [
+            `settings: URL prefix "${prefix}" is not supported: addresses are left without it`,
+          ]
+        : []),
+      ...(friendly && settings.get('use_alias_path') === '0'
+        ? [
+            'settings: use_alias_path = 0 — addresses are flat: every page hides its alias from the addresses of its children',
+          ]
+        : []),
+    ],
+  };
+};
 
 const _text = (row: SqlRow, column: string): string =>
   String(row[column] ?? '');
@@ -203,21 +256,71 @@ export var importEvo = (
       .filter((_) => _ !== null)
   );
 
+  const settings = new Map(
+    rows('system_settings').map((_) => [
+      _text(_, 'setting_name'),
+      _text(_, 'setting_value'),
+    ])
+  );
+  // Стиль адресов — до страниц: по нему проверяется, не заняты ли их адреса.
+  const style = evoAddressStyle(settings);
+  warnings.push(...style.warnings);
+  tryTo('address settings', () =>
+    site.settings.update({
+      urlSuffix: style.urlSuffix,
+      folderSlash: style.folderSlash,
+    })
+  );
+
   const pageRows = rows('site_content');
   const depth = _depth(pageRows);
+  // Дамп без `isfolder` (очень старый Evo) — папка та, у кого есть дети.
+  const parents = new Set(pageRows.map((_) => _int(_, 'parent')));
+  const folder = (row: SqlRow): boolean =>
+    row.isfolder === undefined
+      ? parents.has(_int(row, 'id'))
+      : _int(row, 'isfolder') === 1;
+  const aliasInPath = (row: SqlRow): boolean =>
+    !style.flat &&
+    (row.alias_visible === undefined || _int(row, 'alias_visible') !== 0);
+
+  // Адрес занят (скрытый из адреса алиас свёл страницы из разных веток): страница не теряется — её алиас
+  // получает id, а отчёт говорит об этом.
+  const importPage = (
+    id: number,
+    input: Parameters<ContentService['pages']['import']>[1]
+  ) =>
+    attempt(
+      () => content.pages.import(id, input),
+      (error) =>
+        isDomainError(error) &&
+        (error.code === 'content.address_taken' ||
+          error.code === 'content.alias_taken') &&
+        input.alias !== undefined
+          ? (warnings.push(
+              `page ${id}: ${error.message}; imported with alias ${input.alias}-${id}`
+            ),
+            content.pages.import(id, {
+              ...input,
+              alias: `${input.alias}-${id}`,
+            }))
+          : rethrow(error)
+    );
   const imported = pageRows
     .toSorted((a, b) => depth(a) - depth(b) || _int(a, 'id') - _int(b, 'id'))
     .filter((row) =>
       tryTo(`page ${_int(row, 'id')}`, () => {
         const id = _int(row, 'id');
-        const alias = _text(row, 'alias');
+        // Пустой алиас Evo заменяет id документа: так и адрес останется прежним.
+        const alias = _text(row, 'alias') || String(id);
+        const link = _PAGE_LINK.exec(_text(row, 'content'));
         const mime = _text(row, 'contentType');
         const typed = /^[\w.+-]+\/[\w.+-]+$/.test(mime);
         // Документ со своим НЕ-HTML типом (sitemap.xml, rss.xml, robots.txt) — не чистим, иначе XML/текст
         // поломается. Обычную HTML-страницу (text/html или без своего типа) чистим тем же санитайзером, что
         // и правки в менеджере: у Evo своей очистки HTML нет, и `<script>`/`onerror` остались бы на странице.
         const rawDoc = typed && !/^text\/html\b/i.test(mime);
-        content.pages.import(id, {
+        importPage(id, {
           parentId: _int(row, 'parent') || null,
           kind: _text(row, 'type') === 'reference' ? 'link' : 'page',
           title: _text(row, 'pagetitle') || `Page ${id}`,
@@ -225,9 +328,9 @@ export var importEvo = (
           menuTitle: _text(row, 'menutitle'),
           description: _text(row, 'description'),
           introText: sanitizeHtml(_text(row, 'introtext')),
-          ...(alias && /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+)?$/.test(alias)
-            ? { alias }
-            : {}),
+          ...(_ALIAS.test(alias) ? { alias } : {}),
+          folder: folder(row),
+          aliasInPath: aliasInPath(row),
           template: templates.get(_int(row, 'template')) ?? _BLANK_TEMPLATE,
           ...(typed ? { contentType: mime } : {}),
           content:
@@ -237,10 +340,16 @@ export var importEvo = (
                 ? _text(row, 'content')
                 : sanitizeHtml(_text(row, 'content')),
           linkTo:
-            _text(row, 'type') === 'reference' ? _text(row, 'content') : '',
+            _text(row, 'type') !== 'reference'
+              ? ''
+              : link
+                ? link[1]!
+                : _text(row, 'content').trim(),
           menuIndex: _int(row, 'menuindex'),
           hiddenFromMenu: _int(row, 'hidemenu') === 1,
           cacheable: _int(row, 'cacheable') !== 0,
+          searchable:
+            row.searchable === undefined || _int(row, 'searchable') !== 0,
           publishAt: _moment(_int(row, 'pub_date')),
           unpublishAt: _moment(_int(row, 'unpub_date')),
           publish: _int(row, 'published') === 1,
@@ -289,12 +398,6 @@ export var importEvo = (
     );
   }).length;
 
-  const settings = new Map(
-    rows('system_settings').map((_) => [
-      _text(_, 'setting_name'),
-      _text(_, 'setting_value'),
-    ])
-  );
   const pageSetting = (name: string): number | null => {
     const id = Number(settings.get(name) ?? 0);
     return id > 0 && content.drafts.view(id) ? id : null;

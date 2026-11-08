@@ -21,6 +21,11 @@ const _METHODS = ['GET', 'HEAD'];
 type Page = Extract<Delivery, { kind: 'page' }>;
 type Redirect = Extract<Delivery, { kind: 'redirect' }>;
 
+/** Свой ответ плагина на запрос, которому сайт не ответил; null — ответа нет (ADR 0067). */
+export type PluginAnswer = (request: Request) => Promise<Response | null>;
+
+const _NO_PLUGINS: PluginAnswer = () => Promise.resolve(null);
+
 const _decoded = (value: string): string =>
   attempt(
     () => decodeURIComponent(value),
@@ -166,13 +171,24 @@ const _negotiated = (request: Request, found: Discovered): Response =>
 const _markdownPath = (path: string): string =>
   path === '/' ? '/index.md' : `${path}.md`;
 
+// Ответ плагина — как он есть; у HEAD — без тела, даже если плагин его дал.
+const _pluginResponse = (request: Request, response: Response): Response =>
+  request.method === 'HEAD' && response.body !== null
+    ? new Response(null, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      })
+    : response;
+
 export var defineSiteHandler = (
   delivery: PageDelivery,
   compression: CompressionCache,
   discovery: Discovery,
   report: Report = NO_REPORT,
   editBar: EditBar = _NO_BAR,
-  views: PageViews = _NO_VIEWS
+  views: PageViews = _NO_VIEWS,
+  plugins: PluginAnswer = _NO_PLUGINS
 ) => {
   // Страница с полосой правки — только тому, кто вошёл в менеджер: без ETag, общего кэша и сжатия впрок.
   const personalResponse = (
@@ -277,10 +293,34 @@ export var defineSiteHandler = (
     (result: Delivery): Response =>
       result.kind === 'page'
         ? pageResponse(request, result, path, client)
-        : redirectResponse(result, url.search);
+        : result.kind === 'response'
+          ? _pluginResponse(request, result.response)
+          : redirectResponse(result, url.search);
+
+  // Страницы, правила и прежние адреса отвечают только GET и HEAD: другой метод (POST, OPTIONS) сразу
+  // спрашивает плагины, а без их ответа — 405, как раньше.
+  const otherMethod = (request: Request, path: string): Promise<Response> =>
+    plugins(request).then(
+      (answer) => answer ?? _methodNotAllowed(),
+      _serverError(report, path)
+    );
+
+  /** Страница 404 сайта на этот запрос — сразу, без поиска страницы (адрес папки-сайта без файла, ADR 0068). */
+  const notFound = (request: Request): Promise<Response> =>
+    ((url) =>
+      Promise.resolve(url.pathname)
+        .then(decodeURIComponent)
+        .then(
+          (path) =>
+            delivery
+              .notFound(_requestInfo(request, url, path))
+              .then(respond(request, url, '', path))
+              .then(undefined, _serverError(report, path)),
+          _badRequest
+        ))(new URL(request.url));
 
   /** `client` — адрес посетителя из сервера: для статистики. */
-  return (request: Request, client = ''): Promise<Response> => {
+  const handle = (request: Request, client = ''): Promise<Response> => {
     const url = new URL(request.url);
     return request.headers.get('service-worker') === 'script'
       ? Promise.resolve(_workerRefused())
@@ -301,20 +341,22 @@ export var defineSiteHandler = (
                             _.status === 200
                               ? _negotiated(request, _)
                               : delivery
-                                  .deliver(info)
+                                  .deliver(info, request)
                                   .then(respond(request, url, client, path))
                           ) ??
                         delivery
-                          .deliver(info)
+                          .deliver(info, request)
                           .then(respond(request, url, client, path)))
                       : delivery
-                          .deliver(info)
+                          .deliver(info, request)
                           .then(respond(request, url, client, path)))
                   ).then(undefined, _serverError(report, path)))(
                   _requestInfo(request, url, path)
                 ),
               _badRequest
             )
-        : Promise.resolve(_methodNotAllowed());
+        : otherMethod(request, url.pathname);
   };
+
+  return { handle, notFound };
 };

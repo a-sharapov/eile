@@ -1,8 +1,14 @@
-import { fail } from '../../../shared/kernel/errors.ts';
+import { attempt, fail } from '../../../shared/kernel/errors.ts';
 import type { EventBus } from '../../../shared/kernel/events.ts';
 import { pipe } from '../../../shared/kernel/pipe.ts';
 import type { Report } from '../../../shared/kernel/report.ts';
 import { imageSize } from '../domain/image-size.ts';
+import {
+  escapesFolder,
+  isDerived,
+  isLinkedOriginal,
+  type MediaLink,
+} from '../domain/linked.ts';
 import {
   checkSize,
   contentTypeOf,
@@ -15,20 +21,46 @@ import {
   variantWidth,
 } from '../domain/media.ts';
 import type {
+  DiskFile,
   ImageResizer,
+  LinkedDisk,
   MediaCache,
   MediaRepository,
   UploadContent,
   VariantQueue,
 } from '../domain/ports.ts';
 import {
+  hiddenPart,
+  immutable,
+  indexOf,
+  NOT_FOUND_FILE,
+  staticType,
+} from '../domain/static-site.ts';
+import {
   isResizable,
+  stemOwner,
   takesVariants,
   VARIANT_WIDTHS,
 } from '../domain/variants.ts';
+import { defineLinkedFolders } from './linked-folders.ts';
 import { defineVariantJobs } from './variant-jobs.ts';
 
 export type { UploadContent };
+
+/** Файл медиатеки для отдачи: описание, байты из базы, с диска или из кэша. */
+export type MediaRead = {
+  readonly meta: MediaFile;
+  /**
+   * ETag и `?v=` годятся: байты те, что описаны в строке. Файл связанной папки, который изменили на диске после
+   * сверки, отдаётся с настоящим размером, но без ETag и вечного кэша.
+   */
+  readonly fresh: boolean;
+  readonly data: () => Uint8Array;
+  /** Файл на диске для ответа; null — кэша нет, читать кусками из базы. */
+  readonly local: () => Promise<Blob | null>;
+  /** `length` байт с `start`, без всего файла в памяти. */
+  readonly chunk: (start: number, length: number) => Uint8Array;
+};
 
 export type Upload = {
   readonly path: string;
@@ -47,6 +79,27 @@ export type ImageSet = {
   /** Описание из медиатеки — для `alt`, если компонент своего не передал. */
   readonly alt: string;
 };
+
+/** Файл папки-сайта для ответа: 200 — сам файл, 404 — её `404.html`. */
+export type StaticFile = DiskFile & {
+  readonly kind: 'file';
+  readonly status: 200 | 404;
+  readonly contentType: string;
+  /** Файл сборки с хэшем в имени (`_astro/…`): кэш браузера навсегда. */
+  readonly immutable: boolean;
+  /** Байты для ответа: Bun отдаёт файл через sendfile. */
+  readonly blob: () => Blob;
+};
+
+/**
+ * Что отдать по адресу папки-сайта (ADR 0068): файл; `slash` — каталог без `/` в конце, 301 на адрес со
+ * слэшем; `refused` — попытка выйти из папки, 404 сразу; `missing` — файла и своей 404 нет, дальше страницы.
+ */
+export type StaticAnswer =
+  | StaticFile
+  | { readonly kind: 'slash' }
+  | { readonly kind: 'refused' }
+  | { readonly kind: 'missing' };
 
 type Dimensions = {
   readonly width: number | null;
@@ -81,6 +134,15 @@ const _measure = (
     height: _dimension(upload.height),
   });
 
+/** Ширина и высота картинки по её байтам; не картинка — без размеров. */
+export var measureImage = (
+  content: UploadContent,
+  contentType: string
+): Dimensions =>
+  contentType.startsWith('image/')
+    ? (_sizeOf(content) ?? { width: null, height: null })
+    : { width: null, height: null };
+
 const _contentOf = (data: Uint8Array | UploadContent): UploadContent =>
   data instanceof Uint8Array
     ? { size: data.byteLength, read: (start, end) => data.subarray(start, end) }
@@ -111,11 +173,24 @@ type Prepared = {
   readonly queued: boolean;
 };
 
+const _stemTaken = (path: string, owner: string): never =>
+  fail(
+    'media.stem_taken',
+    `${owner} already has the name of ${path} without the extension, and image sizes are named after it: give the new image another name or replace ${owner}`
+  );
+
+const _linkedFile = (path: string): never =>
+  fail(
+    'media.linked_file',
+    `${path} lives in a linked folder on the server: change it there and run cms media link again`
+  );
+
 export var defineMediaService = ({
   files,
   queue,
   resize,
   cache,
+  disk,
   bus,
   report,
   kick,
@@ -125,6 +200,7 @@ export var defineMediaService = ({
   queue: VariantQueue;
   resize: ImageResizer;
   cache: MediaCache;
+  disk: LinkedDisk;
   bus: EventBus;
   report: Report;
   /** В очереди вариантов новое задание: фон сервера разберёт её сразу, а не по расписанию. */
@@ -139,20 +215,31 @@ export var defineMediaService = ({
   const variantsOf = (path: MediaPath): MediaFile[] =>
     files.family(stemOf(path)).filter((_) => variantWidth(_.path) !== null);
 
-  const prepare = (upload: Upload): Prepared => {
+  // `link` — у варианта картинки связанной папки: строка без кусков, байты — в кэш медиатеки.
+  const prepare = (upload: Upload, link?: string): Prepared => {
     const path = parseMediaPath(upload.path);
     const contentType = contentTypeOf(path);
     const content = _contentOf(upload.data);
     const previous = files.meta(path);
+    void (previous?.linked && link === undefined && _linkedFile(path));
     const file: MediaFile = {
       path,
       contentType,
-      size: checkSize(content.size),
+      // Вариант связанной папки — из файла без предела размера, сам он маленький.
+      size: link === undefined ? checkSize(content.size) : content.size,
       hash: mediaHash(content),
       ..._measure(upload, content, contentType),
       // Замена файла не стирает описание: картинка та же по смыслу, сменилось только содержимое.
       alt: previous?.alt ?? '',
+      ...(link === undefined ? {} : { linked: { prefix: link, file: null } }),
     };
+    // Новая картинка с основой другой картинки получила бы её варианты размеров — и показывала бы чужое.
+    void (
+      previous === null &&
+      ((owner) => owner && _stemTaken(path, owner))(
+        stemOwner(file, files.family(stemOf(path)))
+      )
+    );
     // Оригинал сменился: прежние варианты показывали бы старую картинку. Варианты, загруженные до первого
     // оригинала, остаются — их сделал тот, кто загружает.
     const stale =
@@ -167,8 +254,17 @@ export var defineMediaService = ({
     };
   };
 
-  // Внутри транзакции: файл, его устаревшие варианты и задание очереди меняются вместе.
+  // Внутри транзакции: файл, его устаревшие варианты и задание очереди меняются вместе. Байты варианта
+  // связанной папки ложатся в кэш раньше строки: строка не укажет на файл, которого нет.
   const write = (_: Prepared): Prepared => (
+    void (
+      _.file.linked &&
+      (cache.put(_.file, _.content) ||
+        fail(
+          'media.cache_unavailable',
+          'The media cache on disk is not writable: variants of linked images live only there'
+        ))
+    ),
     _.stale.forEach(files.remove),
     files.save(_.file, _.content),
     void (_.queued && queue.add(_.file.path, _.file.hash)),
@@ -187,6 +283,168 @@ export var defineMediaService = ({
   const save = (upload: Upload): MediaFile =>
     pipe(prepare, (_) => files.transaction(() => write(_)), announce)(upload);
 
+  const linkOf = (file: MediaFile) =>
+    file.linked ? files.links.get(file.linked.prefix) : null;
+
+  // Файл связанной папки на диске; null — папки или файла нет, раз в процесс об этом пишет журнал.
+  const missing = new Set<string>();
+  const located = (file: MediaFile) =>
+    ((link) =>
+      ((found) => (
+        void (
+          found === null &&
+          !missing.has(file.path) &&
+          (missing.add(file.path),
+          console.error(
+            `Linked file ${file.path} is missing on disk (${link ? disk.absolute(link.root) : file.linked?.prefix}/${file.linked?.file}): it answers 404`
+          ))
+        ),
+        found
+      ))(
+        link && file.linked?.file
+          ? disk.locate(disk.absolute(link.root), file.linked.file)
+          : null
+      ))(linkOf(file));
+
+  // Файл пропал между поиском и чтением — пустые байты, как у файла без кусков в базе.
+  const fromDisk = (path: string, start: number, end: number): Uint8Array =>
+    attempt(
+      () =>
+        ((opened) =>
+          attempt(
+            () => ((bytes) => (opened.close(), bytes))(opened.read(start, end)),
+            () => (opened.close(), new Uint8Array(0))
+          ))(disk.open(path)),
+      () => new Uint8Array(0)
+    );
+
+  const stored = (meta: MediaFile): MediaRead => ({
+    meta,
+    fresh: true,
+    data: () => files.chunk(meta.path, 0, meta.size) ?? new Uint8Array(0),
+    local: () => cache.local(meta, (n) => files.piece(meta.path, n)),
+    chunk: (start, length) =>
+      files.chunk(meta.path, start, length) ?? new Uint8Array(0),
+  });
+
+  const onDisk = (
+    meta: MediaFile,
+    path: string,
+    fresh: boolean,
+    size: number
+  ) =>
+    ({
+      meta: { ...meta, size },
+      fresh,
+      data: () => fromDisk(path, 0, size),
+      local: () => Promise.resolve(disk.blob(path)),
+      chunk: (start, length) => fromDisk(path, start, start + length),
+    }) satisfies MediaRead;
+
+  // Файл в базе; файл папки — с диска; вариант картинки папки — из кэша, пропал — null.
+  const open = (meta: MediaFile): MediaRead | null =>
+    isLinkedOriginal(meta)
+      ? ((found) =>
+          found &&
+          onDisk(
+            meta,
+            found.path,
+            found.size === meta.size && found.mtime === files.mtime(meta.path),
+            found.size
+          ))(located(meta))
+      : isDerived(meta)
+        ? ((path) =>
+            path === null ? null : onDisk(meta, path, true, meta.size))(
+            cache.stored(meta)
+          )
+        : stored(meta);
+
+  const originalOf = (raw: string): MediaFile | null =>
+    ((path) =>
+      files.links
+        .list()
+        .filter((_) => path.startsWith(`${_.prefix}/`))
+        .map((_) => files.original(_.prefix, path.slice(_.prefix.length + 1)))
+        .find((_) => _ !== null) ?? null)(raw.replace(/^\/+/, ''));
+
+  /**
+   * Файл по пути медиатеки или по исходному пути файла связанной папки `<приставка>/<путь на диске>` — так
+   * перенесённый текст и поля со старыми путями работают как есть. Путь под приставкой папки сначала ищется
+   * как исходный: у `Photo.jpg` и `photo.jpg` одно имя медиатеки, а путь на диске точный.
+   */
+  const find = (raw: string): MediaFile | null =>
+    originalOf(raw) ??
+    (raw.includes('%')
+      ? attempt(
+          () => originalOf(decodeURIComponent(raw)),
+          () => null
+        )
+      : null) ??
+    attempt(
+      () => files.meta(parseMediaPath(raw)),
+      () => null
+    );
+
+  const servedMeta = (path: string): MediaFile | null =>
+    files.links
+      .list()
+      .filter((_) => _.serveOriginal && path.startsWith(`${_.prefix}/`))
+      .map((_) => files.original(_.prefix, path.slice(_.prefix.length + 1)))
+      .find((_) => _ !== null) ?? null;
+
+  // Папка-сайт: файл ищется на диске на каждый запрос, тем же поиском, что у связанной папки, — настоящий путь
+  // должен лежать внутри её настоящего пути.
+  const staticFile = (
+    link: MediaLink,
+    file: string,
+    status: 200 | 404
+  ): StaticFile | null =>
+    ((entry, contentType) =>
+      entry?.kind === 'file' && contentType !== null
+        ? {
+            ...entry,
+            status,
+            contentType,
+            immutable: immutable(file),
+            blob: () => disk.blob(entry.path),
+          }
+        : null)(disk.entry(disk.absolute(link.root), file), staticType(file));
+
+  const staticMissing = (link: MediaLink): StaticAnswer =>
+    staticFile(link, NOT_FOUND_FILE, 404) ?? { kind: 'missing' };
+
+  const staticAt = (link: MediaLink, rest: string): StaticAnswer =>
+    ((target) =>
+      hiddenPart(rest)
+        ? staticMissing(link)
+        : (staticFile(link, target, 200) ??
+          (target === rest &&
+          disk.entry(disk.absolute(link.root), rest)?.kind === 'folder'
+            ? { kind: 'slash' }
+            : staticMissing(link))))(indexOf(rest));
+
+  /** Адрес папки-сайта — после расшифровки, с ведущим `/`; null — адрес не папки-сайта. */
+  const staticAnswer = (path: string): StaticAnswer | null =>
+    ((link) =>
+      link === undefined
+        ? null
+        : path === `/${link.prefix}`
+          ? { kind: 'slash' }
+          : escapesFolder(path.endsWith('/') ? path.slice(0, -1) : path)
+            ? { kind: 'refused' }
+            : staticAt(link, path.slice(link.prefix.length + 2)))(
+      files.links
+        .list()
+        .find(
+          (_) =>
+            _.staticSite &&
+            (path === `/${_.prefix}` || path.startsWith(`/${_.prefix}/`))
+        )
+    );
+
+  const readOf = (_: MediaFile): Uint8Array =>
+    open(_)?.data() ?? new Uint8Array(0);
+
   const jobs = defineVariantJobs({
     files,
     queue,
@@ -194,19 +452,66 @@ export var defineMediaService = ({
     report,
     maxPixels,
     variantsOf,
+    read: readOf,
+    storable: (_) => _.linked === undefined || cache.writable(),
     // Варианты и отметка о задании — одной транзакцией, события — после неё.
     store: (collect) =>
-      files.transaction(() => collect().map(prepare).map(write)).map(announce),
+      files
+        .transaction(() =>
+          collect()
+            .map((_) => prepare(_, _.link))
+            .map(write)
+        )
+        .map(announce),
+  });
+
+  /**
+   * Варианты картинок связанных папок, чьих файлов нет в кэше (кэш стёрли, другой каталог кэша): строки
+   * вариантов уходят, оригиналы — снова в очередь. Ответ — сколько картинок поставлено.
+   */
+  const heal = (originals: readonly MediaFile[]): number =>
+    ((removed) => (
+      removed.forEach((_) => void bus.publish(event('media.file_removed', _))),
+      void (originals.length > 0 && kick()),
+      originals.length
+    ))(
+      files.transaction(() =>
+        originals.flatMap(
+          (original) => (
+            void (cache.writable() && queue.add(original.path, original.hash)),
+            files
+              .family(stemOf(original.path))
+              .filter(isDerived)
+              .map((_) => (files.remove(_.path), _.path))
+          )
+        )
+      )
+    );
+
+  const originalOfVariant = (variant: MediaFile): MediaFile | null =>
+    files.family(stemOf(variant.path)).find(isLinkedOriginal) ?? null;
+
+  const folders = defineLinkedFolders({
+    files,
+    queue,
+    disk,
+    cache,
+    bus,
+    kick,
+    hash: mediaHash,
+    measure: measureImage,
   });
 
   const image = (raw: string): ImageSet | null => {
-    const file = files.meta(parseMediaPath(raw));
-    const variants = file
-      ? files
-          .family(stemOf(file.path))
-          .filter((_) => variantWidth(_.path) !== null)
-          .toSorted((a, b) => variantWidth(a.path)! - variantWidth(b.path)!)
-      : [];
+    const file = find(raw);
+    // Варианты — только у JPEG, PNG и WebP: SVG или GIF с той же основой чужих не берёт.
+    const variants =
+      file && isResizable(file)
+        ? files
+            .family(stemOf(file.path))
+            .filter((_) => variantWidth(_.path) !== null)
+            .toSorted((a, b) => variantWidth(a.path)! - variantWidth(b.path)!)
+        : [];
     // Оригинал шире самого крупного варианта, но не шире 1920, — тоже кандидат: иначе снимок в 800 px
     // браузер растягивал бы из варианта 480. Оригинал крупнее 1920 в набор не идёт: на экране высокой
     // плотности браузер скачал бы его целиком, а вариант 1920 уже есть.
@@ -239,7 +544,8 @@ export var defineMediaService = ({
       remove: (raw: string): void => {
         const path = parseMediaPath(raw);
         void (
-          files.meta(path) ?? fail('media.file_not_found', `No file ${path}`)
+          (files.meta(path) ?? fail('media.file_not_found', `No file ${path}`))
+            .linked && _linkedFile(path)
         );
         files.remove(path);
         bus.publish(event('media.file_removed', path));
@@ -254,22 +560,62 @@ export var defineMediaService = ({
         bus.publish(event('media.file_saved', path));
         return next;
       },
-      read: (raw: string) => {
-        const path = parseMediaPath(raw);
-        const meta = files.meta(path);
-        return (
-          meta && {
-            meta,
-            data: (): Uint8Array =>
-              files.chunk(path, 0, meta.size) ?? new Uint8Array(0),
-            /** Файл из кэша медиатеки; null — кэша нет, читать кусками из базы. */
-            local: () => cache.local(meta, (n) => files.piece(path, n)),
-            /** `length` байт с `start` прямо из базы, без всего файла в памяти. */
-            chunk: (start: number, length: number): Uint8Array =>
-              files.chunk(path, start, length) ?? new Uint8Array(0),
-          }
-        );
-      },
+      /**
+       * Файл для отдачи — по пути медиатеки или исходному пути файла связанной папки; null — нет такого или
+       * его байтов нет на диске.
+       */
+      read: (raw: string): MediaRead | null =>
+        ((meta) => meta && open(meta))(find(raw)),
+      /** Файл связанной папки по исходному адресу `/<приставка>/<путь>` — только у папок с этим правом. */
+      served: (path: string): MediaRead | null =>
+        ((meta) => meta && open(meta))(servedMeta(path)),
+      /**
+       * Вариант картинки связанной папки, чьего файла нет в кэше: картинка — снова в очередь, ответ — адрес
+       * оригинала, пока вариант делается; null — это не такой вариант.
+       */
+      revive: (raw: string): string | null =>
+        ((meta) =>
+          ((original) => original && (heal([original]), mediaUrl(original)))(
+            meta && isDerived(meta) && cache.stored(meta) === null
+              ? originalOfVariant(meta)
+              : null
+          ))(find(raw)),
+      /** Путь медиатеки по пути или исходному пути файла связанной папки; null — файла нет. */
+      resolve: (raw: string): string | null => find(raw)?.path ?? null,
+      /** Исходный путь файла связанной папки `<приставка>/<путь на диске>`; null — файл в базе. */
+      original: (raw: string): string | null =>
+        ((meta) =>
+          meta?.linked?.file
+            ? `${meta.linked.prefix}/${meta.linked.file}`
+            : null)(find(raw)),
+    },
+    /** Связанные папки: файлы на диске сервера, в базе — только строки медиатеки (ADR 0065). */
+    links: {
+      ...folders,
+      /** Есть файл связанной папки с правом исходных адресов по пути `<приставка>/<путь на диске>`. */
+      serves: (path: string): boolean => servedMeta(path) !== null,
+      /** Приставки папок, чьи файлы отдаются и по исходным адресам; дёшево — на каждый запрос страницы. */
+      serving: (): string[] =>
+        files.links
+          .list()
+          .filter((_) => _.serveOriginal)
+          .map((_) => _.prefix),
+      /** Варианты картинок папок, которых нет в кэше, — снова в очередь; ответ — сколько картинок. */
+      heal: (): number =>
+        heal([
+          ...new Map(
+            files
+              .derived()
+              .filter((_) => cache.stored(_) === null)
+              .map(originalOfVariant)
+              .filter((_): _ is MediaFile => _ !== null)
+              .map((_) => [_.path, _])
+          ).values(),
+        ]),
+    },
+    /** Папки-сайты: статический сайт из связанной папки по `/<приставка>/…` (ADR 0068). */
+    statics: {
+      resolve: staticAnswer,
     },
     uploads: {
       /** Куда положить тело загрузки, пока оно разбирается; null — кэша на диске нет: тело — в память. */
@@ -281,10 +627,9 @@ export var defineMediaService = ({
       /** Весь кэш — с диска: база сменилась целиком (восстановление копии). */
       clear: (): number => cache.sweep([]),
     },
-    url: (raw: string): string | null => {
-      const file = files.meta(parseMediaPath(raw));
-      return file && mediaUrl(file);
-    },
+    url: (raw: string): string | null =>
+      ((file) => file && mediaUrl(file))(find(raw)),
+    resolve: (raw: string): string | null => find(raw)?.path ?? null,
     image,
     /** Очередь вариантов размеров: их делает сервер, а не тот, кто загрузил картинку (ADR 0046). */
     variants: jobs,

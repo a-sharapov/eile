@@ -1,12 +1,25 @@
 import type { Database } from '../../../platform/database.ts';
+import { pipe } from '../../../shared/kernel/pipe.ts';
 import type {
   DraftContent,
+  ListOptions,
   ListSort,
+  PageList,
   PageNode,
   PageView,
   PublishedContent,
   TranslationNode,
 } from '../application/published-content.ts';
+import {
+  type AddressNode,
+  type AddressStyle,
+  addressEnding,
+  addressKey,
+  addressOf,
+  addressVariants,
+  childTrail,
+  PLAIN_ADDRESS,
+} from '../domain/address.ts';
 import { type Field, type FieldValue, fitsField } from '../domain/field.ts';
 import type { Page, PageKind } from '../domain/page.ts';
 import { type FieldRow, toField } from './sqlite-field-repository.ts';
@@ -19,30 +32,44 @@ import {
 type TreeRow = {
   id: number;
   parent_id: number | null;
-  path: string;
+  key: string;
+  trail: string;
+  alias: string;
+  folder: number;
+  published: number;
   language: string;
 };
 
 type TreeIndex = {
+  /** Адрес страницы: путь с окончанием по стилю адресов. */
   readonly pathOf: ReadonlyMap<number, string>;
   readonly idOf: ReadonlyMap<string, number>;
+  /** Страница по ключу адреса — пути без окончания: так находится вариант адреса. */
+  readonly keyOf: ReadonlyMap<string, number>;
+  /** Начало адреса детей: видимые алиасы страницы и предков. */
+  readonly trailOf: ReadonlyMap<number, string>;
   readonly parentOf: ReadonlyMap<number, number | null>;
   readonly childrenOf: ReadonlyMap<number | null, readonly number[]>;
   /** Язык с учётом ветки: язык пишется на ветку, страницы внутри наследуют его. */
   readonly languageOf: ReadonlyMap<number, string>;
 };
 
+// Ключ — алиасы предков, чей алиас в адресе, и свой алиас; trail — начало адреса детей.
 const _TREE = `
-  WITH RECURSIVE tree (id, parent_id, path, language) AS (
-    SELECT id, parent_id, '/' || alias, language FROM content_pages
-    WHERE parent_id IS NULL AND trashed_at IS NULL
+  WITH RECURSIVE tree (id, parent_id, key, trail, alias, folder, published, language) AS (
+    SELECT id, parent_id, '/' || alias,
+           CASE alias_in_path WHEN 1 THEN '/' || alias ELSE '' END,
+           alias, folder, published, language
+    FROM content_pages WHERE parent_id IS NULL AND trashed_at IS NULL
     UNION ALL
-    SELECT page.id, page.parent_id, tree.path || '/' || page.alias,
+    SELECT page.id, page.parent_id, tree.trail || '/' || page.alias,
+           tree.trail || CASE page.alias_in_path WHEN 1 THEN '/' || page.alias ELSE '' END,
+           page.alias, page.folder, page.published,
            CASE page.language WHEN '' THEN tree.language ELSE page.language END
     FROM content_pages AS page JOIN tree ON page.parent_id = tree.id
     WHERE page.trashed_at IS NULL
   )
-  SELECT id, parent_id, path, language FROM tree`;
+  SELECT id, parent_id, key, trail, alias, folder, published, language FROM tree`;
 
 const _CHILDREN = `
   SELECT * FROM content_pages
@@ -72,6 +99,9 @@ const _TITLES = new Intl.Collator('und', {
   numeric: true,
 });
 
+// Наборов кандидатов отбора в памяти: разных списков со своим отбором на сайте обычно один-два.
+const _CANDIDATE_SETS = 8;
+
 // Глубина и порция с потолками: параметр компонента не должен развернуть весь сайт.
 const _MAX_DEPTH = 8;
 const _MAX_LIMIT = 500;
@@ -87,6 +117,8 @@ type NodeRow = Pick<
   | 'title'
   | 'menu_title'
   | 'alias'
+  | 'folder'
+  | 'alias_in_path'
   | 'template'
   | 'content_type'
   | 'published'
@@ -99,13 +131,51 @@ type NodeRow = Pick<
 >;
 
 const _NODES = `
-  SELECT id, parent_id, kind, title, menu_title, alias, template, content_type,
+  SELECT id, parent_id, kind, title, menu_title, alias, folder, alias_in_path, template, content_type,
          published, trashed_at, menu_index, hidden_from_menu, publish_at, unpublish_at, language
   FROM content_pages ORDER BY coalesce(parent_id, 0), menu_index, id`;
 
+// Адреса узлов менеджера — по всем страницам, и в корзине тоже: так их видно и до публикации.
+const _nodePaths = (
+  rows: readonly NodeRow[],
+  style: AddressStyle
+): ReadonlyMap<number, string> => {
+  const byId = new Map(rows.map((_) => [_.id, _]));
+  const trails = new Map<number, string>();
+  const trailOf = (id: number | null, depth = 0): string =>
+    id === null || depth > rows.length
+      ? ''
+      : (trails.get(id) ??
+        ((row) =>
+          ((trail) => (trails.set(id, trail), trail))(
+            row === undefined
+              ? ''
+              : childTrail(trailOf(row.parent_id, depth + 1), _addressNode(row))
+          ))(byId.get(id)));
+  return new Map(
+    rows.map((_) => [
+      _.id,
+      addressOf(trailOf(_.parent_id), _addressNode(_), style).url,
+    ])
+  );
+};
+
+const _addressNode = (
+  row: Pick<NodeRow, 'id' | 'parent_id' | 'alias' | 'folder' | 'alias_in_path'>
+): AddressNode => ({
+  id: row.id,
+  parentId: row.parent_id,
+  alias: row.alias,
+  folder: row.folder === 1,
+  aliasInPath: row.alias_in_path === 1,
+});
+
 // Язык узла — с учётом ветки по индексу дерева; у страницы в корзине — свой.
 const _toNode =
-  (languageOf: ReadonlyMap<number, string>) =>
+  (
+    languageOf: ReadonlyMap<number, string>,
+    paths: ReadonlyMap<number, string>
+  ) =>
   (row: NodeRow): PageNode => ({
     id: row.id,
     parentId: row.parent_id,
@@ -113,6 +183,9 @@ const _toNode =
     title: row.title,
     menuTitle: row.menu_title,
     alias: row.alias,
+    path: paths.get(row.id) ?? `/${row.alias}`,
+    folder: row.folder === 1,
+    aliasInPath: row.alias_in_path === 1,
     template: row.template,
     contentType: row.content_type,
     published: row.published === 1,
@@ -124,20 +197,38 @@ const _toNode =
     language: languageOf.get(row.id) ?? row.language,
   });
 
-const _index = (rows: TreeRow[]): TreeIndex => ({
-  pathOf: new Map(rows.map((_) => [_.id, _.path])),
-  idOf: new Map(rows.map((_) => [_.path, _.id])),
-  parentOf: new Map(rows.map((_) => [_.id, _.parent_id])),
-  childrenOf: rows.reduce(
-    (all, row) =>
-      all.set(row.parent_id, [...(all.get(row.parent_id) ?? []), row.id]),
-    new Map<number | null, number[]>()
-  ),
-  languageOf: new Map(rows.map((_) => [_.id, _.language])),
-});
+// Повтор ключа или адреса (данные до проверки адресов) — побеждает опубликованная страница.
+const _index = (rows: TreeRow[], style: AddressStyle): TreeIndex =>
+  ((ordered) => ({
+    pathOf: new Map(
+      rows.map((_) => [
+        _.id,
+        `${_.key}${addressEnding({ alias: _.alias, folder: _.folder === 1 }, style)}`,
+      ])
+    ),
+    idOf: new Map(
+      ordered.map((_) => [
+        `${_.key}${addressEnding({ alias: _.alias, folder: _.folder === 1 }, style)}`,
+        _.id,
+      ])
+    ),
+    keyOf: new Map(ordered.map((_) => [_.key, _.id])),
+    trailOf: new Map(rows.map((_) => [_.id, _.trail])),
+    parentOf: new Map(rows.map((_) => [_.id, _.parent_id])),
+    childrenOf: rows.reduce(
+      (all, row) =>
+        all.set(row.parent_id, [...(all.get(row.parent_id) ?? []), row.id]),
+      new Map<number | null, number[]>()
+    ),
+    languageOf: new Map(rows.map((_) => [_.id, _.language])),
+  }))(rows.toSorted((a, b) => a.published - b.published));
+
+const _sameStyle = (a: AddressStyle, b: AddressStyle): boolean =>
+  a.suffix === b.suffix && a.folderSlash === b.folderSlash;
 
 export var definePublishedContent = (
-  db: Database
+  db: Database,
+  style: () => AddressStyle = () => PLAIN_ADDRESS
 ): PublishedContent & {
   readonly drafts: DraftContent;
   readonly invalidate: () => void;
@@ -193,14 +284,30 @@ export var definePublishedContent = (
         .slice(offset, offset + limit)
         .map((_) => _.id)
     );
+  // Вся ветка списка по сортировке — кандидаты для своего отбора и порядка.
+  const everyListed = (order: string) =>
+    db.query<PageRow, [string, number, number]>(
+      `SELECT * ${_LISTED} ORDER BY ${order}`
+    );
   const fieldRows = db.query<FieldRow, []>('SELECT * FROM content_fields');
   const valueRows = db.query<FieldValueRow, [number]>(
     'SELECT field, value FROM content_field_values WHERE page_id = ?'
   );
-  let index: TreeIndex | null = null;
+  const valuesIn = db.query<FieldValueRow & { page_id: number }, [string]>(
+    `SELECT page_id, field, value FROM content_field_values
+     WHERE page_id IN (SELECT value FROM json_each(?))`
+  );
+  let index: { tree: TreeIndex; style: AddressStyle } | null = null;
   let fields: readonly Field[] | null = null;
 
-  const indexed = (): TreeIndex => (index ??= _index(tree.all()));
+  // Индекс собран под стиль адресов: сменили его в настройках — собираем заново.
+  const indexed = (): TreeIndex =>
+    ((current) =>
+      index !== null && _sameStyle(index.style, current)
+        ? index.tree
+        : (index = { tree: _index(tree.all(), current), style: current }).tree)(
+      style()
+    );
   const definitions = (): readonly Field[] =>
     (fields ??= fieldRows.all().map(toField));
   const valuesOf = (id: number) => toFieldValues(valueRows.all(id));
@@ -233,16 +340,30 @@ export var definePublishedContent = (
       field.defaultValue;
 
   // Значения страницы и предков читаются из базы один раз на страницу, а не на каждое поле.
-  const memoized = (): ValuesOf => {
+  const memoized = (read: ValuesOf = valuesOf): ValuesOf => {
     const seen = new Map<number, Values>();
     return (id) =>
-      seen.get(id) ??
-      ((values) => (seen.set(id, values), values))(valuesOf(id));
+      seen.get(id) ?? ((values) => (seen.set(id, values), values))(read(id));
   };
 
-  const fieldsOf = (row: PageRow): Record<string, FieldValue | null> => {
-    const values = memoized();
-    return definitions()
+  // Значения полей пачки страниц и их предков — одним запросом, а не запросом на страницу.
+  const batchValues = (ids: readonly number[]): ValuesOf =>
+    ((all) =>
+      ((rows) => memoized((id) => toFieldValues(rows.get(id) ?? [])))(
+        valuesIn
+          .all(JSON.stringify(all))
+          .reduce(
+            (map, row) =>
+              map.set(row.page_id, [...(map.get(row.page_id) ?? []), row]),
+            new Map<number, FieldValueRow[]>()
+          )
+      ))([...new Set(ids.flatMap((_) => [_, ...lineage(_)]))]);
+
+  const fieldsOf = (
+    row: PageRow,
+    values: ValuesOf = memoized()
+  ): Record<string, FieldValue | null> =>
+    definitions()
       .filter((_) => _.templates.includes(row.template))
       .reduce<Record<string, FieldValue | null>>(
         (all, field) => ({
@@ -251,35 +372,40 @@ export var definePublishedContent = (
         }),
         {}
       );
-  };
 
-  const view = (row: PageRow): PageView => ({
-    id: row.id,
-    parentId: row.parent_id,
-    kind: row.kind as PageKind,
-    title: row.title,
-    longTitle: row.long_title,
-    menuTitle: row.menu_title,
-    description: row.description,
-    introText: row.intro_text,
-    alias: row.alias,
-    path: indexed().pathOf.get(row.id) ?? `/${row.alias}`,
-    template: row.template,
-    contentType: row.content_type,
-    content: row.content,
-    linkTo: row.link_to,
-    menuIndex: row.menu_index,
-    hiddenFromMenu: row.hidden_from_menu === 1,
-    cacheable: row.cacheable === 1,
-    searchable: row.searchable === 1,
-    socialImage: row.social_image,
-    language: indexed().languageOf.get(row.id) ?? row.language,
-    translationOf: row.translation_of,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    publishedAt: row.published_at,
-    fields: fieldsOf(row),
-  });
+  const viewWith =
+    (values: ValuesOf) =>
+    (row: PageRow): PageView => ({
+      id: row.id,
+      parentId: row.parent_id,
+      kind: row.kind as PageKind,
+      title: row.title,
+      longTitle: row.long_title,
+      menuTitle: row.menu_title,
+      description: row.description,
+      introText: row.intro_text,
+      alias: row.alias,
+      path: indexed().pathOf.get(row.id) ?? `/${row.alias}`,
+      folder: row.folder === 1,
+      aliasInPath: row.alias_in_path === 1,
+      template: row.template,
+      contentType: row.content_type,
+      content: row.content,
+      linkTo: row.link_to,
+      menuIndex: row.menu_index,
+      hiddenFromMenu: row.hidden_from_menu === 1,
+      cacheable: row.cacheable === 1,
+      searchable: row.searchable === 1,
+      socialImage: row.social_image,
+      language: indexed().languageOf.get(row.id) ?? row.language,
+      translationOf: row.translation_of,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      publishedAt: row.published_at,
+      fields: fieldsOf(row, values),
+    });
+
+  const view = (row: PageRow): PageView => viewWith(memoized())(row);
 
   // Своё значение — из самой страницы, наследуемое — от родителя по базе, как у сохранённой.
   const fieldsOfPage = (page: Page): Record<string, FieldValue | null> => {
@@ -314,7 +440,15 @@ export var definePublishedContent = (
       description: page.description,
       introText: page.introText,
       alias: page.alias,
-      path: `${page.parentId === null ? '' : (indexed().pathOf.get(page.parentId) ?? '')}/${page.alias}`,
+      path: addressOf(
+        page.parentId === null
+          ? ''
+          : (indexed().trailOf.get(page.parentId) ?? ''),
+        page,
+        style()
+      ).url,
+      folder: page.folder,
+      aliasInPath: page.aliasInPath,
       template: page.template,
       contentType: page.contentType,
       content: page.content,
@@ -335,6 +469,55 @@ export var definePublishedContent = (
       publishedAt: page.publishedAt,
       fields: fieldsOfPage(page),
     }))(anyById.get(page.id), new Date().toISOString());
+
+  // Кандидаты отбора — замороженные виды ветки: их держим до правки контента, и следующий рендер (регион
+  // `Uncached` с отбором по запросу) только отбирает и сортирует. На 2600 страниц с полями сборка — около
+  // 70 мс, из памяти — единицы мс.
+  const candidates = new Map<string, readonly PageView[]>();
+
+  const frozen = (view: PageView): PageView =>
+    Object.freeze({ ...view, fields: Object.freeze({ ...view.fields }) });
+
+  const candidatesOf = (
+    where: [string, number, number],
+    sort: ListSort
+  ): readonly PageView[] =>
+    ((key) =>
+      candidates.get(key) ??
+      ((views) => (
+        candidates.size >= _CANDIDATE_SETS &&
+          candidates.delete(candidates.keys().next().value!),
+        candidates.set(key, views),
+        views
+      ))(
+        ((rows) =>
+          rows.map(viewWith(batchValues(rows.map((_) => _.id)))).map(frozen))(
+          sort === 'title'
+            ? byTitle(where, 0, Number.MAX_SAFE_INTEGER)
+            : everyListed(_ORDER[sort] ?? _ORDER.published).all(...where)
+        )
+      ))(JSON.stringify([where, sort, style()]));
+
+  /**
+   * Список со своим отбором или порядком: кандидаты — все страницы, что взял бы обычный список, по его
+   * сортировке; поля — одним запросом на пачку. `order` сортирует устойчиво: при равенстве остаётся `sort`.
+   */
+  const selected = (
+    where: [string, number, number],
+    sort: ListSort,
+    { filter, order }: ListOptions,
+    offset: number,
+    limit: number
+  ): PageList =>
+    pipe(
+      (views: readonly PageView[]) =>
+        filter ? views.filter((_) => filter(_)) : [...views],
+      (views: PageView[]) => (order ? views.toSorted(order) : views),
+      (views: PageView[]) => ({
+        items: views.slice(offset, offset + limit),
+        total: views.length,
+      })
+    )(candidatesOf(where, sort));
 
   // Страница без пути в индексе лежит в ветке, чей предок в корзине.
   const reachable = (row: PageRow | null): row is PageRow =>
@@ -383,6 +566,12 @@ export var definePublishedContent = (
       const id = indexed().idOf.get(path);
       return id === undefined ? null : page(id);
     },
+    locate: (path) =>
+      ((id) => (id === undefined ? null : page(id)))(
+        indexed().idOf.get(path) ??
+          indexed().keyOf.get(addressKey(path, style())) ??
+          indexed().keyOf.get(path.length > 1 ? path.replace(/\/$/, '') : path)
+      ),
     children: (parentId, options = {}) =>
       childrenOf
         .all(parentId, options.includeHidden ? 1 : 0)
@@ -410,17 +599,19 @@ export var definePublishedContent = (
       const limit = _clamp(options.limit ?? _MAX_LIMIT, 1, _MAX_LIMIT);
       const offset = Math.max(0, Math.trunc(options.offset ?? 0));
       const sort = options.sort ?? 'published';
-      return {
-        items: (sort === 'title'
-          ? byTitle(where, offset, limit)
-          : listed(_ORDER[sort] ?? _ORDER.published).all(
-              ...where,
-              limit,
-              offset
-            )
-        ).map(view),
-        total: counted.get(...where)?.total ?? 0,
-      };
+      return options.filter || options.order
+        ? selected(where, sort, options, offset, limit)
+        : {
+            items: (sort === 'title'
+              ? byTitle(where, offset, limit)
+              : listed(_ORDER[sort] ?? _ORDER.published).all(
+                  ...where,
+                  limit,
+                  offset
+                )
+            ).map(view),
+            total: counted.get(...where)?.total ?? 0,
+          };
     },
     containers: (parentId, depth) => [
       parentId,
@@ -429,10 +620,20 @@ export var definePublishedContent = (
         .flat()
         .filter((_) => indexed().childrenOf.has(_)),
     ],
+    // Прежний адрес мог быть записан с другим окончанием: `/o-nas`, `/o-nas/`, `/o-nas.html`.
     movedFrom: (path) =>
-      ((row) => (row ? page(row.page_id) : null))(movedFrom.get(path)),
+      addressVariants(path, style()).reduce<PageView | null>(
+        (found, variant) =>
+          found ??
+          ((row) => (row ? page(row.page_id) : null))(movedFrom.get(variant)),
+        null
+      ),
     drafts: {
-      tree: () => nodes.all().map(_toNode(indexed().languageOf)),
+      tree: () =>
+        ((rows) =>
+          rows.map(_toNode(indexed().languageOf, _nodePaths(rows, style()))))(
+          nodes.all()
+        ),
       view: (id) => {
         const row = anyById.get(id);
         return row && view(row);
@@ -444,6 +645,7 @@ export var definePublishedContent = (
           setOf(id)
         ),
     },
-    invalidate: () => void ((index = null), (fields = null)),
+    invalidate: () =>
+      void ((index = null), (fields = null), candidates.clear()),
   };
 };

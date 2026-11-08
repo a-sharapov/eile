@@ -29,6 +29,10 @@ export type Page = {
   readonly description: string;
   readonly introText: string;
   readonly alias: Alias;
+  /** Папка (`isfolder` в Evo): при стиле адресов «папки со слэшем» её адрес кончается на `/`. */
+  readonly folder: boolean;
+  /** Алиас входит в адреса потомков; false — дети живут так, будто её алиаса нет (`alias_visible` в Evo). */
+  readonly aliasInPath: boolean;
   /** Имя шаблона из контекста design. */
   readonly template: string;
   /** MIME-тип ответа: `text/html` рендерит шаблон, остальные — страница-файл со своим текстом. */
@@ -67,6 +71,8 @@ export type NewPage = {
   readonly introText?: string;
   /** Без алиаса он выводится из заголовка. */
   readonly alias?: string;
+  readonly folder?: boolean;
+  readonly aliasInPath?: boolean;
   readonly template: string;
   readonly contentType?: string;
   readonly content?: string;
@@ -197,6 +203,8 @@ const _EDIT: {
   description: _text('description', 1000),
   introText: (_) => _,
   alias: parseAlias,
+  folder: (_) => _ === true,
+  aliasInPath: (_) => _ !== false,
   template: _template,
   contentType: _contentType,
   content: (_) => _,
@@ -271,6 +279,8 @@ const _BLANK: Omit<Page, 'id' | 'parentId'> = {
   description: '',
   introText: '',
   alias: '' as Alias,
+  folder: false,
+  aliasInPath: true,
   template: '',
   contentType: 'text/html',
   content: '',

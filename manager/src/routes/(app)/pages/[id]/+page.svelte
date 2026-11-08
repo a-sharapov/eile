@@ -23,10 +23,10 @@ import { session } from '#lib/session.svelte.ts';
 import { aliasFromTitle, followsTitle } from '#lib/translit.ts';
 import {
   branchOrder,
+  childTrail,
   lineage,
   loadTree,
   pageChanged,
-  sitePath as sitePathOf,
   statusOf,
   tree,
 } from '#lib/tree.svelte.ts';
@@ -68,6 +68,8 @@ const _EDITABLE = [
   'hiddenFromMenu',
   'cacheable',
   'searchable',
+  'folder',
+  'aliasInPath',
   'socialImage',
   'language',
   'translationOf',
@@ -96,6 +98,7 @@ const _FIELD_ERRORS: Readonly<
   Record<string, readonly [field: string, tab: string]>
 > = {
   'content.alias_taken': ['alias', 'document'],
+  'content.address_taken': ['alias', 'document'],
   'content.invalid_alias': ['alias', 'document'],
   'content.invalid_title': ['title', 'document'],
   'content.invalid_link': ['link-to', 'document'],
@@ -136,6 +139,8 @@ const _blank = (parentId: number | null, template: string): Page => ({
   hiddenFromMenu: false,
   cacheable: true,
   searchable: true,
+  folder: false,
+  aliasInPath: true,
   socialImage: '',
   language: '',
   translationOf: null,
@@ -346,8 +351,14 @@ $effect(() => {
   );
 });
 
+// Папкой страницу делает и сервер — когда в неё переносят страницу в дереве рядом с открытым редактором:
+// флаг уходит, только если его поменяли здесь, иначе сохранение текста сбросило бы его.
 const changes = (): Partial<Page> =>
-  Object.fromEntries(_EDITABLE.map((_) => [_, draft![_]]));
+  Object.fromEntries(
+    _EDITABLE
+      .filter((_) => _ !== 'folder' || draft!.folder !== details?.page.folder)
+      .map((_) => [_, draft![_]])
+  );
 
 const ownValues = (): Record<string, FieldValue> =>
   Object.fromEntries(
@@ -642,6 +653,8 @@ const _SETTINGS = [
   'publishAt',
   'unpublishAt',
   'cacheable',
+  'folder',
+  'aliasInPath',
 ] as const;
 
 const _SEO = ['longTitle', 'description', 'searchable', 'socialImage'] as const;
@@ -668,9 +681,20 @@ const changed = $derived({
 
 const node = $derived(tree.nodes.find((_) => _.id === id));
 
-// Адрес родителя — начало адреса страницы: алиас дописывается к нему.
+// Начало адреса от родителя: алиас дописывается к нему; скрытые из адреса алиасы разделов пропущены.
 const parentPath = $derived(
-  parentId === null ? '' : (tree.nodes.length, sitePathOf(parentId))
+  parentId === null ? '' : (tree.nodes.length, childTrail(parentId))
+);
+
+// Окончание адреса — как на сервере (content/domain/address.ts): у папки «/», у файла с точкой — ничего.
+const ending = $derived(
+  !draft || !site
+    ? ''
+    : draft.folder && site.folderSlash
+      ? '/'
+      : draft.alias.includes('.')
+        ? ''
+        : (site.urlSuffix ?? '')
 );
 
 // Предпросмотр выдачи: заголовок как в <title>, адрес — как увидит посетитель.
@@ -853,6 +877,7 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
               aria-invalid={invalid('alias')}
               aria-describedby={describedBy('alias', 'alias-help')}
             />
+            {#if ending}<span class="suffix" aria-hidden="true">{ending}</span>{/if}
           </span>
           {#if invalid('alias')}
             {@render problem('alias')}
@@ -1106,6 +1131,22 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
             </label>
           {/if}
         </div>
+      </div>
+    </section>
+    <section class="form-section">
+      <header>
+        <h2>{t('page.sectionAddress')}</h2>
+        <p>{t('page.sectionAddressHint')}</p>
+      </header>
+      <div class="fields">
+        <label class="option">
+          <input type="checkbox" bind:checked={draft.folder} />
+          <span><strong>{t('page.folder')}</strong><small class="help">{t('page.folderHint')}</small></span>
+        </label>
+        <label class="option">
+          <input type="checkbox" bind:checked={draft.aliasInPath} />
+          <span><strong>{t('page.aliasInPath')}</strong><small class="help">{t('page.aliasInPathHint')}</small></span>
+        </label>
       </div>
     </section>
     {#if site && site.languages.length > 0 && draft.kind === 'page' && !asFile}
@@ -1597,6 +1638,19 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* Окончание из настроек сайта (.html, /): видно, но не правится — как начало от родителя. */
+  .suffix {
+    display: flex;
+    flex: none;
+    align-items: center;
+    padding: 0 0.75rem 0 0.625rem;
+    background: var(--sunken);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    white-space: nowrap;
   }
 
   .address input {

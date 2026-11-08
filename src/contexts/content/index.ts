@@ -4,6 +4,7 @@ import {
   type Clock,
   defineContentService,
 } from './application/content-service.ts';
+import type { AddressStyle } from './domain/address.ts';
 import { defineFieldRepository } from './infrastructure/sqlite-field-repository.ts';
 import { defineOldPathRepository } from './infrastructure/sqlite-old-path-repository.ts';
 import { definePageRepository } from './infrastructure/sqlite-page-repository.ts';
@@ -29,6 +30,13 @@ export type {
   PublishedContent,
   TranslationNode,
 } from './application/published-content.ts';
+export {
+  type AddressStyle,
+  addressEnding,
+  addressKey,
+  addressVariants,
+  PLAIN_ADDRESS,
+} from './domain/address.ts';
 export { aliasFromTitle } from './domain/alias.ts';
 export type { ContentEvent } from './domain/events.ts';
 export type { Field, FieldType, FieldValue, NewField } from './domain/field.ts';
@@ -54,14 +62,17 @@ export var defineContent = ({
   bus,
   clock,
   siteLanguage,
+  addressStyle,
 }: {
   db: Database;
   bus: EventBus;
   clock: Clock;
   /** Язык сайта: у веток без своего языка по нему собирается алиас из заголовка. */
   siteLanguage?: () => string;
+  /** Стиль адресов из настроек сайта; без него — адреса без окончания. */
+  addressStyle?: () => AddressStyle;
 }) => {
-  const published = definePublishedContent(db);
+  const published = definePublishedContent(db, addressStyle);
   bus.onAny(
     (event) =>
       void (event.type.startsWith('content.') && published.invalidate())
@@ -76,5 +87,6 @@ export var defineContent = ({
     bus,
     clock,
     ...(siteLanguage ? { siteLanguage } : {}),
+    ...(addressStyle ? { addressStyle } : {}),
   });
 };
