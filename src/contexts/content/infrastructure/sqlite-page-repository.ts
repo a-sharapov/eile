@@ -223,6 +223,11 @@ export var definePageRepository = (db: Database): PageRepository => {
     SELECT page_id FROM content_field_values
       WHERE instr(value, $path) > 0 OR ($original <> '' AND instr(value, $original) > 0)
     ORDER BY 1`);
+  const texts = db.query<{ text: string }, []>(`
+    SELECT content AS text FROM content_pages WHERE content <> ''
+    UNION ALL SELECT intro_text FROM content_pages WHERE intro_text <> ''
+    UNION ALL SELECT social_image FROM content_pages WHERE social_image <> ''
+    UNION ALL SELECT value FROM content_field_values WHERE value <> ''`);
   const total = db.query<{ n: number }, []>(
     'SELECT count(*) AS n FROM content_pages'
   );
@@ -330,6 +335,7 @@ export var definePageRepository = (db: Database): PageRepository => {
     mentioning: (text) => ids(mentioning.all(text)),
     referencingMedia: (path, original = '') =>
       ids(referencingMedia.all({ url: `/media/${path}`, path, original })),
+    texts: () => Iterator.from(texts.iterate()).map((_) => _.text),
     translationsOf: (id) => ids(translations.all(id)),
     trail: (id) => trail.get(id)?.trail ?? null,
     descendants: (id) => descendants.all(id).map(_toNode),

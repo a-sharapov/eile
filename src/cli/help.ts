@@ -155,16 +155,18 @@ const _RU: readonly CommandHelp[] = [
   },
   {
     name: 'users',
-    summary: 'Пользователи менеджера: список, новый, смена пароля',
+    summary: 'Пользователи менеджера: список, новый, пароль, удаление',
     usage: [
       'cms users [--db <файл>]',
       'cms users add <почта> [--name <имя>] [--role admin|editor]',
       'cms users password <почта> [--password-stdin]',
+      'cms users remove <почта>',
     ],
     details: [
       'Без подкоманды — список: id, почта, имя и роль.',
       'add — новый пользователь. Роль по умолчанию — admin, если пользователей ещё нет, иначе editor.',
       'password — новый пароль; все сеансы пользователя закрываются. Это спасение, если администратор забыл пароль. Блокировку после пяти неудачных входов снимает перезапуск сервера.',
+      'remove — удалить пользователя: его сеансы закрываются, его правки в истории страниц остаются. Последнего администратора удалить нельзя — сначала добавьте другого.',
       'Пароль — не короче 10 символов. В терминале он вводится скрыто и дважды, в скриптах — через --password-stdin.',
     ],
     options: [
@@ -181,6 +183,7 @@ const _RU: readonly CommandHelp[] = [
         'cms users add anna@example.com --name "Анна" --role admin',
       ],
       ['Забытый пароль', 'cms users password anna@example.com'],
+      ['Убрать служебного пользователя', 'cms users remove agent@example.com'],
       [
         'Пароль из переменной в скрипте',
         'printf %s "$PASS" | cms users password a@b.ru --password-stdin',
@@ -201,10 +204,12 @@ const _RU: readonly CommandHelp[] = [
       'check компилирует всё (скрипт scripts/имя.js — разбирает как ES-модуль; другие скрипты он импортирует как ./имя.js, и они должны быть в папке или на сайте) и печатает ошибки как файл:строка:столбец. Ничего не сохраняет.',
       'push сохраняет изменённые файлы в сайт — все или ни одного. Сервер на этой базе подхватывает правку сам, перезапуск не нужен.',
       '--prune удаляет из сайта то, чего нет в папке (поля — никогда), --watch отправляет каждый сохранённый файл. Папка по умолчанию — текущая.',
+      'push --dry-run — то же, что check: показывает, что добавится, изменится и (с --prune) удалится, и ничего не записывает. Перед --prune стоит посмотреть так.',
       "Плагин plugins/Имя.ts — export default { render?, notFound?, handle?, schedule?, on? }. handle(request, context) отвечает своим Response на запрос, на который сайт не ответил (нет страницы, правила, прежнего адреса), любым методом — так переезжают плагины Evo на OnPageNotFound: API, CORS, приём заявок (context.submit). schedule: { every: '12h', run(context) } — задание по расписанию у cms serve; context.setCustom пишет свою настройку сайта. Подробно — в AGENTS.md папки.",
     ],
     options: [
       ['--prune', 'Удалить из сайта то, чего нет в папке'],
+      ['--dry-run', 'Показать, что изменится, ничего не записывая'],
       ['--watch', 'Отправлять каждый сохранённый файл'],
       ['--json', 'Итог в JSON: для скриптов и агентов'],
       _DB,
@@ -223,6 +228,7 @@ const _RU: readonly CommandHelp[] = [
       'cms media link [<папка>] [--into <приставка>] [--serve-original]',
       'cms media link <папка> --into <приставка> --static',
       'cms media unlink <приставка> [--dry-run] [--json]',
+      'cms media variants [--rebuild]',
     ],
     details: [
       'push кладёт файлы папки в медиатеку сайта. Путь в медиатеке — путь файла от корня папки: fonts/pt-sans.woff2; с --into — под этим путём: cms media push static/fonts --into fonts. Пути — латиница в нижнем регистре, цифры и ._@-, типы — те же, что принимает медиатека, файл — до 25 МиБ.',
@@ -237,6 +243,7 @@ const _RU: readonly CommandHelp[] = [
       '--serve-original — файлы папки открываются и по старым адресам /<приставка>/<путь на диске> без переадресации; такой файл важнее страницы и правила переадресации с тем же адресом, иначе адрес идёт к страницам, как обычно. --no-serve-original выключает; без флага — как было. Приставки manager, media, _cms заняты сервером.',
       'Скрытое, следы архиваторов и типы, которых не принимает медиатека, не связываются; ссылки за пределы папки пропускаются. Варианты картинок 480/960/1920 сервер делает сразу и держит в кэше медиатеки, не в базе. Путь к папке внутри каталога базы записывается от него — база и папка переезжают вместе.',
       'Связанная папка не входит в копию базы (cms backup, автокопии, скачивание в менеджере): копируйте её отдельно. unlink убирает файлы папки из медиатеки вместе с их описаниями; сами файлы на диске остаются.',
+      'variants — где лежат варианты размеров картинок: сервер кладёт их в кэш медиатеки на диске (нет кэша — в базу), и копии базы от них не растут; пропавший вариант делается заново. Варианты, что лежат в базе (сделаны прежними версиями или загружены своими файлами), --rebuild убирает и делает заново в кэш: база худеет. Свои варианты при этом заменяются сделанными сервером.',
       '--static — папка-сайт: статический сайт (сборка Astro, старый лендинг) по адресам /<приставка>/…, файлы — не медиатека, в базе только сама папка. Адрес каталога — его index.html, каталог без / в конце — 301 на адрес со слэшем; нет файла — 404.html папки, без неё — страница 404 сайта: адреса под приставкой принадлежат папке, страницы и плагины их не получают. Отдаются html, css, js, json, xml, txt, webmanifest, svg, картинки, шрифты, видео, звук, pdf, glb, hdr, wasm; файлы _astro/… — навсегда в кэше браузера, остальное — со сверкой по ETag, текст — сжатым. Файл ищется на диске на каждый запрос: новая сборка видна сразу. Выход из папки, скрытое и ссылки наружу — 404. Вид папки задаётся при первой связке; сменить его — через unlink. HTML папки — код на адресе сайта, как шаблоны: кладите в неё только свою сборку.',
     ],
     options: [
@@ -348,12 +355,14 @@ const _RU: readonly CommandHelp[] = [
     summary: 'Копия сайта в файл или в хранилище S3; файл настроек сервера',
     usage: [
       'cms backup [<файл>] [--db <файл>]',
+      'cms backup <папка> --folders [--db <файл>]',
       'cms backup --remote [--db <файл>]',
       'cms backup --server [<файл>] [--db <файл>]',
     ],
     details: [
       'База, шаблоны, компоненты и медиатека — в одном файле SQLite. Можно на работающем сайте: копия согласованная (VACUUM INTO). Кэш медиатеки (site.media-cache) в копию не входит: он берётся из базы.',
       'Связанные папки (cms media link) в копию не входят: в базе только строки их файлов. Команда напоминает о них после копии — копируйте папки отдельно.',
+      '--folders — копия для переезда: в папке site.db и связанные папки рядом с ней (на btrfs и xfs — reflink, место не тратится), записанные от базы. Папку целиком — на новый сервер: cms restore <папка> или cms service install --from <папка>. Папка должна быть новой или пустой; без имени — cms-ГГГГ-ММ-ДД.',
       'Имя с .json — те же записи текстом: можно открыть, сравнить две копии, перенести. Сеансов входа в копии нет.',
       'Без имени файла — cms-ГГГГ-ММ-ДД.db в текущем каталоге. Существующий файл не перезаписывается.',
       '--remote — копия сейчас, как кнопка «Сделать копию сейчас»: в каталог автокопий и в хранилище S3, настроенное в менеджере («Настройки» → «Копии и обновления»). В хранилище копия уходит зашифрованной ключом копий этого сервера.',
@@ -362,6 +371,7 @@ const _RU: readonly CommandHelp[] = [
     ],
     options: [
       _DB,
+      ['--folders', 'Копия с папками: site.db и связанные папки в одной папке'],
       ['--remote', 'Копия сейчас и отправка в хранилище S3'],
       ['--server', 'Файл настроек сервера под паролем'],
     ],
@@ -372,6 +382,10 @@ const _RU: readonly CommandHelp[] = [
         'cms backup /backups/site-$(date +%F).db --db site.db',
       ],
       ['Записи текстом', 'cms backup site.json --db site.db'],
+      [
+        'Сайт с папками — для переезда',
+        'cms backup move/ --folders --db site.db',
+      ],
       [
         'Копию — в хранилище, по cron',
         '0 4 * * * cms backup --remote --db /srv/site.db',
@@ -393,6 +407,7 @@ const _RU: readonly CommandHelp[] = [
     details: [
       'Сайт в базе становится таким, каким был в копии: страницы, элементы, медиатека, настройки, пользователи. Копия из более старой версии сначала доводится до текущей схемы.',
       'Если база уже есть, её прежнее состояние сохраняется рядом: site.before-restore-ГГГГММДД-ЧЧММСС.db. Новой базы не было — она создаётся: так сайт переезжает на другой сервер.',
+      'Папка копии cms backup --folders — база из её site.db, связанные папки ложатся рядом с восстановленной базой. Папку, что там уже есть, команда не трогает.',
       'Остановите сервер перед восстановлением из командной строки или восстанавливайте в менеджере: раздел «Копии».',
       'Кэш медиатеки стирается: файлы в копии другие, он наберётся заново из восстановленной базы.',
       '--remote — из хранилища S3: без имени — список копий, latest — последняя. Хранилище — из базы, если оно там настроено, поверх — --endpoint, --region, --bucket, --prefix, --access-key или S3_ENDPOINT, S3_REGION, S3_BUCKET, CMS_S3_PREFIX, S3_ACCESS_KEY_ID; секрет — S3_SECRET_ACCESS_KEY или ввод на терминале. Копию своим ключом база открывает сама; на новой машине нужен ключ восстановления, который менеджер показал при включении хранилища: CMS_RECOVERY_KEY или ввод на терминале.',
@@ -512,7 +527,7 @@ const _RU: readonly CommandHelp[] = [
     details: [
       'install ставит сайт службой systemd: пишет юнит /etc/systemd/system/cms.service, включает и запускает его, ждёт, пока сайт ответит, и печатает адреса сайта и менеджера, а на новой базе — ссылку для администратора. База — /var/lib/cms/site.db, кэш медиатеки — /var/cache/cms. Служба работает от своего временного пользователя (DynamicUser) в песочнице и после сбоя поднимается через секунду.',
       "Два режима. --domain: служба сама держит HTTPS на портах 80 и 443 с сертификатом Let's Encrypt и ведёт остальные домены списка на первый, основной (cms help serve). --trust-proxy: за nginx или Caddy на этой машине, на 127.0.0.1 и --port (8080).",
-      '--from переносит готовый сайт: согласованная копия базы, как у cms backup, можно с работающего сервера. Своей базы службы --from не заменяет.',
+      '--from переносит готовый сайт: согласованная копия базы, как у cms backup, можно с работающего сервера, и её связанные папки — рядом с базой службы. Подойдёт и папка копии cms backup --folders. Своей базы службы --from не заменяет.',
       'Перед установкой команда проверяет: есть ли systemd, свободны ли порты (заняты nginx или Caddy — подскажет --trust-proxy), указывают ли домены на эту машину, хватает ли памяти (меньше 1 ГиБ без подкачки — команды для файла подкачки). Занятый порт останавливает установку, остальное — предупреждения.',
       'Повтор с тем же юнитом ничего не меняет. Другой юнит с этим именем заменяет только --force. --print печатает юнит и ничего не трогает: так его можно поставить и руками.',
       'Нужен root; без него команда напечатает строку для sudo.',
@@ -530,7 +545,10 @@ const _RU: readonly CommandHelp[] = [
       ['--trust-proxy', 'За nginx или Caddy на этой машине'],
       ['--port <порт>', 'Порт HTTP: 8080 за прокси, 80 с доменом'],
       ['--host <адрес>', 'За прокси — адрес, на котором слушать: 127.0.0.1'],
-      ['--from <файл>', 'Перенести в службу сайт из этой базы'],
+      [
+        '--from <файл|папка>',
+        'Перенести в службу сайт: базу или папку копии с папками',
+      ],
       ['--name <имя>', 'Имя службы, её базы и кэша: cms'],
       ['--print', 'Только показать юнит'],
       ['--force', 'Заменить другой юнит с этим именем'],
@@ -758,16 +776,18 @@ const _EN: readonly CommandHelp[] = [
   },
   {
     name: 'users',
-    summary: 'Manager users: list, add, change a password',
+    summary: 'Manager users: list, add, change a password, remove',
     usage: [
       'cms users [--db <file>]',
       'cms users add <email> [--name <name>] [--role admin|editor]',
       'cms users password <email> [--password-stdin]',
+      'cms users remove <email>',
     ],
     details: [
       'Without a subcommand: the list with id, email, name and role.',
       'add creates a user. The role is admin if there are no users yet, editor otherwise.',
       'password sets a new password and closes all sessions of that user. Use it when the administrator forgot the password. A lockout after five failed sign-ins clears when the server restarts.',
+      'remove deletes a user: their sessions close, their edits stay in the page history. The last administrator cannot be removed: add another one first.',
       'A password has at least 10 characters. In a terminal you type it hidden, twice; in scripts pass it with --password-stdin.',
     ],
     options: [
@@ -790,6 +810,7 @@ const _EN: readonly CommandHelp[] = [
         'cms users add anna@example.com --name "Anna" --role admin',
       ],
       ['A forgotten password', 'cms users password anna@example.com'],
+      ['Remove a service user', 'cms users remove agent@example.com'],
       [
         'Password from a variable in a script',
         'printf %s "$PASS" | cms users password a@b.com --password-stdin',
@@ -810,10 +831,12 @@ const _EN: readonly CommandHelp[] = [
       'check compiles everything (a script scripts/name.js is parsed as an ES module; it imports other scripts as ./name.js, and they must be in the folder or on the site) and prints problems as file:line:column. Nothing is saved.',
       'push saves the changed files to the site, all of them or none. A server on this database picks the change up by itself, no restart needed.',
       '--prune deletes from the site what has no file (never fields), --watch sends every saved file. The folder is the current one by default.',
+      'push --dry-run is the same as check: it shows what would be added, changed and (with --prune) deleted, and writes nothing. Look this way before --prune.',
       "A plugin plugins/Name.ts is export default { render?, notFound?, handle?, schedule?, on? }. handle(request, context) answers with its own Response a request the site did not answer (no page, redirect rule or old address), with any method: this is how Evo plugins on OnPageNotFound move over — APIs, CORS, accepting submissions (context.submit). schedule: { every: '12h', run(context) } is a timed job in cms serve; context.setCustom writes a custom site setting. Details are in the folder's AGENTS.md.",
     ],
     options: [
       ['--prune', 'Delete from the site what has no file'],
+      ['--dry-run', 'Show what would change, write nothing'],
       ['--watch', 'Send every saved file'],
       ['--json', 'The result as JSON: for scripts and agents'],
       _DB_EN,
@@ -832,6 +855,7 @@ const _EN: readonly CommandHelp[] = [
       'cms media link [<folder>] [--into <prefix>] [--serve-original]',
       'cms media link <folder> --into <prefix> --static',
       'cms media unlink <prefix> [--dry-run] [--json]',
+      'cms media variants [--rebuild]',
     ],
     details: [
       'push puts the files of a folder into the site’s media library. The library path is the file’s path from the folder root: fonts/pt-sans.woff2; with --into, under that path: cms media push static/fonts --into fonts. Paths are lowercase latin letters, digits and ._@-, the types are the ones the library accepts, a file is at most 25 MiB.',
@@ -845,6 +869,7 @@ const _EN: readonly CommandHelp[] = [
       '--serve-original also serves the folder’s files at their old addresses /<prefix>/<path on disk>, without a redirect; such a file wins over a page or a redirect rule with the same address, otherwise the address goes to the pages as usual. --no-serve-original turns it off; without a flag it stays as it was. The prefixes manager, media and _cms belong to the server.',
       'Hidden files, archiver leftovers and types the library does not take are not linked; links that lead out of the folder are skipped. The server makes the 480/960/1920 image variants right away and keeps them in the media cache, not in the database. A folder inside the database’s directory is recorded relative to it, so the database and the folder move together.',
       'A linked folder is not part of the database copy (cms backup, automatic backups, the manager download): copy it separately. unlink removes the folder’s files from the library together with their descriptions; the files on disk stay.',
+      'variants shows where image size variants live: the server puts them into the media cache on disk (without a cache, into the database), so database copies do not grow from them; a lost variant is made again. Variants stored in the database (made by older versions or uploaded as your own files) are removed by --rebuild and made again into the cache: the database gets smaller. Your own variants are replaced by the server’s ones.',
       '--static makes a static site folder: a static site (an Astro build, an old landing page) at /<prefix>/…; its files are not media library files, the database keeps only the folder. A directory address serves its index.html, a directory without a trailing / gets a 301 to the address with it; a missing file gets the folder’s 404.html, or the site’s 404 page without one: the addresses under the prefix belong to the folder, pages and plugins do not get them. Served: html, css, js, json, xml, txt, webmanifest, svg, images, fonts, video, audio, pdf, glb, hdr, wasm; _astro/… files are cached by browsers forever, the rest is revalidated by ETag, text is compressed. A file is looked up on disk on every request, so a new build shows at once. Leaving the folder, hidden files and links that lead out of it get 404. The kind of a folder is set when it is first linked; to change it, unlink it. The folder’s HTML is code on the site’s address, like templates: put only your own build there.',
     ],
     options: [
@@ -959,12 +984,14 @@ const _EN: readonly CommandHelp[] = [
     summary: 'A site copy to a file or S3 storage; a server settings file',
     usage: [
       'cms backup [<file>] [--db <file>]',
+      'cms backup <folder> --folders [--db <file>]',
       'cms backup --remote [--db <file>]',
       'cms backup --server [<file>] [--db <file>]',
     ],
     details: [
       'The database, templates, components and media in one SQLite file. Safe on a running site: the copy is consistent (VACUUM INTO). The media cache (site.media-cache) is not part of the copy: it comes from the database.',
       'Linked folders (cms media link) are not part of the copy: the database holds only their files’ rows. The command reminds you of them after the copy; copy the folders separately.',
+      '--folders makes a copy for moving: the folder holds site.db and the linked folders next to it (a reflink on btrfs and xfs, no extra space), recorded relative to the database. Take the whole folder to the new server: cms restore <folder> or cms service install --from <folder>. The folder must be new or empty; without a name, cms-YYYY-MM-DD.',
       'A name ending in .json writes the same records as text: you can open it, compare two copies, move it. Sign-in sessions are not copied.',
       'Without a file name: cms-YYYY-MM-DD.db in the current directory. An existing file is never overwritten.',
       '--remote makes a copy now, like the “Back up now” button: into the backup folder and to the S3 storage set up in the manager (Settings → Backups and updates). The copy leaves encrypted with this server’s backup key.',
@@ -973,6 +1000,10 @@ const _EN: readonly CommandHelp[] = [
     ],
     options: [
       _DB_EN,
+      [
+        '--folders',
+        'A copy with folders: site.db and the linked folders together',
+      ],
       ['--remote', 'A copy now, sent to S3 storage'],
       ['--server', 'A passphrase-protected server settings file'],
     ],
@@ -983,6 +1014,10 @@ const _EN: readonly CommandHelp[] = [
         'cms backup /backups/site-$(date +%F).db --db site.db',
       ],
       ['Records as text', 'cms backup site.json --db site.db'],
+      [
+        'A site with its folders, for moving',
+        'cms backup move/ --folders --db site.db',
+      ],
       [
         'A copy to storage, from cron',
         '0 4 * * * cms backup --remote --db /srv/site.db',
@@ -1004,6 +1039,7 @@ const _EN: readonly CommandHelp[] = [
     details: [
       'The site in the database becomes what it was in the copy: pages, elements, media, settings, users. A copy from an older version is brought up to the current schema first.',
       'If the database exists, its previous state is saved next to it: site.before-restore-YYYYMMDD-HHMMSS.db. If there was no database, it is created: that is how a site moves to another server.',
+      'A copy folder from cms backup --folders restores the database from its site.db and puts the linked folders next to the restored database. A folder already there is left as is.',
       'Stop the server before restoring from the command line, or restore in the manager under Backups.',
       'The media cache is cleared: the copy has other files, and the cache fills up again from the restored database.',
       '--remote restores from S3 storage: without a name it lists the copies, latest takes the newest. The storage comes from the database if it is set up there, overridden by --endpoint, --region, --bucket, --prefix, --access-key or S3_ENDPOINT, S3_REGION, S3_BUCKET, CMS_S3_PREFIX, S3_ACCESS_KEY_ID; the secret is S3_SECRET_ACCESS_KEY or typed in a terminal. A copy sealed with this database’s own key opens by itself; a new machine needs the recovery key the manager showed when the storage was turned on: CMS_RECOVERY_KEY or typed in a terminal.',
@@ -1120,7 +1156,7 @@ const _EN: readonly CommandHelp[] = [
     details: [
       'install sets the site up as a systemd service: it writes the unit /etc/systemd/system/cms.service, enables and starts it, waits until the site answers and prints the site and manager addresses, and on a new database the link for the administrator. The database is /var/lib/cms/site.db, the media cache /var/cache/cms. The service runs as a temporary user of its own (DynamicUser) in a sandbox and is back a second after a failure.',
       "Two modes. --domain: the service holds HTTPS itself on ports 80 and 443 with a Let's Encrypt certificate and sends the other domains of the list to the first, primary one (cms help serve). --trust-proxy: behind nginx or Caddy on this machine, on 127.0.0.1 and --port (8080).",
-      '--from moves a ready site in: a consistent copy of the database, as cms backup makes, fine on a running server. --from never replaces a database the service already has.',
+      '--from moves a ready site in: a consistent copy of the database, as cms backup makes, fine on a running server, and its linked folders next to the service database. A copy folder from cms backup --folders works too. --from never replaces a database the service already has.',
       'Before installing, the command checks for systemd, free ports (taken by nginx or Caddy, it suggests --trust-proxy), domains pointing at this machine and memory (under 1 GiB without swap, it prints the commands for a swap file). A taken port stops the install, the rest are warnings.',
       'Running it again with the same unit changes nothing. Another unit with this name is replaced only with --force. --print prints the unit and touches nothing, so it can also be installed by hand.',
       'Root is needed; without it the command prints the line to run with sudo.',
@@ -1144,7 +1180,10 @@ const _EN: readonly CommandHelp[] = [
         '--host <address>',
         'Behind a proxy, the address to listen on: 127.0.0.1',
       ],
-      ['--from <file>', 'Move the site from this database into the service'],
+      [
+        '--from <file|folder>',
+        'Move a site in: a database or a copy folder with folders',
+      ],
       ['--name <name>', 'Name of the service, its database and cache: cms'],
       ['--print', 'Only show the unit'],
       ['--force', 'Replace another unit with this name'],

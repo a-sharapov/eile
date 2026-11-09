@@ -68,6 +68,7 @@ const _previewRequest = (path: string): RequestInfo => ({
   path,
   origin: '',
   query: {},
+  queryAll: () => [],
   header: () => null,
   cookie: () => null,
 });

@@ -23,6 +23,7 @@ import {
   removeField,
 } from '../domain/field.ts';
 import type { FieldRepository } from '../domain/field-repository.ts';
+import { mediaReferences } from '../domain/media-references.ts';
 import type { OldPathRepository } from '../domain/old-path-repository.ts';
 import {
   applySchedule,
@@ -753,6 +754,9 @@ export var defineContentService = ({
        */
       media: (path: string, original?: string): PageRef[] =>
         pages.referencingMedia(path, original).map(load).map(_ref),
+      /** Пути файлов, что встречаются в текстах и полях страниц, — для проверки тысяч файлов разом. */
+      mediaReferences: (): ReadonlySet<string> =>
+        mediaReferences(pages.texts()),
     },
     published,
     drafts: {

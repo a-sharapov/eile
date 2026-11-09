@@ -366,6 +366,37 @@ describe('основа картинки — одна на оригинал', () 
   });
 });
 
+describe('удаление картинки', () => {
+  it('варианты уходят вместе с ней: новой картинке с тем же именем чужие не достанутся', async () => {
+    app.media.files.save({
+      path: 'img/e.jpg',
+      data: await picture(1200, 600, 'jpeg'),
+    });
+    await app.media.variants.run();
+    expect(variants(app, 'img/e').length).toBe(2);
+    app.media.files.remove('img/e.jpg');
+    expect(variants(app, 'img/e')).toEqual([]);
+    app.media.files.save({
+      path: 'img/e.webp',
+      data: await picture(1000, 1000, 'webp'),
+    });
+    await app.media.variants.run();
+    expect(variants(app, 'img/e').map((_) => _.slice(0, 4))).toEqual([
+      ['img/e@480.webp', 'image/webp', 480, 480],
+      ['img/e@960.webp', 'image/webp', 960, 960],
+    ]);
+    // SVG с той же основой — без чужих вариантов: удаление его их не трогает.
+    app.media.files.save({
+      path: 'img/e.svg',
+      data: new TextEncoder().encode(
+        '<svg xmlns="http://www.w3.org/2000/svg"/>'
+      ),
+    });
+    app.media.files.remove('img/e.svg');
+    expect(variants(app, 'img/e').length).toBe(2);
+  });
+});
+
 describe('очередь вариантов в базе', () => {
   const dirs: string[] = [];
   const fresh = () => (

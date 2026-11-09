@@ -4,17 +4,31 @@ import { isHtml, typeLabel } from '#lib/content-types.ts';
 import { t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { failed } from '#lib/notices.svelte.ts';
-import { setPublished } from '#lib/page-actions.ts';
+import {
+  menuMany,
+  moveMany,
+  publishMany,
+  setPublished,
+  templateMany,
+  trashMany,
+} from '#lib/page-actions.ts';
+import { definePager, pageOf } from '#lib/pager.svelte.ts';
 import { aliasFromTitle, followsTitle } from '#lib/translit.ts';
 import {
   childrenOf,
+  clearSelection,
   loadTree,
   markChanged,
+  selection,
+  setSelection,
   statusOf,
+  toggleSelected,
+  trail,
   tree,
 } from '#lib/tree.svelte.ts';
 import type { PageNode } from '#lib/types.ts';
 import PageGlyph from '#lib/ui/PageGlyph.svelte';
+import Pager from '#lib/ui/Pager.svelte';
 import { resolve } from '$app/paths';
 
 // Страницы таблицей в порядке дерева: главное правится прямо в строке, без захода в редактор.
@@ -44,6 +58,43 @@ const _rows = (
   ]);
 
 const rows = $derived(_rows(null, 0, folded));
+
+// Тысячи строк с полями браузер рисует секундами — таблица идёт страницами (по умолчанию по 50).
+const pager = definePager('pages');
+const visible = $derived(pageOf(rows, pager));
+// Страница начинается внутри ветки — над первой строкой путь к ней: видно, чей это раздел.
+const inside = $derived(
+  visible[0] && visible[0].depth > 0 ? trail(visible[0].node.id) : []
+);
+
+// Выбор — тот же, что в дереве слева: отмеченное в таблице видно там, и наоборот.
+const chosen = $derived(
+  tree.nodes.filter((_) => selection.ids.has(_.id) && !_.trashed)
+);
+const onPage = $derived(visible.map((_) => _.node.id));
+const allPicked = $derived(
+  onPage.length > 0 && onPage.every((_) => selection.ids.has(_))
+);
+const somePicked = $derived(
+  !allPicked && onPage.some((_) => selection.ids.has(_))
+);
+
+const pickPage = (on: boolean) =>
+  setSelection(
+    on
+      ? [...selection.ids, ...onPage]
+      : [...selection.ids].filter((_) => !onPage.includes(_))
+  );
+
+let frame = $state<HTMLElement>();
+
+// Сменили страницу внизу длинной таблицы — её начало снова в кадре.
+const toTop = () =>
+  void (
+    frame &&
+    frame.getBoundingClientRect().top < 0 &&
+    frame.scrollIntoView({ block: 'start' })
+  );
 
 const fold = (id: number) =>
   void (folded = folded.has(id)
@@ -130,11 +181,25 @@ const _STATUS = {
 } as const;
 </script>
 
-<div class="table-frame">
+{#if chosen.length > 0}
+  <!-- Выбрано несколько страниц: действия с ними разом, у каждого — «Вернуть». -->
+  <div class="bulk" role="toolbar" aria-label={t('bulk.title')}>
+    <span class="chosen"><span aria-live="polite">{t('bulk.selected')} <strong>{chosen.length}</strong></span><button type="button" class="ghost icon clear" aria-label={t('bulk.clear')} title={t('bulk.clear')} onclick={clearSelection}>{@html icons.close}</button></span>
+    <button type="button" onclick={() => publishMany(chosen, true)}>{@html icons.eye}{t('bulk.publishShort')}</button>
+    <button type="button" onclick={() => publishMany(chosen, false)}>{@html icons.eyeOff}{t('bulk.unpublishShort')}</button>
+    <button type="button" onclick={() => templateMany(chosen, templates)}>{@html icons.palette}{t('bulk.templateShort')}</button>
+    <button type="button" onclick={() => menuMany(chosen, true)}>{@html icons.menu}{t('bulk.showInMenu')}</button>
+    <button type="button" onclick={() => menuMany(chosen, false)}>{t('bulk.hideFromMenu')}</button>
+    <button type="button" onclick={() => moveMany(chosen)}>{@html icons.folderInput}{t('bulk.moveShort')}</button>
+    <button type="button" class="danger" onclick={() => trashMany(chosen)}>{@html icons.trash}{t('bulk.trashShort')}</button>
+  </div>
+{/if}
+<div class="table-frame" bind:this={frame}>
   <table>
     <caption class="sr-only">{t('table.caption')}</caption>
     <thead>
       <tr>
+        <th scope="col" class="pick-col"><input type="checkbox" checked={allPicked} indeterminate={somePicked} aria-label={t('table.selectAll')} onchange={(e) => pickPage(e.currentTarget.checked)} /></th>
         <th scope="col" class="page-col">{t('page.title')}</th>
         <th scope="col">{t('page.address')}</th>
         <th scope="col">{t('page.menuTitle')}</th>
@@ -145,10 +210,16 @@ const _STATUS = {
       </tr>
     </thead>
     <tbody>
-      {#each rows as { node, depth } (node.id)}
+      {#if inside.length > 0}
+        <tr class="inside">
+          <td colspan="8"><span class="sr-only">{t('table.inside')}: </span>{@html icons.folder}{inside.join(' › ')}</td>
+        </tr>
+      {/if}
+      {#each visible as { node, depth } (node.id)}
         {@const file = node.kind === 'page' && !isHtml(node.contentType)}
         {@const branch = childrenOf(node.id).length > 0}
-        <tr data-status={statusOf(node)} data-dim={dimmed(node) || undefined} data-saved={saved === node.id || undefined}>
+        <tr data-status={statusOf(node)} data-dim={dimmed(node) || undefined} data-saved={saved === node.id || undefined} data-picked={selection.ids.has(node.id) || undefined}>
+          <td class="pick-col"><input type="checkbox" checked={selection.ids.has(node.id)} aria-label={t('table.selectPage', { title: node.title })} onchange={() => toggleSelected(node.id)} /></td>
           <td class="page-col">
             <div class="page-cell" style:--depth={depth}>
               {#if branch}
@@ -199,6 +270,7 @@ const _STATUS = {
     </tbody>
   </table>
 </div>
+<Pager {pager} total={rows.length} onpage={toTop} />
 
 <style>
   /* Широкая таблица на узкой холстине прокручивается сама, страница — нет. */
@@ -229,6 +301,64 @@ const _STATUS = {
     padding-left: 1rem;
   }
 
+  /* Отметка строки — узкой первой колонкой; отмеченная строка подсвечена, как выбранная в дереве. */
+  .pick-col {
+    width: 2.5rem;
+    padding-right: 0;
+    text-align: center;
+  }
+
+  td.pick-col {
+    padding-left: 0.75rem;
+  }
+
+  tr[data-picked] {
+    background: color-mix(in oklch, var(--accent) 8%, transparent);
+  }
+
+  .bulk {
+    position: sticky;
+    top: calc(var(--topbar, 0) + 4.5rem);
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    align-items: center;
+    margin: 0 0 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border: 0.0625rem solid color-mix(in oklch, var(--accent) 35%, var(--line));
+    border-radius: var(--radius-l);
+    background: color-mix(in oklch, var(--accent) 6%, var(--surface));
+    box-shadow: var(--shadow-s);
+  }
+
+  /* Сколько выбрано и «снять выбор» — одним чипом в начале: кнопки действий идут за ним. */
+  .bulk .chosen {
+    display: inline-flex;
+    gap: 0.25rem;
+    align-items: center;
+    margin-right: 0.5rem;
+    font-size: 0.875rem;
+  }
+
+  .bulk button {
+    gap: 0.35em;
+    min-height: 2rem;
+    padding: 0 0.55rem;
+    font-size: 0.8125rem;
+  }
+
+  .bulk button :global(svg) {
+    width: 0.95rem;
+    height: 0.95rem;
+  }
+
+  .bulk .clear {
+    min-width: 1.75rem;
+    min-height: 1.75rem;
+    padding: 0;
+  }
+
   td {
     padding: 0.2rem 0.35rem;
     border-bottom: 0.0625rem solid var(--line);
@@ -237,6 +367,30 @@ const _STATUS = {
 
   tbody tr:last-child td {
     border-bottom: 0;
+  }
+
+  /* Путь к ветке над первой строкой страницы — тихой строкой, не страницей. */
+  tr.inside td {
+    padding: 0.45rem 1rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+    background: color-mix(in oklch, var(--hover) 60%, transparent);
+  }
+
+  tr.inside :global(svg) {
+    width: 0.8rem;
+    height: 0.8rem;
+    margin-right: 0.35rem;
+    vertical-align: -0.1em;
+  }
+
+  tbody tr.inside:hover {
+    background: none;
+  }
+
+  /* Таблица под шапкой экрана: начало видно после перехода на страницу. */
+  .table-frame {
+    scroll-margin-top: calc(var(--topbar, 0) + 4.5rem);
   }
 
   tbody tr:hover {

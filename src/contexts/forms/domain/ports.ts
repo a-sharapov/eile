@@ -24,6 +24,8 @@ export type SubmissionQuery = {
   readonly text?: string;
   /** Раньше этой заявки — следующая страница списка. */
   readonly before?: number;
+  /** Сколько пропустить от начала: страница пейджера с номером. */
+  readonly offset?: number;
   readonly limit: number;
 };
 
@@ -46,6 +48,8 @@ export type SubmissionRepository = {
   readonly add: (submission: NewSubmission) => number;
   readonly get: (id: number) => Submission | null;
   readonly list: (query: SubmissionQuery) => Submission[];
+  /** Сколько заявок под фильтром — для пейджера; `before`, `offset` и `limit` не в счёт. */
+  readonly count: (query: Omit<SubmissionQuery, 'limit'>) => number;
   readonly save: (submission: Submission) => void;
   readonly remove: (id: number) => void;
   /** `now` — момент «сейчас», `dayStart` — начало сегодняшних суток по часам сайта. */

@@ -4,7 +4,9 @@ import { pipe } from '../../../shared/kernel/pipe.ts';
 import type { Report } from '../../../shared/kernel/report.ts';
 import { imageSize } from '../domain/image-size.ts';
 import {
+  CACHE_ONLY,
   escapesFolder,
+  inLinkedFolder,
   isDerived,
   isLinkedOriginal,
   type MediaLink,
@@ -221,7 +223,12 @@ export var defineMediaService = ({
     const contentType = contentTypeOf(path);
     const content = _contentOf(upload.data);
     const previous = files.meta(path);
-    void (previous?.linked && link === undefined && _linkedFile(path));
+    void (
+      previous &&
+      inLinkedFolder(previous) &&
+      link === undefined &&
+      _linkedFile(path)
+    );
     const file: MediaFile = {
       path,
       contentType,
@@ -453,7 +460,14 @@ export var defineMediaService = ({
     maxPixels,
     variantsOf,
     read: readOf,
-    storable: (_) => _.linked === undefined || cache.writable(),
+    // Картинка папки — только в кэш (нет кэша — без вариантов); картинка из базы — в кэш, а без него — в
+    // базу, как раньше: база и копии не растут от того, что сервер сделает заново.
+    placeOf: (_) =>
+      cache.writable()
+        ? (_.linked?.prefix ?? CACHE_ONLY)
+        : _.linked
+          ? null
+          : undefined,
     // Варианты и отметка о задании — одной транзакцией, события — после неё.
     store: (collect) =>
       files
@@ -488,8 +502,22 @@ export var defineMediaService = ({
       )
     );
 
+  // Варианта нет вовсе: сервер ещё режет (после загрузки, после переезда, когда записи вариантов сняты при
+  // старте), или картинке они не положены. Адрес из страницы в кэше или из браузера — на оригинал, а не 404.
+  const pendingOriginal = (raw: string): MediaFile | null =>
+    attempt(
+      () =>
+        ((path) =>
+          variantWidth(path) === null
+            ? null
+            : (files.family(stemOf(path)).find(isResizable) ?? null))(
+          parseMediaPath(raw)
+        ),
+      () => null
+    );
+
   const originalOfVariant = (variant: MediaFile): MediaFile | null =>
-    files.family(stemOf(variant.path)).find(isLinkedOriginal) ?? null;
+    files.family(stemOf(variant.path)).find(isResizable) ?? null;
 
   const folders = defineLinkedFolders({
     files,
@@ -541,14 +569,26 @@ export var defineMediaService = ({
     files: {
       list: (): MediaFile[] => files.list(),
       save,
+      /**
+       * Удалить файл. У картинки — и её варианты размеров, если других картинок с той же основой нет: иначе
+       * они достались бы следующей картинке с этим именем.
+       */
       remove: (raw: string): void => {
         const path = parseMediaPath(raw);
-        void (
-          (files.meta(path) ?? fail('media.file_not_found', `No file ${path}`))
-            .linked && _linkedFile(path)
-        );
-        files.remove(path);
-        bus.publish(event('media.file_removed', path));
+        const file =
+          files.meta(path) ?? fail('media.file_not_found', `No file ${path}`);
+        void (inLinkedFolder(file) && _linkedFile(path));
+        const gone = [
+          ...(isResizable(file) &&
+          !files
+            .family(stemOf(path))
+            .some((_) => _.path !== path && isResizable(_))
+            ? variantsOf(path).map((_) => _.path)
+            : []),
+          path,
+        ];
+        files.transaction(() => gone.forEach((_) => void files.remove(_)));
+        gone.forEach((_) => void bus.publish(event('media.file_removed', _)));
       },
       /** Описание картинки; сайт перерисует страницы, где она стоит. */
       describe: (raw: string, alt: string): MediaFile => {
@@ -575,11 +615,16 @@ export var defineMediaService = ({
        */
       revive: (raw: string): string | null =>
         ((meta) =>
-          ((original) => original && (heal([original]), mediaUrl(original)))(
-            meta && isDerived(meta) && cache.stored(meta) === null
-              ? originalOfVariant(meta)
-              : null
-          ))(find(raw)),
+          meta
+            ? ((original) =>
+                original && (heal([original]), mediaUrl(original)))(
+                isDerived(meta) && cache.stored(meta) === null
+                  ? originalOfVariant(meta)
+                  : null
+              )
+            : ((original) => original && mediaUrl(original))(
+                pendingOriginal(raw)
+              ))(find(raw)),
       /** Путь медиатеки по пути или исходному пути файла связанной папки; null — файла нет. */
       resolve: (raw: string): string | null => find(raw)?.path ?? null,
       /** Исходный путь файла связанной папки `<приставка>/<путь на диске>`; null — файл в базе. */
@@ -632,7 +677,49 @@ export var defineMediaService = ({
     resolve: (raw: string): string | null => find(raw)?.path ?? null,
     image,
     /** Очередь вариантов размеров: их делает сервер, а не тот, кто загрузил картинку (ADR 0046). */
-    variants: jobs,
+    variants: {
+      ...jobs,
+      /**
+       * Варианты картинок из базы, которые лежат в самой базе (сделаны до кэша или загружены своими), — прочь, а
+       * картинки — в очередь: сервер сделает их заново в кэш, база и копии похудеют. Без кэша на диске — ничего.
+       * Ответ — сколько картинок поставлено.
+       */
+      rebuild: (): number =>
+        cache.writable()
+          ? ((queued) => (
+              queued
+                .flatMap((_) => _.removed)
+                .forEach(
+                  (path) => void bus.publish(event('media.file_removed', path))
+                ),
+              void (queued.length > 0 && kick()),
+              queued.length
+            ))(
+              files.transaction(() =>
+                files
+                  .list()
+                  .filter((_) => _.linked === undefined && takesVariants(_))
+                  .map((original) => ({
+                    original,
+                    stored: variantsOf(original.path).filter(
+                      (_) => _.linked === undefined
+                    ),
+                  }))
+                  .filter((_) => _.stored.length > 0)
+                  .map(
+                    ({ original, stored }) => (
+                      queue.add(original.path, original.hash),
+                      {
+                        removed: stored.map(
+                          (_) => (files.remove(_.path), _.path as MediaPath)
+                        ),
+                      }
+                    )
+                  )
+              )
+            )
+          : 0,
+    },
   };
 };
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+import { ACTION_LABEL } from '#lib/activity.ts';
 import { api } from '#lib/api.ts';
 import { ago, moment } from '#lib/format.ts';
 import { type MessageKey, t } from '#lib/i18n.ts';
@@ -16,16 +17,12 @@ import {
   tree,
   treeLoad,
 } from '#lib/tree.svelte.ts';
-import type {
-  Activity,
-  DiagnosticsReport,
-  PageAction,
-  PageNode,
-} from '#lib/types.ts';
+import type { Activity, DiagnosticsReport, PageNode } from '#lib/types.ts';
 import LoadState from '#lib/ui/LoadState.svelte';
 import PageHeader from '#lib/ui/PageHeader.svelte';
 import { resolve } from '$app/paths';
 import Diagnostics from './Diagnostics.svelte';
+import Journal from './Journal.svelte';
 import PageTable from './PageTable.svelte';
 
 type Status = 'published' | 'draft' | 'scheduled';
@@ -82,17 +79,6 @@ const feedLoad = defineLoad(() =>
 
 $effect(() => void feedLoad.retry());
 
-const _ACTION: Readonly<Record<PageAction, MessageKey>> = {
-  created: 'activity.created',
-  edited: 'activity.edited',
-  published: 'activity.published',
-  unpublished: 'activity.unpublished',
-  moved: 'activity.moved',
-  trashed: 'activity.trashed',
-  restored: 'activity.restored',
-  duplicated: 'activity.duplicated',
-};
-
 // Удалённые навсегда страницы из журнала не показываем: ссылке некуда вести.
 const recent = $derived(
   feed
@@ -117,14 +103,16 @@ const _stored = (): string | null => {
   }
 };
 
-type View = 'map' | 'table' | 'diagnostics';
+type View = 'map' | 'table' | 'journal' | 'diagnostics';
 
 // Диагностика — администратору: она про настройки, медиатеку и формы.
 const admin = $derived(session.user?.role === 'admin');
 
 let view = $state<View>(
   ((stored) =>
-    stored === 'map' || stored === 'diagnostics' ? stored : 'table')(_stored())
+    stored === 'map' || stored === 'journal' || stored === 'diagnostics'
+      ? stored
+      : 'table')(_stored())
 );
 const shown = $derived<View>(view === 'diagnostics' && !admin ? 'table' : view);
 
@@ -158,6 +146,7 @@ const pick = (next: View) => {
   <div class="views" role="group" aria-label={t('overview.view')}>
     <button type="button" aria-pressed={shown === 'table'} title={t('overview.viewTable')} onclick={() => pick('table')}>{@html icons.list}<span class="label">{t('overview.viewTable')}</span></button>
     <button type="button" aria-pressed={shown === 'map'} title={t('overview.viewMap')} onclick={() => pick('map')}>{@html icons.tree}<span class="label">{t('overview.viewMap')}</span></button>
+    <button type="button" aria-pressed={shown === 'journal'} title={t('overview.viewJournal')} onclick={() => pick('journal')}>{@html icons.clock}<span class="label">{t('overview.viewJournal')}</span></button>
     {#if admin}
       <button type="button" aria-pressed={shown === 'diagnostics'} title={t('overview.viewDiagnostics')} onclick={() => pick('diagnostics')}>
         {@html icons.activity}<span class="label">{t('overview.viewDiagnostics')}</span>
@@ -210,6 +199,8 @@ const pick = (next: View) => {
 
 {#if shown === 'diagnostics'}
   <Diagnostics {report} load={diagnosticsLoad} refresh={recheck} busy={checking} />
+{:else if shown === 'journal'}
+  <Journal />
 {:else if shown === 'table'}
   <section class="table-view" aria-labelledby="map-title">
     {@render mapHead()}
@@ -252,7 +243,7 @@ const pick = (next: View) => {
                 <i class="status-node" aria-hidden="true"></i>
                 <div>
                   <a href={href(item.node)}>{item.node.title}</a>
-                  <p class="muted">{t(_ACTION[item.entry.action])} · {item.entry.userName} · <time datetime={item.entry.at} title={moment(item.entry.at)}>{ago(item.entry.at)}</time></p>
+                  <p class="muted">{t(ACTION_LABEL[item.entry.action])} · {item.entry.userName} · <time datetime={item.entry.at} title={moment(item.entry.at)}>{ago(item.entry.at)}</time></p>
                 </div>
               </li>
             {/each}

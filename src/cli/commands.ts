@@ -1,12 +1,23 @@
 import { Database } from 'bun:sqlite';
-import { statSync, watch } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  watch,
+} from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import { type App, createApp } from '../app.ts';
 import { LETS_ENCRYPT, parseDomains } from '../contexts/certificates/index.ts';
 import type { Finding } from '../contexts/diagnostics/index.ts';
 import type { UserView } from '../contexts/identity/index.ts';
 import { defineAgentSession } from '../contexts/manager/index.ts';
-import type { LinkView, SkippedFile } from '../contexts/media/index.ts';
+import {
+  type LinkView,
+  mediaCacheDir,
+  type SkippedFile,
+} from '../contexts/media/index.ts';
 import {
   defineReleases,
   GITHUB_API,
@@ -23,7 +34,9 @@ import { attempt, isDomainError } from '../shared/kernel/errors.ts';
 import { pipe } from '../shared/kernel/pipe.ts';
 import {
   agentsGuide,
+  type CarriedFolder,
   CLAUDE_MD,
+  carryFolders,
   type Files,
   type KeptFile,
   linkMedia,
@@ -91,6 +104,8 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
     'identity.email_taken': 'С этой почтой уже есть пользователь.',
     'identity.invalid_email': 'Это не похоже на адрес почты.',
     'identity.invalid_role': 'Такой роли нет: admin или editor.',
+    'identity.last_admin':
+      'Это последний администратор: сначала добавьте другого — cms users add <почта> --role admin.',
     'evo.no_site_content':
       'В дампе нет таблицы site_content — это точно дамп сайта Evo?',
     'wp.not_wordpress':
@@ -218,6 +233,8 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
     'identity.email_taken': 'There is already a user with this email.',
     'identity.invalid_email': 'This does not look like an email address.',
     'identity.invalid_role': 'No such role: admin or editor.',
+    'identity.last_admin':
+      'This is the last administrator: add another one first (cms users add <email> --role admin).',
     'evo.no_site_content':
       'The dump has no site_content table. Is it really a dump of an Evo site?',
     'wp.not_wordpress':
@@ -401,8 +418,10 @@ const _SAY = {
       `Нет пользователя с почтой ${email}. Список — cms users`,
     passwordSet: (email: string) =>
       `Пароль ${email} сменён, все его сеансы закрыты.`,
+    userRemoved: (email: string) =>
+      `${email} удалён, его сеансы закрыты. Его правки в истории остаются.`,
     noSubcommand: (name: string | undefined) =>
-      `Нет подкоманды users ${name}. Есть: add, password — cms help users`,
+      `Нет подкоманды users ${name}. Есть: add, password, remove — cms help users`,
     exists: (file: string) => `Файл ${file} уже есть — выберите другое имя.`,
     copied: 'Копия сайта:',
     needCopy: 'Нужен файл копии: cms restore <файл> --db site.db',
@@ -458,7 +477,20 @@ const _SAY = {
     mediaPartly: (n: number) =>
       `Сохранено не всё: ошибок ${n}. Повторите команду — совпавшие файлы она пропустит`,
     noMediaCommand: (name: string | undefined) =>
-      `Нет подкоманды media ${name ?? ''}. Есть: push, link, unlink — cms help media`,
+      `Нет подкоманды media ${name ?? ''}. Есть: push, link, unlink, variants — cms help media`,
+    variantsState: (
+      inBase: number,
+      bytes: string,
+      inCache: number,
+      pending: number
+    ) =>
+      `Варианты размеров: в базе — ${inBase} (${bytes}), в кэше на диске — ${inCache}; ждут — ${pending}`,
+    variantsRebuilt: (images: number, made: number) =>
+      `Заново в кэш: картинок ${images}, вариантов сделано ${made}`,
+    variantsNothing: 'В базе нет вариантов, которые можно сделать заново',
+    variantsNoCache:
+      'Кэша медиатеки на диске нет или в него не записать — варианты остаются в базе',
+    variantsHint: 'перенести их в кэш — cms media variants --rebuild',
     noMediaFolder: (dir: string) => `Нет папки ${dir}.`,
     gb: 'ГБ',
     linked: (dir: string, prefix: string) =>
@@ -509,7 +541,13 @@ const _SAY = {
     linkMissing: 'нет на диске',
     linkNotInCopy: 'не в копии базы',
     copyLinks:
-      'Связанные папки не входят в копию: скопируйте их отдельно, рядом с копией базы:',
+      'Связанные папки не входят в копию: скопируйте их отдельно, рядом с копией базы, или снимите копию с ними — cms backup <папка> --folders:',
+    copiedWithFolders: 'Копия сайта с папками:',
+    bundleExists: (dir: string) =>
+      `Папка ${dir} не пуста — выберите другую или новую.`,
+    folderCarried: (prefix: string, to: string) => `${prefix}/ → ${to}`,
+    folderKept: (prefix: string, to: string) =>
+      `${prefix}/ → ${to}: папка уже была, её не трогали`,
     healthy: 'Диагностика ничего не нашла',
     andMore: (n: number) => `и ещё ${n}`,
     siteErrors: (n: number) => `На сайте ошибок: ${n}`,
@@ -574,8 +612,10 @@ const _SAY = {
       `No user with the email ${email}. List them: cms users`,
     passwordSet: (email: string) =>
       `Password of ${email} changed, all of its sessions are closed.`,
+    userRemoved: (email: string) =>
+      `${email} removed, their sessions are closed. Their edits stay in the history.`,
     noSubcommand: (name: string | undefined) =>
-      `No subcommand users ${name}. There are: add, password (cms help users)`,
+      `No subcommand users ${name}. There are: add, password, remove (cms help users)`,
     exists: (file: string) => `${file} already exists. Choose another name.`,
     copied: 'Site copy:',
     needCopy: 'A copy file is needed: cms restore <file> --db site.db',
@@ -630,7 +670,20 @@ const _SAY = {
     mediaPartly: (n: number) =>
       `Not everything was saved; problems: ${n}. Run the command again: it skips the files that match`,
     noMediaCommand: (name: string | undefined) =>
-      `No subcommand media ${name ?? ''}. There are push, link, unlink: cms help media`,
+      `No subcommand media ${name ?? ''}. There are push, link, unlink, variants: cms help media`,
+    variantsState: (
+      inBase: number,
+      bytes: string,
+      inCache: number,
+      pending: number
+    ) =>
+      `Image sizes: in the database ${inBase} (${bytes}), in the disk cache ${inCache}; waiting ${pending}`,
+    variantsRebuilt: (images: number, made: number) =>
+      `Into the cache again: ${images} images, ${made} variants made`,
+    variantsNothing: 'No variants in the database to make again',
+    variantsNoCache:
+      'There is no writable media cache on disk: the variants stay in the database',
+    variantsHint: 'move them to the cache: cms media variants --rebuild',
     noMediaFolder: (dir: string) => `No folder ${dir}.`,
     gb: 'GB',
     linked: (dir: string, prefix: string) =>
@@ -683,7 +736,13 @@ const _SAY = {
     linkMissing: 'missing on disk',
     linkNotInCopy: 'not in the database copy',
     copyLinks:
-      'Linked folders are not part of the copy: copy them separately, next to the database copy:',
+      'Linked folders are not part of the copy: copy them separately, next to the database copy, or take a copy with them (cms backup <folder> --folders):',
+    copiedWithFolders: 'Site copy with folders:',
+    bundleExists: (dir: string) =>
+      `The folder ${dir} is not empty. Choose another or a new one.`,
+    folderCarried: (prefix: string, to: string) => `${prefix}/ → ${to}`,
+    folderKept: (prefix: string, to: string) =>
+      `${prefix}/ → ${to}: the folder was already there and was left as is`,
     healthy: 'Diagnostics found nothing',
     andMore: (n: number) => `and ${n} more`,
     siteErrors: (n: number) => `Errors on the site: ${n}`,
@@ -1133,10 +1192,27 @@ const _setPassword = (ctx: Context): Promise<void> =>
     )
   );
 
+const _removeUser = (ctx: Context): Promise<void> =>
+  _email(ctx, `cms users remove ${_say(ctx).email}`).then((email) =>
+    _withApp(ctx, (app) =>
+      ((user) =>
+        user === undefined
+          ? _reject(_say(ctx).noUser(email))
+          : (app.identity.users.remove(user.id), user))(
+        app.identity.users
+          .list()
+          .find((_) => _.email === email.trim().toLowerCase())
+      )
+    ).then((user) =>
+      ctx.out(`${ctx.paint.ok('✓')} ${_say(ctx).userRemoved(user.email)}`)
+    )
+  );
+
 const _USERS: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
   list: _list,
   add: _add,
   password: _setPassword,
+  remove: _removeUser,
 };
 
 const _users = (ctx: Context): Promise<void> =>
@@ -1289,7 +1365,11 @@ const _pull = (ctx: Context): Promise<void> =>
 const _ELEMENTS: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
   pull: _pull,
   check: (ctx) => _send(ctx, true),
-  push: (ctx) => (ctx.options.watch ? _watching(ctx) : _send(ctx, false)),
+  // push --dry-run — то же, что check: с --prune видно, что удалится, ничего не записано.
+  push: (ctx) =>
+    ctx.options.watch
+      ? _watching(ctx)
+      : _send(ctx, ctx.options.dryRun === true),
 };
 
 const _elements = (ctx: Context): Promise<void> =>
@@ -1569,10 +1649,53 @@ const _mediaUnlink = (ctx: Context): Promise<void> =>
         )
     );
 
+// Где лежат варианты размеров: в базе (сделаны до кэша или загружены своими) и в кэше на диске.
+const _variantsState = (app: App) =>
+  ((variants) => ({
+    inBase: variants.filter((_) => _.linked === undefined),
+    inCache: variants.filter((_) => _.linked !== undefined).length,
+    pending: app.media.variants.pending(),
+  }))(app.media.files.list().filter((_) => /@\d+\.[a-z0-9]+$/.test(_.path)));
+
+// cms media variants [--rebuild]: сводка; с --rebuild — варианты из базы заново сервером, в кэш.
+const _mediaVariants = (ctx: Context): Promise<void> =>
+  _withApp(ctx, (app) =>
+    ((queued) =>
+      ((queued ?? 0) > 0 ? app.media.variants.run() : Promise.resolve(0)).then(
+        (made) => ({ queued, made, state: _variantsState(app) })
+      ))(ctx.options.rebuild ? app.media.variants.rebuild() : null)
+  ).then(({ queued, made, state }) =>
+    ((say, paint) =>
+      ctx.out(
+        [
+          ...(queued === null
+            ? []
+            : [
+                queued > 0
+                  ? `${paint.ok('✓')} ${say.variantsRebuilt(queued, made)}`
+                  : `${paint.warn('!')} ${state.inBase.length > 0 ? say.variantsNoCache : say.variantsNothing}`,
+              ]),
+          `  ${say.variantsState(
+            state.inBase.length,
+            _size(
+              state.inBase.reduce((sum, _) => sum + _.size, 0),
+              say
+            ),
+            state.inCache,
+            state.pending
+          )}`,
+          ...(queued === null && state.inBase.length > 0
+            ? [`  ${paint.dim(say.variantsHint)}`]
+            : []),
+        ].join('\n')
+      ))(_say(ctx), ctx.paint)
+  );
+
 const _MEDIA: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
   push: _mediaPush,
   link: _mediaLink,
   unlink: _mediaUnlink,
+  variants: _mediaVariants,
 };
 
 const _media = (ctx: Context): Promise<void> =>
@@ -1723,6 +1846,9 @@ const _mcp = (ctx: Context): Promise<void> =>
 const _today = (): string => new Date().toISOString().slice(0, 10);
 
 const _backup = (ctx: Context): Promise<void> =>
+  ctx.options.folders ? _backupFolders(ctx) : _backupFile(ctx);
+
+const _backupFile = (ctx: Context): Promise<void> =>
   ((target) =>
     Bun.file(target)
       .exists()
@@ -1756,37 +1882,101 @@ const _backup = (ctx: Context): Promise<void> =>
           ))(_say(ctx), ctx.paint)
       ))(ctx.args[0] ?? `cms-${_today()}.db`);
 
-// Восстановление: база может быть и новой — так сайт переезжает на другой сервер.
+// Перенесённые папки: куда легли, сколько в них, а уже лежавшие — как есть.
+const _carriedLines = (
+  ctx: Context,
+  carried: readonly CarriedFolder[]
+): string[] =>
+  ((say, paint) =>
+    carried.map((_) =>
+      _.copied
+        ? `  ${paint.ok('✓')} ${say.folderCarried(_.prefix, paint.path(_.to))}${_dot(paint)}${say.files(_.files)}${_dot(paint)}${_size(_.bytes, say)}`
+        : `  ${paint.warn('!')} ${say.folderKept(_.prefix, paint.path(_.to))}`
+    ))(_say(ctx), ctx.paint);
+
+// Копия для переезда (`--folders`): в папке — site.db и связанные папки рядом с ней, записанные от неё.
+// Кэш медиатеки копии не нужен: варианты сервер сделает на новом месте.
+const _backupFolders = (ctx: Context): Promise<void> =>
+  ((dir, copy) =>
+    (existsSync(dir) && readdirSync(dir).length > 0
+      ? _reject(_say(ctx).bundleExists(dir))
+      : (mkdirSync(dir, { recursive: true }),
+        _withApp(ctx, (app) => app.backup(copy)))
+    )
+      .then(() =>
+        ((app) =>
+          carryFolders(app, dirname(resolve(ctx.options.db)), dir).finally(
+            () => (
+              app.close(),
+              ((cache) =>
+                void (
+                  cache && rmSync(cache, { recursive: true, force: true })
+                ))(mediaCacheDir(copy))
+            )
+          ))(createApp({ databasePath: copy }))
+      )
+      .then((carried) =>
+        ((say, paint) =>
+          ctx.out(
+            [
+              `${paint.ok('✓')} ${say.copiedWithFolders} ${paint.path(dir)}${_dot(paint)}site.db ${_size(Bun.file(copy).size, say)}`,
+              ..._carriedLines(ctx, carried),
+            ].join('\n')
+          ))(_say(ctx), ctx.paint)
+      ))(
+    resolve(ctx.args[0] ?? `cms-${_today()}`),
+    join(resolve(ctx.args[0] ?? `cms-${_today()}`), 'site.db')
+  );
+
+// Восстановление: база может быть и новой — так сайт переезжает на другой сервер. Папка копии с
+// `--folders` — база из неё, связанные папки — рядом с восстановленной базой.
 const _restore = (ctx: Context): Promise<void> =>
   (ctx.args[0] ? Promise.resolve(ctx.args[0]) : _reject(_say(ctx).needCopy))
-    .then((file) =>
+    .then((given) =>
+      ((bundle) => ({
+        file: bundle ? join(given, 'site.db') : given,
+        bundle: bundle ? resolve(given) : null,
+      }))(
+        attempt(
+          () => statSync(given).isDirectory(),
+          () => false
+        )
+      )
+    )
+    .then(({ file, bundle }) =>
       Bun.file(file)
         .exists()
         .then((exists) =>
           exists ? Bun.file(file).bytes() : _reject(_say(ctx).noFile(file))
         )
-    )
-    .then((bytes) => {
-      const app = createApp({
-        databasePath: ctx.options.db,
-        ..._mediaCache(ctx),
-      });
-      return app
-        .restore(bytes)
-        .then((report) =>
-          ctx.out(
-            [
-              `${ctx.paint.ok('✓')} ${_say(ctx).restored} ${ctx.paint.path(ctx.options.db)}${_dot(ctx.paint)}${pages(report.pages, ctx.language)}`,
-              ...(report.savedTo
-                ? [
-                    `  ${ctx.paint.dim(_say(ctx).before)} ${ctx.paint.path(report.savedTo)}`,
-                  ]
-                : []),
-            ].join('\n')
-          )
-        )
-        .finally(() => app.close());
-    });
+        .then((bytes) => {
+          const app = createApp({
+            databasePath: ctx.options.db,
+            ..._mediaCache(ctx),
+          });
+          return app
+            .restore(bytes)
+            .then((report) =>
+              (bundle
+                ? carryFolders(app, bundle, dirname(resolve(ctx.options.db)))
+                : Promise.resolve([])
+              ).then((carried) =>
+                ctx.out(
+                  [
+                    `${ctx.paint.ok('✓')} ${_say(ctx).restored} ${ctx.paint.path(ctx.options.db)}${_dot(ctx.paint)}${pages(report.pages, ctx.language)}`,
+                    ...(report.savedTo
+                      ? [
+                          `  ${ctx.paint.dim(_say(ctx).before)} ${ctx.paint.path(report.savedTo)}`,
+                        ]
+                      : []),
+                    ..._carriedLines(ctx, carried),
+                  ].join('\n')
+                )
+              )
+            )
+            .finally(() => app.close());
+        })
+    );
 
 const _import = (ctx: Context): Promise<void> =>
   (ctx.args[0]

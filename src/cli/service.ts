@@ -4,8 +4,10 @@ import {
   chownSync,
   copyFileSync,
   existsSync,
+  lchownSync,
   linkSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   realpathSync,
@@ -14,9 +16,9 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { networkInterfaces } from 'node:os';
-import { basename, dirname, isAbsolute, join } from 'node:path';
-import { prepareSite } from '../app.ts';
+import { networkInterfaces, tmpdir } from 'node:os';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { createApp, prepareSite } from '../app.ts';
 import {
   checkDomain,
   defineDohResolver,
@@ -30,6 +32,7 @@ import { backupDatabase } from '../platform/database.ts';
 import { PRODUCT, REPOSITORY } from '../product.ts';
 import { attempt, fail, rethrow } from '../shared/kernel/errors.ts';
 import { pipe } from '../shared/kernel/pipe.ts';
+import { type CarriedFolder, carryFolders } from '../workspace/index.ts';
 import { type Context, cliError } from './context.ts';
 import type { Language } from './language.ts';
 import { type Paint, padEnd } from './paint.ts';
@@ -104,8 +107,8 @@ export type Host = {
   readonly holder: (port: number) => Promise<string | null>;
   /** Откат обновления: прежний бинарник — на место. */
   readonly restore: (binary: string, previous: string) => void;
-  /** Сайт из базы — в каталог службы; ответ — путь новой базы. */
-  readonly place: (from: string, name: string) => Promise<string>;
+  /** Сайт из базы или папки копии (`cms backup --folders`) — в каталог службы: база и связанные папки. */
+  readonly place: (from: string, name: string) => Promise<PlacedSite>;
   /** Снимок базы службы перед обновлением; не вышло — исключение. */
   readonly snapshot: (db: string, target: string) => void;
   /** Применённые миграции базы; null — её не прочесть. */
@@ -181,6 +184,60 @@ export var placeDatabase = (from: string, dir: string): Promise<string> =>
           () => target
         )
       ))(join(dir, 'site.db'), join(dir, `.site.db.${process.pid}.part`));
+
+/** Сайт на новом месте: путь базы и связанные папки рядом с ней. */
+export type PlacedSite = {
+  readonly db: string;
+  readonly folders: readonly CarriedFolder[];
+};
+
+// Скопированное — владельцу каталога службы, как и база; ссылки — сами, без перехода по ним.
+const _ownTree = (path: string, dir: string): void =>
+  ((owner) =>
+    [
+      path,
+      ...readdirSync(path, { recursive: true }).map((_) =>
+        join(path, String(_))
+      ),
+    ].forEach((_) => void lchownSync(_, owner.uid, owner.gid)))(statSync(dir));
+
+/**
+ * Сайт — в каталог службы `dir`: база (как `placeDatabase`) и её связанные папки рядом с ней (ADR 0065):
+ * база и папки переезжают вместе. `from` — файл базы или папка копии `cms backup --folders` с site.db.
+ * Кэш медиатеки при переносе — временный: варианты служба сделает в своём.
+ */
+export var placeSite = (from: string, dir: string): Promise<PlacedSite> =>
+  ((bundle) =>
+    ((db, base) =>
+      placeDatabase(db, dir).then((target) =>
+        ((cache) =>
+          ((app) =>
+            carryFolders(app, base, dir)
+              .finally(
+                () => (
+                  app.close(), rmSync(cache, { recursive: true, force: true })
+                )
+              )
+              .then(
+                (folders) => (
+                  folders.forEach(
+                    (_) => void (_.copied && _ownTree(_.to, dir))
+                  ),
+                  _own(target, dir),
+                  { db: target, folders }
+                )
+              ))(createApp({ databasePath: target, mediaCache: cache })))(
+          mkdtempSync(join(tmpdir(), 'cms-place-'))
+        )
+      ))(
+      bundle ? join(from, 'site.db') : from,
+      bundle ? resolve(from) : dirname(resolve(from))
+    ))(
+    attempt(
+      () => statSync(from).isDirectory(),
+      () => false
+    )
+  );
 
 // --- база при обновлении --------------------------------------------------------
 
@@ -374,7 +431,7 @@ export var defineHost = (): Host => ({
   mail: _mailRisk,
   holder: _holder,
   restore: (binary, previous) => restorePrevious(binary, previous),
-  place: (from, name) => placeDatabase(from, stateDir('/var/lib', name)),
+  place: (from, name) => placeSite(from, stateDir('/var/lib', name)),
   snapshot: snapshotDatabase,
   migrations: appliedMigrations,
   putBack: putBackDatabase,
@@ -414,6 +471,10 @@ const _SAY = {
     lowMemory: (size: string) =>
       `Памяти ${size}, а подкачки нет: под нагрузкой, например на загрузке большого файла, сайт может убить OOM. Файл подкачки на 1 ГиБ (при 512 МБ лучше на 2):`,
     moved: 'Сайт перенесён:',
+    folderMoved: (prefix: string, to: string, files: number) =>
+      `папка ${prefix}/ → ${to}, файлов ${files}`,
+    folderKept: (prefix: string, to: string) =>
+      `папка ${prefix}/ → ${to}: уже была, её не трогали`,
     systemctlFailed: (command: string, error: string) =>
       `systemctl ${command} не удался: ${error.trim()}`,
     silent: (name: string, seconds: number) =>
@@ -521,6 +582,10 @@ const _SAY = {
     lowMemory: (size: string) =>
       `${size} of memory and no swap: under load, for example on a large upload, the OOM killer can stop the site. A 1 GiB swap file (2 GiB with 512 MB):`,
     moved: 'Site moved:',
+    folderMoved: (prefix: string, to: string, files: number) =>
+      `folder ${prefix}/ → ${to}, ${files} files`,
+    folderKept: (prefix: string, to: string) =>
+      `folder ${prefix}/ → ${to}: it was already there and was left as is`,
     systemctlFailed: (command: string, error: string) =>
       `systemctl ${command} failed: ${error.trim()}`,
     silent: (name: string, seconds: number) =>
@@ -923,10 +988,18 @@ const _moved = (ctx: Context, host: Host, plan: ServicePlan): Promise<void> =>
     ? Promise.resolve()
     : host
         .place(plan.from, plan.name)
-        .then((target) =>
-          ctx.out(
-            `${ctx.paint.ok('✓')} ${_say(ctx).moved} ${ctx.paint.path(plan.from!)} → ${ctx.paint.path(target)}`
-          )
+        .then((placed) =>
+          ((say, paint) =>
+            ctx.out(
+              [
+                `${paint.ok('✓')} ${say.moved} ${paint.path(plan.from!)} → ${paint.path(placed.db)}`,
+                ...placed.folders.map((_) =>
+                  _.copied
+                    ? `  ${paint.ok('✓')} ${say.folderMoved(_.prefix, paint.path(_.to), _.files)}`
+                    : `  ${paint.warn('!')} ${say.folderKept(_.prefix, paint.path(_.to))}`
+                ),
+              ].join('\n')
+            ))(_say(ctx), ctx.paint)
         );
 
 // Юнит пишется, только если он новый или другой; перезапуск — если он менялся или служба стоит.

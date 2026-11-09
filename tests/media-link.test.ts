@@ -512,6 +512,30 @@ describe('связанная папка: варианты картинок', () 
     app.close();
   });
 
+  it('переезд без кэша: записи вариантов сняты при старте, адрес варианта ведёт на оригинал, пока сервер режет', async () => {
+    const app = open();
+    put('images/sea.jpg', await picture(1200, 900, 'jpeg'));
+    await link(app);
+    const variant = 'assets/images/sea@960.webp';
+    const paths = () => app.media.files.list().map((_) => String(_.path));
+    expect(paths()).toContain(variant);
+    rmSync(cache, { recursive: true });
+    app.media.links.heal();
+    expect(paths()).not.toContain(variant);
+    const moved = await get(app, `/media/${variant}?v=old`);
+    expect(moved.status).toBe(307);
+    expect(moved.headers.get('location')).toStartWith(
+      '/media/assets/images/sea.jpg?v='
+    );
+    expect(moved.headers.get('cache-control')).toBe('no-store');
+    expect((await get(app, '/media/assets/images/none@960.webp')).status).toBe(
+      404
+    );
+    await app.media.variants.run();
+    expect((await get(app, `/media/${variant}`)).status).toBe(200);
+    app.close();
+  });
+
   it('без кэша на диске вариантов у картинок папки нет, а связывание проходит', async () => {
     const app = createApp({ scaffold: DEMO });
     put('big.jpg', await picture(1200, 900, 'jpeg'));

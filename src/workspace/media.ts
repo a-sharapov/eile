@@ -1,9 +1,17 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import {
+  constants,
+  cpSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from 'node:fs';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { App } from '../app.ts';
 import {
   checkSize,
   contentTypeOf,
+  inLinkedFolder,
   isResizable,
   type LinkReport,
   linkedSegment,
@@ -526,7 +534,9 @@ const _plan = (
         }))
       ))(new Map(library.map((_) => [_.path as string, _]))))(
     // Файлы связанных папок — не этой команды: их меняет cms media link (ADR 0065).
-    services.media.files.list().filter((_) => _.linked === undefined)
+    services.media.files
+      .list()
+      .filter((_) => _.linked === undefined || !inLinkedFolder(_))
   );
 
 const _tryAt = (file: string, run: () => void): Problem | null =>
@@ -563,10 +573,18 @@ const _describe =
       () => void services.media.files.describe(path, folder.alts.get(path)!)
     );
 
+// Вариант уходит вместе со своей картинкой: к его очереди в списке его может уже не быть.
 const _remove =
   (services: MediaServices) =>
   (path: string): Problem | null =>
-    _tryAt(path, () => services.media.files.remove(path));
+    _tryAt(
+      path,
+      () =>
+        void (
+          services.media.files.resolve(path) !== null &&
+          services.media.files.remove(path)
+        )
+    );
 
 const _problems = (done: readonly (Problem | null)[]): Problem[] =>
   done.filter((_): _ is Problem => _ !== null);
@@ -822,4 +840,76 @@ export var unlinkMedia = (
 ): Promise<UnlinkReport> =>
   Promise.resolve(prefix).then((_) =>
     services.media.links.unlink(_, options.dryRun === true)
+  );
+
+// --- связанные папки при переезде -------------------------------------------
+
+/** Связанная папка, перенесённая к новой базе. */
+export type CarriedFolder = {
+  readonly prefix: string;
+  /** Откуда: путь от каталога исходной базы или абсолютный. */
+  readonly from: string;
+  /** Куда: рядом с новой базой. */
+  readonly to: string;
+  /** false — там уже лежала папка: её не трогали, база ведёт на неё. */
+  readonly copied: boolean;
+  readonly files: number;
+  readonly bytes: number;
+};
+
+// Имя папки рядом с новой базой: прежний путь от базы (`assets`), а папка вне её (`/srv/old_assets`) —
+// по приставке: `assets`, `media/old` → `media-old`.
+const _nameOf = (root: string, prefix: string): string =>
+  !isAbsolute(root) && !root.split(/[\\/]/).includes('..')
+    ? root
+    : prefix.replaceAll('/', '-');
+
+/**
+ * Связанные папки базы `services` (ADR 0065, 0068) — к ней в каталог `target`: копия файлов с прежним
+ * временем изменения (на btrfs и xfs — reflink, место не тратится) и запись папки — от каталога базы,
+ * чтобы база и папки переезжали вместе. `base` — каталог исходной базы: от него записаны её пути.
+ * Папку, что уже лежит в `target`, не копирует и не трогает.
+ */
+export var carryFolders = (
+  services: Pick<App, 'media'>,
+  base: string,
+  target: string
+): Promise<CarriedFolder[]> =>
+  services.media.links.list().reduce<Promise<CarriedFolder[]>>(
+    (done, link) =>
+      done.then((carried) =>
+        ((name) =>
+          ((from, to) =>
+            ((copied) =>
+              (name === link.root
+                ? Promise.resolve()
+                : linkMedia(services, to, {
+                    into: link.prefix,
+                    serveOriginal: link.serveOriginal,
+                    staticSite: link.staticSite,
+                  })
+              ).then(() => [
+                ...carried,
+                {
+                  prefix: link.prefix,
+                  from,
+                  to,
+                  copied,
+                  files: link.files,
+                  bytes: link.bytes,
+                },
+              ]))(
+              !existsSync(to) &&
+                (cpSync(from, to, {
+                  recursive: true,
+                  preserveTimestamps: true,
+                  mode: constants.COPYFILE_FICLONE,
+                }),
+                true)
+            ))(
+            isAbsolute(link.root) ? link.root : resolve(base, link.root),
+            join(target, name)
+          ))(_nameOf(link.root, link.prefix))
+      ),
+    Promise.resolve([])
   );

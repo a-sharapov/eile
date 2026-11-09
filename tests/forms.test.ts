@@ -506,6 +506,17 @@ describe('заявки и формы в менеджере', () => {
     expect(await (await call('GET', '/inbox?q=иван')).json()).toHaveLength(1);
     expect(await (await call('GET', '/inbox?q=пётр')).json()).toHaveLength(0);
     expect(await (await call('GET', '/inbox?unread=1')).json()).toHaveLength(0);
+    // Страница с номером: заявки от offset и сколько всего под фильтром.
+    expect(
+      await (await call('GET', '/inbox/page?offset=0&limit=25')).json()
+    ).toMatchObject({ total: 1, items: [{ id: row!.id }] });
+    expect(
+      await (await call('GET', '/inbox/page?offset=1&limit=25')).json()
+    ).toEqual({ total: 1, items: [] });
+    expect(await (await call('GET', '/inbox/page?q=пётр')).json()).toEqual({
+      total: 0,
+      items: [],
+    });
   });
 
   it('CSV для Excel: BOM, точка с запятой, подписи полей столбцами', async () => {

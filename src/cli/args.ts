@@ -83,6 +83,10 @@ export type Options = {
   readonly output?: string;
   /** `cms import-wp --dry-run`: перенос на снимке базы, живая база не меняется. */
   readonly dryRun?: boolean;
+  /** `cms backup <папка> --folders`: копия базы и связанных папок рядом с ней — для переезда. */
+  readonly folders?: boolean;
+  /** `cms media variants --rebuild`: варианты картинок из базы — заново сервером, в кэш медиатеки. */
+  readonly rebuild?: boolean;
   /** `cms import-wp --media <папка|адрес>`: откуда брать файлы вложений. */
   readonly media?: string;
   /** `cms import-wp --into <id>`: перенос под эту страницу, а не в пустой сайт. */
@@ -143,6 +147,8 @@ const _OPTIONS = {
   'allow-plugins': { type: 'boolean' },
   output: { type: 'string', short: 'o' },
   'dry-run': { type: 'boolean' },
+  folders: { type: 'boolean' },
+  rebuild: { type: 'boolean' },
   media: { type: 'string' },
   into: { type: 'string' },
   'serve-original': { type: 'boolean' },
@@ -243,6 +249,8 @@ export var parseInvocation = (argv: readonly string[], env: Env): Invocation =>
             ...(parsed.values['allow-plugins'] ? { allowPlugins: true } : {}),
             ...(parsed.values.output ? { output: parsed.values.output } : {}),
             ...(parsed.values['dry-run'] ? { dryRun: true } : {}),
+            ...(parsed.values.folders ? { folders: true } : {}),
+            ...(parsed.values.rebuild ? { rebuild: true } : {}),
             ...(parsed.values.media ? { media: parsed.values.media } : {}),
             ...(parsed.values.into ? { into: parsed.values.into } : {}),
             ...(parsed.values['serve-original']
