@@ -1,5 +1,6 @@
 import type { PageView } from '../../content/index.ts';
 import { documentOf } from '../domain/document.ts';
+import { type FieldMeta, fieldTexts } from '../domain/field-text.ts';
 import type { IndexRow, SearchIndex } from '../domain/ports.ts';
 import {
   type Clause,
@@ -27,6 +28,8 @@ export type SearchPages = {
   readonly all: () => PageView[];
   /** Предки от корня к родителю. */
   readonly ancestors: (id: number) => readonly number[];
+  /** Поля страниц: тип и умолчание решают, что из значений идёт в индекс. */
+  readonly fields: () => readonly FieldMeta[];
   /** Язык сайта, страница 404 (её в выдаче не бывает) и синонимы — группа на строку. */
   readonly site: () => {
     readonly language: string;
@@ -61,23 +64,11 @@ export type SearchResult = {
 };
 
 /** Версия формата индекса: меняются основы слов или состав документа — индекс строится заново. */
-export var INDEX_FORMAT = 1;
+// 2 — поля: только текстовые, без умолчаний, JSON — строками значений (ADR 0030, дополнение 0.1.6).
+export var INDEX_FORMAT = 2;
 
 /** Больше страниц за раз выдача не отдаёт. */
 export var MAX_LIMIT = 50;
-
-// Значения полей: строки, кроме путей файлов медиатеки и адресов — их слова поиску не нужны.
-const _FILE = /\.(?:jpe?g|png|webp|gif|svg|avif|pdf|mp4|webm|mp3)$/i;
-const _URL = /^(?:https?:\/\/|\/)\S*$/;
-
-const _textFields = (fields: PageView['fields']): string[] =>
-  Object.values(fields).filter(
-    (_): _ is string =>
-      typeof _ === 'string' &&
-      _.trim() !== '' &&
-      !_FILE.test(_) &&
-      !_URL.test(_)
-  );
 
 export var defineSearchService = ({
   index,
@@ -123,7 +114,7 @@ export var defineSearchService = ({
           description: page.description,
           introText: page.introText,
           content: text(page.content),
-          fields: _textFields(page.fields).map(text),
+          fields: fieldTexts(page.fields, pages.fields()).map(text),
         })
       )
     );

@@ -336,6 +336,15 @@ export var messages: Dictionary['messages'] = {
   'page.sectionCache': 'Caching',
   'page.sectionCacheHint':
     'Normalerweise eingeschaltet. Schalten Sie es aus, wenn die Seite Inhalte zeigt, die sich von Aufruf zu Aufruf ändern.',
+  'page.sectionAddress': 'Adressen',
+  'page.sectionAddressHint':
+    'Wie diese Seite und ihre Unterseiten zu ihren Adressen kommen. Meist unverändert lassen: So bleiben die Adressen einer von Evo umgezogenen Website erhalten.',
+  'page.folder': 'Ordner',
+  'page.folderHint':
+    'Enden Ordneradressen laut Website-Einstellungen auf /, endet auch die Adresse dieser Seite auf /: /katalog/. Wird von selbst gesetzt, sobald die Seite eine Unterseite bekommt.',
+  'page.aliasInPath': 'Alias in Adressen der Unterseiten',
+  'page.aliasInPathHint':
+    'Aus – Unterseiten stehen ohne diesen Alias in der Adresse: /cities/baran/ → /baran/. Die Adresse der Seite selbst bleibt gleich.',
   'page.fieldsIntro': 'Zusatzfelder, die die Vorlage ausgibt',
   'page.language': 'Sprache',
   'page.languageInherit': 'Wie übergeordnete Seite',
@@ -450,7 +459,7 @@ export var messages: Dictionary['messages'] = {
   'elements.aboutComponents':
     'Teile von Vorlagen und Inhaltsblöcke: Import $components/Name.',
   'elements.aboutPlugins':
-    'TypeScript-Module mit den Hooks render und notFound sowie Abonnements auf Ereignisse.',
+    'TypeScript-Module mit den Hooks render, notFound, handle (eigene Antwort auf eine Anfrage) und schedule (geplanter Auftrag) sowie Abonnements auf Ereignisse.',
   'elements.aboutFields':
     'Zusatzfelder für Seiten, werden Vorlagen zugewiesen.',
   'elements.aboutScripts':
@@ -780,12 +789,21 @@ export var messages: Dictionary['messages'] = {
   'media.remove': 'Datei löschen',
   'media.variants':
     'Für JPEG, PNG und WebP erstellt der Server Varianten mit 480, 960 und 1920 px als webp, nie breiter als das Original.',
+  'media.linked': 'im Ordner',
+  'media.linkedTitle': 'Eine Datei in einem Ordner auf dem Server',
+  'media.linkedFrom': 'Auf der Festplatte',
+  'media.linkedHint':
+    'Die Datei liegt in einem verknüpften Ordner auf dem Server (cms media link): In der Datenbank steht nur ihre Beschreibung. Hier lässt sie sich nicht löschen oder ersetzen – ändern Sie die Datei im Ordner und führen Sie cms media link erneut aus. Die Bildbeschreibung lässt sich bearbeiten.',
+  'media.origin': 'Herkunft',
+  'media.originAll': 'Alle Dateien',
+  'media.originUploaded': 'Hochgeladen',
+  'media.originLinked': 'Aus einem Ordner auf dem Server',
   'media.empty': 'Die Mediathek ist noch leer.',
   'plugins.title': 'Plugins',
   'plugins.new': 'Neues Plugin',
   'plugins.empty': 'Wählen Sie ein Plugin oder legen Sie ein neues an.',
   'plugins.hint':
-    'export default { render(html, { path, status }), notFound(path), on: { [Ereignistyp]: (event) => … } }. Import – nur $core.',
+    "export default { render(html, { path, status }), notFound(path), handle(request, context), schedule: { every: '12h', run(context) }, on: { [Ereignistyp]: (event) => … } }. Import – nur $core.",
   'fields.title': 'Seitenfelder',
   'fields.typeText': 'Textzeile',
   'fields.typeRichtext': 'Formatierter Text',
@@ -1156,6 +1174,11 @@ export var messages: Dictionary['messages'] = {
   'backup.donePages': 'Seiten in der wiederhergestellten Website:',
   'backup.doneSaved':
     'Der Stand vor der Wiederherstellung ist auf dem Server gesichert:',
+  'backup.linkedTitle': 'Verknüpfte Ordner sind nicht in der Sicherung',
+  'backup.linkedBody':
+    'Die Dateien dieser Ordner liegen auf der Festplatte des Servers, die Datenbanksicherung enthält nur ihre Beschreibungen. Sichern Sie die Ordner getrennt, zusammen mit der Datenbanksicherung: Ohne sie öffnen sich ihre Bilder und Videos nicht.',
+  'backup.linkedFolder': '{prefix}/ ← {dir} · {files} Dateien · {size}',
+  'backup.linkedMissing': 'der Ordner fehlt auf der Festplatte',
   'backup.reload': 'Manager neu öffnen',
   'upkeep.backupsTitle': 'Automatische Sicherungen',
   'upkeep.backupsHint':
@@ -1290,6 +1313,9 @@ export var messages: Dictionary['messages'] = {
   'settings.sectionSite': 'Website',
   'settings.sectionSiteHint':
     'Wie die Website heißt und welche Seiten sie unter „/“ und bei einer falschen Adresse ausliefert.',
+  'settings.viewTransitions': 'Sanfte Übergänge zwischen Seiten',
+  'settings.viewTransitionsHint':
+    'Die Seiten der Website wechseln sanft in Browsern, die das können (Chrome und Edge 126+, Safari 18.2+); andere öffnen die Seiten wie gewohnt. Vorlagen müssen nicht geändert werden.',
   'settings.notFoundHint':
     'Besucher sehen sie, wenn es eine Adresse nicht gibt; die Antwort kommt mit Status 404.',
   'settings.sectionLanguages': 'Sprachen',
@@ -1311,6 +1337,21 @@ export var messages: Dictionary['messages'] = {
   'settings.pagingCanonicalFirst': 'Erste Seite der Liste',
   'settings.pagingCanonicalHint':
     'Wenn die Suchmaschine die Folgeseiten mit der ersten zusammenführt, wählen Sie „Erste Seite der Liste“.',
+  'settings.sectionAddresses': 'Adressstil',
+  'settings.sectionAddressesHint':
+    'Womit die Seitenadressen enden. Nützlich für eine von Evo umgezogene Website: Ihre Adressen bleiben erhalten.',
+  'settings.urlSuffix': 'Adressendung',
+  'settings.urlSuffixExample': 'ueber-uns',
+  'settings.urlSuffixNone': 'Ohne Endung',
+  'settings.urlSuffixOther': 'Andere Endung…',
+  'settings.urlSuffixHint':
+    'Leer – /ueber-uns, .html – /ueber-uns.html, / – /ueber-uns/. Wie die Website unter Evo; eine Änderung ändert die Adressen aller Seiten der Website.',
+  'settings.urlSuffixCustom': 'Endung',
+  'settings.urlSuffixCustomHint':
+    'Ein Punkt und bis zu 10 Kleinbuchstaben a–z oder Ziffern: .htm, .php.',
+  'settings.folderSlash': 'Ordneradressen enden auf /',
+  'settings.folderSlashHint':
+    'Ordnerseiten bekommen einen Schrägstrich am Ende: /katalog/. Eine Seite wird von selbst zum Ordner, sobald sie eine Unterseite bekommt.',
   'settings.sectionRobots': 'robots.txt',
   'settings.sectionRobotsHint':
     'Die Datei entsteht automatisch: Der Manager ist gesperrt, sitemap.xml ist angegeben, KI – je nach Auswahl oben.',
@@ -2080,6 +2121,8 @@ export var errors: Dictionary['errors'] = {
     'Die Sicherung stammt aus einer neueren Programmversion: Aktualisieren Sie das Programm vor der Wiederherstellung.',
   'content.alias_taken':
     'Eine Seite auf derselben Ebene hat bereits diese Adresse.',
+  'content.address_taken':
+    'Eine andere Seite hat bereits diese Adresse: Sie stimmen wegen eines in Adressen ausgeblendeten Bereichsalias oder der Adressendung überein.',
   'content.invalid_alias':
     'Adresse: Kleinbuchstaben a–z, Ziffern und Bindestriche, auch mit Endung: feed.xml.',
   'content.old_path_not_found': 'Diese Seite hat keine solche alte Adresse.',
@@ -2154,7 +2197,7 @@ export var errors: Dictionary['errors'] = {
   'extensions.forbidden_import':
     'Dieser Import ist im Plugin nicht erlaubt – {detail}',
   'extensions.invalid_plugin':
-    'Der Standardexport des Plugins muss { render?, notFound?, on? } sein.',
+    'Der Standardexport des Plugins muss { render?, notFound?, handle?, schedule?, on? } sein.',
   'site.invalid_name': 'Der Name der Website darf nicht leer sein.',
   'site.invalid_language': 'Sprache: ein Code wie de, en oder pt-BR.',
   'site.invalid_url':
@@ -2170,6 +2213,9 @@ export var errors: Dictionary['errors'] = {
   'site.invalid_cache': 'Cache-Größe: eine ganze Zahl von 16 bis 4096 MB.',
   'site.invalid_paging':
     'Wort in der Adresse der Listenseiten: Kleinbuchstaben a–z, mit Bindestrichen getrennt, zum Beispiel page.',
+  'site.invalid_view_transitions': 'Übergänge sind entweder an oder aus.',
+  'site.invalid_suffix':
+    'Die Adressendung ist leer, / oder eine Endung wie .html.',
   'site.invalid_key':
     'Schlüssel: Buchstaben ohne Umlaute, Ziffern und _, am Anfang ein Buchstabe: phone, footerText.',
   'site.invalid_setting': 'Der Wert ist zu lang.',
@@ -2290,6 +2336,10 @@ export var errors: Dictionary['errors'] = {
   'extensions.plugin_exists': 'Ein Plugin mit diesem Namen gibt es bereits.',
   'content.field_exists': 'Dieses Feld gibt es bereits.',
   'content.field_not_found': 'Dieses Feld gibt es nicht.',
+  'media.linked_file':
+    'Die Datei liegt in einem verknüpften Ordner auf dem Server: Ändern Sie sie dort und führen Sie cms media link aus.',
+  'media.stem_taken':
+    'Es gibt bereits ein Bild mit demselben Namen und anderer Endung, und verkleinerte Kopien werden ohne Endung benannt. Geben Sie der Datei einen anderen Namen oder ersetzen Sie jenes Bild.',
   'media.unsupported_type': 'Dieser Dateityp wird nicht angenommen.',
   'media.invalid_path':
     'Ordner und Dateiname: Kleinbuchstaben a–z, Ziffern, Bindestriche.',

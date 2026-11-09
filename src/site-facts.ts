@@ -1,4 +1,8 @@
-import type { ContentService, PageNode } from './contexts/content/index.ts';
+import {
+  addressKey,
+  type ContentService,
+  type PageNode,
+} from './contexts/content/index.ts';
 import type { DesignService } from './contexts/design/index.ts';
 import type { FactPage, SiteFacts } from './contexts/diagnostics/index.ts';
 import type { FormsService } from './contexts/forms/index.ts';
@@ -29,11 +33,9 @@ const _parent = (tree: Tree, node: PageNode): PageNode | undefined =>
 const _chain = (tree: Tree, node: PageNode | undefined): PageNode[] =>
   node === undefined ? [] : [..._chain(tree, _parent(tree, node)), node];
 
-// Адрес по алиасам предков — как у опубликованной страницы, но и для черновиков с корзиной.
-const _pathOf = (tree: Tree, node: PageNode): string =>
-  `/${_chain(tree, node)
-    .map((_) => _.alias)
-    .join('/')}`;
+// Адрес без завершающего `/`: префикс правила `/katalog/*` накрывает и папку `/katalog/`.
+const _bare = (path: string): string =>
+  path.length > 1 ? path.replace(/\/$/, '') : path;
 
 // Видна посетителям: опубликована, не в корзине — и вся цепочка предков тоже.
 const _live = (tree: Tree, node: PageNode): boolean =>
@@ -54,12 +56,12 @@ export var redirectPages = (
           ? ((home) => (home === null ? null : content.published.page(home)))(
               site.settings.get().homePageId
             )
-          : content.published.byPath(path)
+          : content.published.locate(path)
       ),
     under: (base) =>
       ((tree) =>
         tree.nodes.filter(
-          (_) => _live(tree, _) && `${_pathOf(tree, _)}/`.startsWith(`${base}/`)
+          (_) => _live(tree, _) && `${_bare(_.path)}/`.startsWith(`${base}/`)
         ).length)(tree()),
     page: (id) =>
       ((tree) =>
@@ -145,7 +147,7 @@ export var siteFacts =
           linkTo: page.linkTo,
           template: page.template,
           contentType: page.contentType,
-          path: _pathOf(tree, node),
+          path: node.path,
           live: _live(tree, node),
           trashed: _trashed(tree, node),
           hiddenFromMenu: page.hiddenFromMenu,
@@ -159,6 +161,11 @@ export var siteFacts =
       robots: settings.robots,
       aiSearch: settings.aiSearch,
       pagingSegment: settings.pagingSegment,
+      addressKey: (path) =>
+        addressKey(path, {
+          suffix: settings.urlSuffix,
+          folderSlash: settings.folderSlash,
+        }),
       redirected: (path) => redirects.match(path)?.to ?? null,
       movedFrom: content.pages.movedFrom,
       media: media.files.list().map((_) => ({
@@ -167,6 +174,19 @@ export var siteFacts =
         size: _.size,
         alt: _.alt,
       })),
+      // Ссылка на файл связанной папки по исходному адресу или на страницу папки-сайта — не битая (ADR 0065, 0068).
+      fileAt: (
+        (serving) => (path: string) =>
+          path.startsWith('/media/')
+            ? media.files.resolve(path.slice('/media/'.length)) !== null
+            : (serving.some((_) => path.startsWith(`/${_}/`)) &&
+                media.links.serves(path.slice(1))) ||
+              ((answer) =>
+                answer?.kind === 'slash' ||
+                (answer?.kind === 'file' && answer.status === 200))(
+                media.statics.resolve(path)
+              )
+      )(media.links.serving()),
       forms: forms.forms.list().flatMap((summary) =>
         ((form) =>
           form

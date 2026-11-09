@@ -224,9 +224,9 @@ export var defineDelivery = ({
   let manual = false;
   const counted: PageDelivery = {
     ...delivery,
-    deliver: (request) =>
+    deliver: (request, raw) =>
       delivery
-        .deliver(request)
+        .deliver(request, raw)
         .then(
           (_) => (
             void (
@@ -254,15 +254,20 @@ export var defineDelivery = ({
         discovery.invalidate()
       )
   );
+  const site = defineSiteHandler(
+    counted,
+    defineCompressionCache(),
+    discovery,
+    report,
+    editBar,
+    pageViews,
+    // Другие методы (POST, OPTIONS) страницы не обслуживают: их запрос — сразу плагинам.
+    hooks.handle
+  );
   return {
-    handle: defineSiteHandler(
-      counted,
-      defineCompressionCache(),
-      discovery,
-      report,
-      editBar,
-      pageViews
-    ),
+    handle: site.handle,
+    /** Страница 404 сайта сразу, без поиска страницы и плагинов: для адресов папки-сайта без файла. */
+    notFound: site.notFound,
     /** Кэш страниц в настройках: заполненность и ручной сброс — с ним и карта сайта. */
     cache: {
       stats,

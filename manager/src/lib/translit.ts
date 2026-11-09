@@ -1,7 +1,7 @@
-// Та же транслитерация, что у алиасов страниц на сервере (content/domain/alias.ts):
+// Та же транслитерация, что у алиасов страниц на сервере (shared/kernel/translit.ts):
 // «Фото альбом» в папке медиатеки станет foto-albom, а не пропадёт.
 const _CYRILLIC: Readonly<Record<string, string>> = Object.fromEntries(
-  'а:a б:b в:v г:g д:d е:e ё:e ж:zh з:z и:i й:y к:k л:l м:m н:n о:o п:p р:r с:s т:t у:u ф:f х:h ц:ts ч:ch ш:sh щ:sch ъ: ы:y ь: э:e ю:yu я:ya і:i ї:yi є:ye ґ:g'
+  'а:a б:b в:v г:g д:d е:e ё:e ж:zh з:z и:i й:y к:k л:l м:m н:n о:o п:p р:r с:s т:t у:u ф:f х:h ц:ts ч:ch ш:sh щ:sch ъ: ы:y ь: э:e ю:yu я:ya і:i ї:yi є:ye ґ:g ў:u'
     .split(' ')
     .map((_) => _.split(':') as [string, string])
 );

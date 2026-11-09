@@ -334,6 +334,38 @@ describe('варианты размеров делает сервер', () => {
   });
 });
 
+describe('основа картинки — одна на оригинал', () => {
+  it('новая картинка с основой другой — отказ; замена тем же путём — можно; SVG с той же основой чужих вариантов не берёт', async () => {
+    app.media.files.save({
+      path: 'img/d.jpg',
+      data: await picture(1200, 600, 'jpeg'),
+    });
+    await app.media.variants.run();
+    const webp = await picture(1000, 1000, 'webp');
+    expect(() =>
+      app.media.files.save({ path: 'img/d.webp', data: webp })
+    ).toThrow('image sizes are named after it');
+    expect(app.media.files.read('img/d.webp')).toBeNull();
+    app.media.files.save({
+      path: 'img/d.svg',
+      data: new TextEncoder().encode(
+        '<svg xmlns="http://www.w3.org/2000/svg"/>'
+      ),
+    });
+    expect(app.media.image('img/d.svg')?.srcset).toBe('');
+    expect(app.media.image('img/d.jpg')?.srcset).toContain('img/d@960.webp');
+    app.media.files.save({
+      path: 'img/d.jpg',
+      data: await picture(1000, 1000, 'jpeg'),
+    });
+    await app.media.variants.run();
+    expect(variants(app, 'img/d').map((_) => _.slice(0, 4))).toEqual([
+      ['img/d@480.webp', 'image/webp', 480, 480],
+      ['img/d@960.webp', 'image/webp', 960, 960],
+    ]);
+  });
+});
+
 describe('очередь вариантов в базе', () => {
   const dirs: string[] = [];
   const fresh = () => (

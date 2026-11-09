@@ -56,6 +56,16 @@ export type UpkeepStatus = {
   updates: UpdateStatus;
   offsite: OffsiteStatus;
   database: DatabaseStatus;
+  /** Связанные папки: их файлы на диске сервера в копию базы не входят. */
+  linked: LinkedFolder[];
+};
+
+export type LinkedFolder = {
+  prefix: string;
+  dir: string;
+  present: boolean;
+  files: number;
+  bytes: number;
 };
 
 /** Хранилище S3 для копий вне сервера; секрет доступа и ключ копий менеджер не получает. */
@@ -141,6 +151,10 @@ export type PageNode = {
   unpublishAt: string | null;
   /** Язык с учётом ветки и сайта. */
   language: string;
+  /** Адрес на сайте со стилем адресов (ADR 0063); главную сайт отдаёт по `/`, её адрес — редиректом. */
+  path: string;
+  folder: boolean;
+  aliasInPath: boolean;
 };
 
 export type FieldValue = string | number | boolean;
@@ -168,6 +182,10 @@ export type Page = {
   hiddenFromMenu: boolean;
   cacheable: boolean;
   searchable: boolean;
+  /** Папка (`isfolder` в Evo): при «адрес папки кончается на /» её адрес кончается на `/`. */
+  folder: boolean;
+  /** Алиас в адресах потомков (`alias_visible` в Evo); false — дети без него: /cities/baran → /baran. */
+  aliasInPath: boolean;
   socialImage: string;
   language: string;
   /** Исходная страница, если эта — её перевод. */
@@ -300,6 +318,12 @@ export type Settings = {
   pagingCanonical: 'self' | 'first';
   /** Память сервера под кэш страниц, МБ. */
   pageCacheMb: number;
+  /** Окончание адреса страницы: пусто — /o-nas, `/` — /o-nas/, `.html` — /o-nas.html. */
+  urlSuffix: string;
+  /** Адрес папки кончается на `/`: /katalog/. */
+  folderSlash: boolean;
+  /** Плавные переходы между страницами сайта (View Transitions). */
+  viewTransitions: boolean;
 };
 
 export type Plugin = {
@@ -318,6 +342,8 @@ export type MediaFile = {
   height: number | null;
   /** Описание картинки (alt). */
   alt: string;
+  /** Файл связанной папки на сервере: `file` — путь на диске, null — вариант размера (ADR 0065). */
+  linked?: { prefix: string; file: string | null };
 };
 
 export type PropValue = string | number | boolean;

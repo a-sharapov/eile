@@ -40,9 +40,12 @@ description: Как устроены шаблоны и компоненты CMS 
 - Разрешены импорты `$components/*`, `svelte`, `svelte/internal/server` и `$core`. Любой другой импорт
   даёт `design.forbidden_import`.
 - Стандартные поля страницы: `page.title`, `longTitle`, `menuTitle`, `description`, `introText`,
-  `content`, `path`, `kind` (`page` | `link`), `linkTo`, `publishedAt`, `createdAt`, `updatedAt`. По
-  обычаю Evo: `{page.longTitle || page.title}` в заголовке и `{item.menuTitle || item.title}` в меню.
-  `link(id)` для ссылки отдаёт адрес её цели.
+  `content`, `path`, `kind` (`page` | `link`), `linkTo`, `folder`, `aliasInPath`, `publishedAt`, `createdAt`,
+  `updatedAt`. По обычаю Evo: `{page.longTitle || page.title}` в заголовке и `{item.menuTitle || item.title}`
+  в меню. `link(id)` для ссылки отдаёт адрес её цели.
+- `page.path` — адрес со стилем адресов сайта (ADR 0063): по умолчанию `/blog/post`; со стилем Evo — `/katalog/`
+  у папки, `/o-nas.html` у документа, `/sitemap.xml` как есть, без алиасов предков с `aliasInPath: false`.
+  Ссылки строй через `link(id)`, а не склейкой алиасов.
 - Поля страницы — `page.fields.<имя>`: своё значение, иначе унаследованное (если у поля `inherit`), иначе
   умолчание, иначе `null`. В `page.fields` есть все поля, назначенные на шаблон страницы.
 - API `$core` (`delivery/application/component-runtime.ts`):
@@ -55,10 +58,15 @@ description: Как устроены шаблоны и компоненты CMS 
   - `translations(id?)` — переводы страницы (по умолчанию текущей) для переключателя языка:
     `{ language, url, title, current }`, исходная первой, по одному на язык; без переводов — `[]`
     (ADR 0033);
-  - `listing(parent, { perPage, sort, depth, includeHidden, paged })` → `{ items, number, pages, total,
-    url(n), pager(around) }`. Скрытые из меню — в списке по умолчанию. Номер порции берётся из хвоста
-    адреса `/blog/page-2` (ADR 0019); первый постраничный список на странице — главный, порция за
-    пределами — 404;
+  - `listing(parent, { perPage, sort, depth, includeHidden, paged, filter, order, page })` → `{ items, number,
+    pages, total, url(n), pager(around) }`. Скрытые из меню — в списке по умолчанию. Номер порции берётся из
+    хвоста адреса `/blog/page-2` (ADR 0019; со стилем Evo — `/katalog/page-2/` у папки, `/novosti/page-2.html`
+    у документа, ADR 0063); первый постраничный список на странице — главный, порция за пределами — 404.
+    `filter(page) → boolean` и `order(a, b) → number` (важнее `sort`) — свой отбор и порядок (ADR 0064):
+    кандидаты — те же страницы ветки с полями, `total` и пейджер — по отобранным; виды кандидатов заморожены и
+    держатся в памяти до правки контента (первый вызов на 2600 страниц — около 70 мс, дальше — единицы мс).
+    `page: n` — номер порции явно (из `request().query.page` в `Uncached`, где хвоста адреса нет): 404 нет,
+    номер за последней — последняя, `url(n)` — тот же путь с `?page=n`;
   - `site()` — настройки сайта плюс `i18n` и `custom`: `site().i18n.footer`, `site().custom.phone`;
     оба перечисляются (`Object.keys`, `entries`, `JSON.stringify`, `in`) — ключи со значением на языке
     страницы, иначе сайта; отсутствующий ключ по-прежнему читается как `{i18n.key}` / `[@key]`. Словарь для
@@ -68,6 +76,10 @@ description: Как устроены шаблоны и компоненты CMS 
   - `media(path)` — URL файла медиатеки с версией;
   - `image(path)` — `{ src, srcset, width, height, alt }` из вариантов `photo@960.webp`; `alt` —
     описание картинки из медиатеки (пусто — не описана).
+  - `path` у обоих — путь медиатеки или исходный путь файла связанной папки `<приставка>/<путь на диске>`
+    (`image('assets/images/4a_(5).jpg')`, ADR 0065): перенесённые пути не переписывают. Ответ — всегда путь
+    медиатеки (`/media/assets/images/4a-5.jpg?v=…`); страница получает тег файла, его сверка и описание
+    перерисуют её. Варианты картинок папки лежат в кэше медиатеки, `srcset` тот же.
   - `script(name)` — адрес скрипта сайта `/_cms/scripts/<имя>.<хэш>.js` или `null`; вешает теги
     `element:script/<имя>` скрипта и всех, до кого доходят его ссылки `./имя.js`, — правка любого из них
     перерисует страницу с новым адресом (ADR 0039, 0057).
@@ -90,7 +102,10 @@ description: Как устроены шаблоны и компоненты CMS 
   В островах ключей нет (`design.island_placeholders`): в браузере нет словарей — тексты через props.
 - SEO-разметку (`canonical`, описание, `robots`, Open Graph, Twitter, JSON-LD, ссылку на Markdown-версию)
   добавляет рендер сам (`delivery/domain/discovery.ts`); если шаблон уже выводит такой тег — например
-  `<meta name="description">`, — свой тег рендер не добавляет. `<html lang>` — язык страницы. Свой `<meta name="viewport">` шаблона (например, с `viewport-fit=cover`)
+  `<meta name="description">`, — свой тег рендер не добавляет. Плавные переходы между страницами — настройка
+  сайта `viewTransitions` (ADR 0066): рендер сам ставит в head `@view-transition` (с оглядкой на
+  `prefers-reduced-motion`), шаблону своё правило не нужно; своё `@view-transition` в head или стилях вида
+  важнее — второго рендер не добавит. `<html lang>` — язык страницы. Свой `<meta name="viewport">` шаблона (например, с `viewport-fit=cover`)
   заменяет обычный — второго тега документ не ставит.
 
   Каждый экспорт — публичный API для разработчиков сайтов. Добавляй экспорты осознанно и описывай их в

@@ -65,12 +65,15 @@ export var defineSearch = ({
   bus,
   published,
   tree,
+  fields,
   site,
 }: {
   db: Database;
   bus: EventBus;
   published: PublishedContent;
   tree: () => PageNode[];
+  /** Поля страниц: тип и умолчание — что из значений искать. */
+  fields: SearchPages['fields'];
   site: SearchPages['site'];
 }) => {
   const pages: SearchPages = {
@@ -85,6 +88,7 @@ export var defineSearch = ({
         .map((_) => published.page(_.id))
         .filter((_) => _ !== null),
     ancestors: (id) => published.lineage(id).toReversed(),
+    fields,
     site,
   };
   const service = defineSearchService({

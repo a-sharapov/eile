@@ -127,3 +127,92 @@ describe('список страниц', () => {
     expect(titles(null, { includeHidden: true, depth: 1 })).toEqual(['Блог']);
   });
 });
+
+describe('свой отбор и порядок списка', () => {
+  const field = () =>
+    app.content.fields.save({
+      name: 'price',
+      label: 'Цена',
+      type: 'text',
+      templates: ['Plain'],
+    });
+
+  it('filter отбирает из всей ветки, total — по отобранным, порция — после отбора', () => {
+    const list = app.content.published.list(blog, {
+      includeHidden: true,
+      depth: 2,
+      sort: 'title',
+      filter: (_) => _.title !== 'Архив',
+      offset: 1,
+      limit: 2,
+    });
+    expect(list.total).toBe(4);
+    expect(list.items.map((_) => _.title)).toEqual(['Бета', 'Гамма']);
+  });
+
+  it('order важнее sort; при равенстве остаётся порядок sort', () => {
+    field();
+    const prices: Record<string, string> = {
+      Бета: '30',
+      альфа: '10',
+      Гамма: '10',
+    };
+    Object.entries(prices).forEach(
+      ({ 0: title, 1: price }) =>
+        void app.content.pages.setFields(
+          app.content.published
+            .list(blog, { includeHidden: true })
+            .items.find((_) => _.title === title)!.id,
+          { price }
+        )
+    );
+    expect(
+      titles(blog, {
+        includeHidden: true,
+        sort: 'menu',
+        filter: (_) => _.fields.price !== null,
+        order: (a, b) => Number(a.fields.price) - Number(b.fields.price),
+      })
+    ).toEqual(['Гамма', 'альфа', 'Бета']);
+  });
+
+  it('значения полей — с наследованием и умолчанием, как у одной страницы', () => {
+    app.content.fields.save({
+      name: 'tag',
+      label: 'Метка',
+      type: 'text',
+      templates: ['Plain'],
+      inherit: true,
+      defaultValue: 'нет',
+    });
+    app.content.pages.setFields(archive, { tag: 'архив' });
+    const list = app.content.published.list(blog, {
+      includeHidden: true,
+      depth: 2,
+      filter: (_) => _.fields.tag === 'архив',
+    });
+    expect(list.items.map((_) => _.title).sort()).toEqual(['Архив', 'Старый']);
+    expect(
+      app.content.published.list(blog, {
+        includeHidden: true,
+        filter: (_) => _.fields.tag === 'нет',
+      }).total
+    ).toBe(3);
+  });
+
+  it('кандидаты — только для чтения и обновляются после правки', () => {
+    const first = app.content.published.list(blog, {
+      includeHidden: true,
+      filter: () => true,
+    });
+    expect(Object.isFrozen(first.items[0])).toBe(true);
+    expect(Object.isFrozen(first.items[0]!.fields)).toBe(true);
+    post('Дельта', blog, 5, 6);
+    expect(
+      app.content.published.list(blog, {
+        includeHidden: true,
+        filter: () => true,
+      }).total
+    ).toBe(first.total + 1);
+  });
+});

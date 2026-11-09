@@ -14,30 +14,41 @@ export type PagerItem =
     }
   | { readonly kind: 'gap' };
 
-// Номер без ведущих нулей и с потолком: `page-02` и `page-99999999` — не страницы списка.
-const _NUMBER = /^[1-9]\d{0,5}$/;
+// Номер без ведущих нулей и с потолком: `page-02` и `page-99999999` — не страницы списка. После номера —
+// окончание адреса страницы: `.html` у документа, `/` у папки (ADR 0063).
+const _NUMBER = /^([1-9]\d{0,5})(\.[a-z0-9]{1,10})?$/;
 
 /**
- * Хвост `/<segment>-<N>` в конце канонического пути: `/blog/page-2` → `{ base: '/blog', number: 2 }`,
- * `/page-3` → `{ base: '/', number: 3 }`. Иначе null.
+ * Хвост `/<segment>-<N>` в конце пути, с окончанием или без: `/blog/page-2` → `{ base: '/blog', number: 2 }`,
+ * `/katalog/page-2/` и `/novosti/page-2.html` — тоже порция 2 своей страницы, `/page-3` → `{ base: '/',
+ * number: 3 }`. Иначе null. Каким окончание должно быть, решает адрес страницы: другое — 301.
  */
 export var pagingTail = (path: string, segment: string): Paging | null => {
-  const at = path.lastIndexOf('/');
-  const last = path.slice(at + 1);
+  const bare = path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
+  const at = bare.lastIndexOf('/');
+  const last = bare.slice(at + 1);
   const prefix = `${segment}-`;
-  const digits = last.slice(prefix.length);
-  return last.startsWith(prefix) && _NUMBER.test(digits)
-    ? { base: at === 0 ? '/' : path.slice(0, at), number: Number(digits) }
+  const match = last.startsWith(prefix)
+    ? _NUMBER.exec(last.slice(prefix.length))
+    : null;
+  return match
+    ? { base: at === 0 ? '/' : bare.slice(0, at), number: Number(match[1]) }
     : null;
 };
 
-/** Адрес страницы списка с номером; первая — адрес самой страницы. */
+/**
+ * Адрес порции с номером; первая — адрес самой страницы. `ending` — окончание адреса страницы, оно идёт
+ * после номера: `/katalog/` → `/katalog/page-2/`, `/novosti.html` → `/novosti/page-2.html`.
+ */
 export var pagingPath = (
   base: string,
   segment: string,
-  number: number
+  number: number,
+  ending = ''
 ): string =>
-  number <= 1 ? base : `${base === '/' ? '' : base}/${segment}-${number}`;
+  number <= 1
+    ? base
+    : `${base === '/' ? '' : base.slice(0, base.length - ending.length)}/${segment}-${number}${ending}`;
 
 /**
  * Окно пейджера: первая, последняя и `around` номеров вокруг текущей, разрывы — пропуском.

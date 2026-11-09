@@ -187,3 +187,73 @@ describe('находимость порций', () => {
     expect(xml).not.toContain('page-2');
   });
 });
+
+describe('свой отбор и явный номер в $core.listing', () => {
+  it('filter и order: пейджер по отобранным, порция по хвосту, за последней — 404', async () => {
+    app.design.templates.save(
+      'Odd',
+      `<script>
+import { listing } from '$core';
+let { page } = $props();
+const list = $derived(listing(page.id, {
+  perPage: 2,
+  filter: (item) => item.menuIndex % 2 === 1,
+  order: (a, b) => b.menuIndex - a.menuIndex,
+}));
+</script>
+<svelte:head><title>{page.title}</title></svelte:head>
+<ul>{#each list.items as item (item.id)}<li>{item.title}</li>{/each}</ul>
+<p>{list.number}/{list.pages}/{list.total}</p>
+<nav>{#each list.pager() as item}{#if item.kind === 'page'}<a href={item.url}>{item.number}</a>{/if}{/each}</nav>`
+    );
+    app.content.pages.edit(blog, { template: 'Odd' });
+    const first = await text('/blog');
+    expect(first).toContain('<li>Пост 5</li><li>Пост 3</li>');
+    expect(first).toContain('<p>1/2/3</p>');
+    expect(first).toContain(
+      '<a href="/blog">1</a><a href="/blog/page-2">2</a>'
+    );
+    expect(await text('/blog/page-2')).toContain('<li>Пост 1</li>');
+    expect((await get('/blog/page-3')).status).toBe(404);
+  });
+
+  it('page — номер из запроса в Uncached: адреса порций с ?page=, за последней — последняя', async () => {
+    app.design.components.save(
+      'Catalog',
+      `<script>
+import { listing, request } from '$core';
+let { parent } = $props();
+const query = request().query;
+const list = listing(parent, {
+  perPage: 2,
+  sort: 'menu',
+  page: Number(query.page ?? 1),
+  order: query.sort === 'desc' ? (a, b) => b.menuIndex - a.menuIndex : undefined,
+});
+</script>
+<ul>{#each list.items as item (item.id)}<li>{item.title}</li>{/each}</ul>
+<p>{list.number}/{list.pages}</p>
+<nav>{#each list.pager() as item}{#if item.kind === 'page'}<a href={item.url}>{item.number}</a>{/if}{/each}</nav>`
+    );
+    app.design.templates.save(
+      'Shop',
+      `<script>
+import Uncached from '$core/Uncached';
+let { page } = $props();
+</script>
+<svelte:head><title>{page.title}</title></svelte:head>
+<Uncached name="Catalog" props={{ parent: page.id }} />`
+    );
+    app.content.pages.edit(blog, { template: 'Shop' });
+    const second = await text('/blog?page=2&sort=desc');
+    expect(second).toContain('<li>Пост 3</li><li>Пост 2</li>');
+    expect(second).toContain('<p>2/3</p>');
+    expect(second).toContain(
+      '<a href="/blog?sort=desc">1</a><a href="/blog?page=2&amp;sort=desc">2</a><a href="/blog?page=3&amp;sort=desc">3</a>'
+    );
+    expect(await text('/blog?page=9')).toContain('<li>Пост 5</li>');
+    expect(await text('/blog?page=9')).toContain('<p>3/3</p>');
+    // Хвоста адреса в регионе нет: постраничного списка у первой фазы нет, и /blog/page-2 — 404.
+    expect((await get('/blog/page-2')).status).toBe(404);
+  });
+});

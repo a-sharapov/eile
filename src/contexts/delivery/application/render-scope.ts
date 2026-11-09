@@ -2,8 +2,11 @@ import type { PageView } from '../../content/index.ts';
 import type { Paging } from '../domain/paging.ts';
 import type { RequestInfo } from './ports.ts';
 
-/** Страница списка, которую рендерим, и слово страниц для адресов пейджера. */
-export type ScopePaging = Paging & { readonly segment: string };
+/** Страница списка, которую рендерим, слово страниц и окончание адреса страницы — для адресов пейджера. */
+export type ScopePaging = Paging & {
+  readonly segment: string;
+  readonly ending: string;
+};
 
 type Scope = {
   readonly request: RequestInfo;

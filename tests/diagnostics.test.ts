@@ -66,6 +66,19 @@ describe('находки', () => {
     );
   });
 
+  it('ссылки в стиле адресов Evo: адрес с окончанием и его варианты — не битые', () => {
+    app = createApp({ scaffold: DEMO });
+    app.site.settings.update({ urlSuffix: '.html', folderSlash: true });
+    const home = app.site.settings.get().homePageId!;
+    app.content.pages.edit(home, {
+      content: `<p><a href="/o-proekte.html">a</a> <a href="/o-proekte">b</a>
+        <a href="/blog/">c</a> <a href="/blog/page-2/">d</a> <a href="/nope.html">e</a></p>`,
+    });
+    expect(finding('links.broken')?.items.map((_) => _.detail)).toEqual([
+      '/nope.html',
+    ]);
+  });
+
   it('страницы: одинаковые заголовки, потерянная страница, нет 404, длинный заголовок', () => {
     app = createApp({ scaffold: DEMO });
     const lost = app.content.pages.create({

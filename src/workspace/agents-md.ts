@@ -34,16 +34,11 @@ const _ordered = (tree: readonly PageNode[]): _Row[] =>
     )
   );
 
-const _pathOf = (tree: readonly PageNode[], home: number | null) =>
-  ((byId) => {
-    const path = (node: PageNode): string =>
-      node.id === home
-        ? '/'
-        : `${((parent) => (parent && parent.id !== home ? path(parent) : ''))(
-            node.parentId === null ? undefined : byId.get(node.parentId)
-          )}/${node.alias}`;
-    return path;
-  })(new Map(tree.map((_) => [_.id, _])));
+// Адрес — из дерева: со стилем адресов сайта и без скрытых алиасов (ADR 0063); главная — `/`.
+const _pathOf =
+  (home: number | null) =>
+  (node: PageNode): string =>
+    node.id === home ? '/' : node.path;
 
 const _pages = (services: WorkspaceServices): string[] =>
   ((tree, home) =>
@@ -57,7 +52,7 @@ const _pages = (services: WorkspaceServices): string[] =>
       ...(ordered.length > _MAX_PAGES
         ? [`- … and ${ordered.length - _MAX_PAGES} more pages`]
         : []),
-    ])(_ordered(tree), _pathOf(tree, home)))(
+    ])(_ordered(tree), _pathOf(home)))(
     services.content.drafts.tree().filter((_) => !_.trashed),
     services.site.settings.get().homePageId
   );
@@ -91,14 +86,14 @@ export var agentsGuide = (
       `- \`${program} elements pull . --db ${db}\` refreshes the folder from the site: changed files are overwritten, so keep the folder in git.`,
       `- See a page as a visitor does: ${site.siteUrl || 'http://localhost:8080'}/path, or as Markdown: ${site.siteUrl || 'http://localhost:8080'}/path.md (the home page is /index.md).`,
       '- Add `--prune` to push to delete what has no file; fields are never deleted this way.',
-      `- \`${program} media push <folder> --db ${db}\` puts a folder of media files (fonts, images, video) into the media library: the library path is the path from the folder root, \`--into <path>\` puts them under a path, \`media.json\` at the folder root holds alt texts (\`{ "images/a.jpg": { "alt": "…" } }\`). Matching files are skipped; image size variants are made by the server.`,
+      `- \`${program} media push <folder> --db ${db}\` puts a folder of media files (fonts, images, video) into the media library: the library path is the path from the folder root, \`--into <path>\` puts them under a path, \`media.json\` at the folder root holds alt texts (\`{ "images/a.jpg": { "alt": "…" } }\`). Matching files are skipped; image size variants are made by the server. \`${program} media link <folder> --into <prefix> --db ${db}\` links a folder on the server's disk instead: the database keeps only rows, the library path follows a rule (\`images/4a_(5).jpg\` → \`<prefix>/images/4a-5.jpg\`), and \`media()\`/\`image()\` also take the original path \`<prefix>/images/4a_(5).jpg\`; the folder is not part of a database backup.`,
       '',
       '## Layout',
       '',
       '- `templates/Name.svelte`: a page template; a page names its template.',
       '- `components/Name.svelte`: a component, imported as `$components/Name` or put into page text as `[[Name]]`.',
       "- `scripts/name.js`: a site script, a browser ES module; chunks of one build are scripts too and import each other as `./name.js`. A template includes the entry with `script('name')`. `check` prints syntax errors and references to missing scripts as `file:line:column`; push saves all scripts of the folder together, so their order does not matter.",
-      '- `plugins/Name.ts`: a server plugin.',
+      '- `plugins/Name.ts`: a server plugin: hooks render, notFound, handle (its own answer to a request the site did not answer), schedule (a timed job in `cms serve`) and on (see Plugins below).',
       '- `forms/name.html` and `forms/name.json`: form markup and its settings (title, submitLabel, successText, successPage, subject, channels, retentionDays, minSeconds, allowLinks, proof, goal, storeClientInfo, confirmation, webhook; the webhook secret stays on the site).',
       '- `fields.json`: page fields.',
       '',

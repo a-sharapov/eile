@@ -44,6 +44,8 @@ const _LABELS: Readonly<Record<string, MessageKey>> = {
   hiddenFromMenu: 'page.hiddenFromMenu',
   cacheable: 'page.cacheable',
   searchable: 'seo.searchable',
+  folder: 'page.folder',
+  aliasInPath: 'page.aliasInPath',
   translationOf: 'page.translationOf',
   published: 'proposals.published',
   trashed: 'proposals.trashed',

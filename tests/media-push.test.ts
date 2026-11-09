@@ -314,6 +314,102 @@ describe('cms media push', () => {
     app.close();
   });
 
+  it('замена формата photo.jpg → photo.webp: без --prune — отказ, с --prune прежняя уходит с вариантами, новые — из новой', async () => {
+    const app = createApp({ scaffold: DEMO });
+    app.media.files.save({
+      path: 'photos/hall.jpg',
+      data: await picture(1200, 600, 'jpeg'),
+    });
+    await app.media.variants.run();
+    put('photos/hall.webp', await picture(1000, 1000, 'webp'));
+    const hall = (_: string[]) =>
+      _.filter((path) => path.startsWith('photos/hall'));
+
+    const refused = await run(app);
+    expect(refused.problems).toEqual([
+      expect.objectContaining({
+        file: 'photos/hall.webp',
+        code: 'media.stem_taken',
+        message: expect.stringContaining('--prune to replace photos/hall.jpg'),
+      }),
+    ]);
+    expect(refused.saved).toBe(false);
+    expect(hall(paths(app))).toEqual([
+      'photos/hall.jpg',
+      'photos/hall@480.webp',
+      'photos/hall@960.webp',
+    ]);
+
+    const dry = await run(app, { prune: true, dryRun: true });
+    expect(dry).toMatchObject({
+      added: ['photos/hall.webp'],
+      removed: [
+        'photos/hall.jpg',
+        'photos/hall@480.webp',
+        'photos/hall@960.webp',
+      ],
+      problems: [],
+    });
+    const replaced = await run(app, { prune: true });
+    expect(replaced).toMatchObject({
+      added: ['photos/hall.webp'],
+      removed: dry.removed,
+      saved: true,
+    });
+    expect(hall(paths(app))).toEqual([
+      'photos/hall.webp',
+      'photos/hall@480.webp',
+      'photos/hall@960.webp',
+    ]);
+    expect(app.media.files.read('photos/hall@960.webp')!.meta).toMatchObject({
+      width: 960,
+      height: 960,
+    });
+    app.close();
+  });
+
+  it('картинку с той же основой держит страница — новая не пишется и с --prune', async () => {
+    const app = createApp({ scaffold: DEMO });
+    app.media.files.save({
+      path: 'photos/used.jpg',
+      data: await picture(1200, 600, 'jpeg'),
+    });
+    app.content.pages.create({
+      title: 'Галерея',
+      alias: 'galereya',
+      template: 'Base',
+      content: '<p><img src="/media/photos/used.jpg" alt=""></p>',
+      publish: true,
+    });
+    put('photos/used.png', await picture(800, 600, 'png'));
+    const report = await run(app, { prune: true });
+    expect(report.problems.map((_) => [_.file, _.code])).toEqual([
+      ['photos/used.png', 'media.stem_taken'],
+    ]);
+    expect(report.problems[0]!.message).toContain('stays because it is in use');
+    expect(paths(app)).toContain('photos/used.jpg');
+    expect(paths(app)).not.toContain('photos/used.png');
+    app.close();
+  });
+
+  it('две картинки папки с одной основой — отказ до записи; SVG рядом с PNG — можно', async () => {
+    const app = createApp({ scaffold: DEMO });
+    put('photos/a.jpg', await picture(600, 400, 'jpeg'));
+    put('photos/a.png', await picture(600, 400, 'png'));
+    put('icons/logo.png', await picture(600, 400, 'png'));
+    put('icons/logo.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>');
+    const report = await run(app);
+    expect(report.problems).toEqual([
+      expect.objectContaining({
+        file: 'photos/a.png',
+        code: 'media.stem_taken',
+        message: expect.stringContaining('photos/a.jpg'),
+      }),
+    ]);
+    expect(paths(app).filter((_) => /^(photos|icons)\//.test(_))).toEqual([]);
+    app.close();
+  });
+
   it('--prune с --into трогает только файлы под приставкой', async () => {
     const app = createApp({ scaffold: DEMO });
     app.media.files.save({ path: 'fonts/old.woff2', data: new Uint8Array(3) });

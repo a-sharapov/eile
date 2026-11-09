@@ -1,3 +1,4 @@
+import { dirname, resolve } from 'node:path';
 import { VERSION } from './cli/version.ts';
 import {
   ASSISTANT_TABLE,
@@ -36,8 +37,11 @@ import {
 } from './contexts/diagnostics/index.ts';
 import {
   defineExtensions,
+  definePluginScheduler,
   type ExtensionsService,
   extensionsMigrations,
+  type PluginScheduler,
+  type PluginServices,
 } from './contexts/extensions/index.ts';
 import {
   defineForms,
@@ -122,6 +126,7 @@ import {
 } from './contexts/upkeep/index.ts';
 import { defineHealth, isHealthRequest } from './health.ts';
 import { KIT, KIT_ENGLISH, KIT_GERMAN, kitFor } from './kit/index.ts';
+import { linkedChecks } from './linked-checks.ts';
 import {
   type Archive,
   databaseFromArchive,
@@ -186,6 +191,15 @@ export type AppOptions = {
   readonly mediaCache?: string;
   /** Файлы SPA менеджера «путь → файл» вместо собранных: тестам не нужен `bun run build:manager`. */
   readonly managerFiles?: Readonly<Record<string, string>>;
+  /**
+   * Сроки плагинов, мс, вместо обычных — для тестов: первый запуск по расписанию (5 с), ответ `handle` (5 с),
+   * запуск по расписанию (10 мин).
+   */
+  readonly pluginTimings?: {
+    readonly delay?: number;
+    readonly handle?: number;
+    readonly run?: number;
+  };
 };
 
 /** То, что Bun передаёт в fetch вторым аргументом: по нему узнаём адрес посетителя. */
@@ -390,6 +404,7 @@ const _compose = (
   cache: MediaCache,
   recorder: StatsRecorder,
   resize: ImageResizer,
+  scheduler: PluginScheduler,
   setup: string | null = null
 ): Parts => {
   const clock = options.clock ?? (() => new Date());
@@ -451,12 +466,17 @@ const _compose = (
     bus,
     clock,
     siteLanguage: () => settings().language,
+    addressStyle: () =>
+      ((_) => ({ suffix: _.urlSuffix, folderSlash: _.folderSlash }))(
+        settings()
+      ),
   });
   const search = defineSearch({
     db,
     bus,
     published: content.published,
     tree: content.drafts.tree,
+    fields: () => content.fields.list(),
     site: () =>
       ((_) => ({
         language: _.language,
@@ -466,7 +486,19 @@ const _compose = (
   });
   const identity = defineIdentity({ db, bus, clock, setup });
   const scope = defineRenderScope();
-  const media = defineMedia({ db, bus, cache, resize, report });
+  const media = defineMedia({
+    db,
+    bus,
+    cache,
+    resize,
+    report,
+    base:
+      options.databasePath && options.databasePath !== ':memory:'
+        ? dirname(resolve(options.databasePath))
+        : null,
+    // Delivery создаётся ниже: страница 404 понадобится только на запрос к папке-сайту.
+    notFound: (request) => delivery.notFound(request),
+  });
   // Переводы и свои настройки — для `{i18n.key}`, `[@key]`, `t()` и `setting()` в шаблонах и контенте.
   const dictionary = {
     text: site.translations.text,
@@ -494,7 +526,33 @@ const _compose = (
     runtime,
     builtins: BUILTIN_COMPONENTS,
   });
-  const extensions = defineExtensions({ db, bus, runtime, report });
+  // Контекст плагина (ADR 0067): настройки, своя настройка и заявка формы — через сервисы, с их проверками и
+  // событиями. Формы создаются ниже: заявка понадобится только при вызове плагина.
+  const pluginServices: PluginServices = {
+    site: () => ({
+      ...settings(),
+      custom: Object.fromEntries(
+        site.customSettings.list().map((_) => [_.key, _.value])
+      ),
+    }),
+    setCustom: (key, value) => site.customSettings.set(key, value),
+    submit: (form, values, options) =>
+      forms.submitTrusted(form, values, options),
+  };
+  const extensions = defineExtensions({
+    db,
+    bus,
+    runtime,
+    report,
+    services: pluginServices,
+    scheduler,
+    limits: {
+      ...(options.pluginTimings?.handle
+        ? { handle: options.pluginTimings.handle }
+        : {}),
+      ...(options.pluginTimings?.run ? { run: options.pluginTimings.run } : {}),
+    },
+  });
   // Картинка для модели, которая видит: вариант 960 px, иначе сам файл до 4 МБ; SVG и прочее — нет.
   const imageFor = (path: string) =>
     ((found) => found && { data: found.data(), type: found.meta.contentType })(
@@ -662,12 +720,15 @@ const _compose = (
     updateCheck: options.updateCheck ?? process.env.CMS_NO_UPDATE_CHECK !== '1',
     tidy: media.cache.sweep,
   });
-  serverChecks({
-    upkeep,
-    https: certificates.status,
-    site,
-    persistent: options.databasePath !== undefined,
-  }).forEach((_) => void diagnostics.register(_));
+  [
+    ...serverChecks({
+      upkeep,
+      https: certificates.status,
+      site,
+      persistent: options.databasePath !== undefined,
+    }),
+    ...linkedChecks(media),
+  ].forEach((_) => void diagnostics.register(_));
 
   const manager = defineManager({
     content,
@@ -726,7 +787,10 @@ const _compose = (
                   : notify.gateway.claims(path)
                     ? (server?.timeout?.(request, _GATEWAY_SECONDS),
                       notify.gateway.handle(request, client))
-                    : delivery.handle(request, client);
+                    : // Файл связанной папки по исходному адресу — раньше страниц и правил, как настоящий
+                      // файл перед index.php в .htaccess Evo (ADR 0065); нет файла — дальше страницы.
+                      (media.original(request) ??
+                      delivery.handle(request, client));
   };
 
   return {
@@ -885,17 +949,32 @@ export var createApp = (options: AppOptions = {}): App => {
     : statsRecorder.flush;
   // Нарезка картинок — тоже одна на процесс: два декодирования сразу не уместились бы в память VPS.
   const resize = defineImageResizer();
-  let parts = _compose(db, options, backup, mediaCache, statsRecorder, resize);
+  // Таймеры расписаний плагинов — одни на процесс: после пересборки задания той же версии идут своим ходом,
+  // и запуски одного плагина не идут внахлёст.
+  const scheduler = definePluginScheduler(
+    options.pluginTimings?.delay ? { delay: options.pluginTimings.delay } : {}
+  );
+  let parts = _compose(
+    db,
+    options,
+    backup,
+    mediaCache,
+    statsRecorder,
+    resize,
+    scheduler
+  );
   // Фон — у собранных заново контекстов: восстановление копии останавливает прежний и запускает новый.
   const startBackground = (): (() => void) =>
     options.background
-      ? ((notify, forms, upkeep, media, warm) => () => (
-          notify(), forms(), upkeep(), media(), clearTimeout(warm)
+      ? ((notify, forms, upkeep, media, plugins, warm) => () => (
+          notify(), forms(), upkeep(), media(), plugins(), clearTimeout(warm)
         ))(
           parts.notify.start(),
           parts.forms.start(),
           parts.upkeep.start(),
           parts.media.start(),
+          // Расписания плагинов — только у сервера: команды CLI их не запускают.
+          parts.extensions.start(),
           // Индекс поиска строится вскоре после запуска, а не на первом поиске посетителя.
           setTimeout(
             () =>
@@ -915,6 +994,7 @@ export var createApp = (options: AppOptions = {}): App => {
       mediaCache,
       statsRecorder,
       resize,
+      scheduler,
       parts.identity.setup.token()
     );
     stopBackground = startBackground();
@@ -1033,6 +1113,6 @@ export var createApp = (options: AppOptions = {}): App => {
         ),
     },
     transaction: (run) => db.transaction(run)(),
-    close: () => (stopBackground(), stopStats(), db.close()),
+    close: () => (stopBackground(), scheduler.stop(), stopStats(), db.close()),
   };
 };

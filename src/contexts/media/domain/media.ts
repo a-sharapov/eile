@@ -15,6 +15,11 @@ export type MediaFile = {
   readonly height: number | null;
   /** Описание картинки (alt): его читает читалка экрана; пусто — не описана. */
   readonly alt: string;
+  /**
+   * Файл связанной папки (ADR 0065): байтов в базе нет. `file` — путь на диске от корня папки; null — вариант
+   * размера такой картинки, он лежит в кэше медиатеки. Нет поля — файл в базе.
+   */
+  readonly linked?: { readonly prefix: string; readonly file: string | null };
 };
 
 export type MediaEvent = {
@@ -61,7 +66,10 @@ export var parseAlt = (raw: string): string =>
     raw.trim().replace(/\s+/g, ' ')
   );
 
-/** 25 МиБ: больше — уже не медиатека сайта, а файловый склад. */
+/**
+ * 25 МиБ: больше — уже не медиатека сайта, а файловый склад. Предел — для байтов в базе и в памяти загрузки;
+ * файлы связанной папки отдаются с диска, им он не нужен (ADR 0065).
+ */
 export var MAX_MEDIA_SIZE = 25 * 1024 * 1024;
 
 const _extension = (path: string): string =>

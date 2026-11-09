@@ -325,6 +325,15 @@ export var messages = {
   'page.sectionCache': 'Кэширование',
   'page.sectionCacheHint':
     'Обычно включено. Выключайте, если страница показывает то, что меняется от запроса к запросу.',
+  'page.sectionAddress': 'Адреса',
+  'page.sectionAddressHint':
+    'Как адрес получают страница и вложенные в неё. Обычно трогать не нужно: так сохраняют адреса сайта, перенесённого с Evo.',
+  'page.folder': 'Папка',
+  'page.folderHint':
+    'Если в настройках сайта адрес папки кончается на /, адрес этой страницы тоже кончится на /: /katalog/. Ставится сам, когда у страницы появляется вложенная.',
+  'page.aliasInPath': 'Алиас в адресах вложенных',
+  'page.aliasInPathHint':
+    'Выключено — вложенные страницы живут без этого алиаса в адресе: /cities/baran/ → /baran/. Адрес самой страницы не меняется.',
   'page.fieldsIntro': 'Дополнительные поля, которые выводит шаблон',
   'page.language': 'Язык',
   'page.languageInherit': 'Как у родителя',
@@ -435,7 +444,7 @@ export var messages = {
   'elements.aboutComponents':
     'Части шаблонов и блоки контента: импорт $components/Name.',
   'elements.aboutPlugins':
-    'TypeScript-модули с хуками render, notFound и подписками на события.',
+    'TypeScript-модули с хуками render, notFound, handle (свой ответ на запрос), schedule (задание по расписанию) и подписками на события.',
   'elements.aboutFields':
     'Дополнительные поля страниц, назначаются на шаблоны.',
   'elements.aboutScripts':
@@ -756,12 +765,21 @@ export var messages = {
   'media.remove': 'Удалить файл',
   'media.variants':
     'Для JPEG, PNG и WebP сервер сделает варианты 480, 960 и 1920 px в webp — не шире оригинала.',
+  'media.linked': 'в папке',
+  'media.linkedTitle': 'Файл в папке на сервере',
+  'media.linkedFrom': 'На диске',
+  'media.linkedHint':
+    'Файл лежит в связанной папке на сервере (cms media link): в базе только его описание. Удалить или заменить его здесь нельзя — измените файл в папке и запустите cms media link снова. Описание картинки править можно.',
+  'media.origin': 'Откуда',
+  'media.originAll': 'Все файлы',
+  'media.originUploaded': 'Загруженные',
+  'media.originLinked': 'Из папки на сервере',
   'media.empty': 'В медиатеке пока пусто.',
   'plugins.title': 'Плагины',
   'plugins.new': 'Новый плагин',
   'plugins.empty': 'Выберите плагин или создайте новый.',
   'plugins.hint':
-    'export default { render(html, { path, status }), notFound(path), on: { [тип события]: (event) => … } }. Импорт — только $core.',
+    "export default { render(html, { path, status }), notFound(path), handle(request, context), schedule: { every: '12h', run(context) }, on: { [тип события]: (event) => … } }. Импорт — только $core.",
   'fields.title': 'Поля страниц',
   'fields.typeText': 'Строка',
   'fields.typeRichtext': 'Текст с разметкой',
@@ -1126,6 +1144,11 @@ export var messages = {
   'backup.doneTitle': 'Сайт восстановлен',
   'backup.donePages': 'Страниц в восстановленном сайте:',
   'backup.doneSaved': 'Состояние до восстановления сохранено на сервере:',
+  'backup.linkedTitle': 'Связанные папки — не в копии',
+  'backup.linkedBody':
+    'Файлы этих папок лежат на диске сервера, в копии базы — только их описания. Копируйте папки отдельно, вместе с копией базы: без них картинки и ролики из них не откроются.',
+  'backup.linkedFolder': '{prefix}/ ← {dir} · файлов {files} · {size}',
+  'backup.linkedMissing': 'папки нет на диске',
   'backup.reload': 'Открыть менеджер заново',
   'upkeep.backupsTitle': 'Автоматические копии',
   'upkeep.backupsHint':
@@ -1256,6 +1279,9 @@ export var messages = {
   'settings.sectionSite': 'Сайт',
   'settings.sectionSiteHint':
     'Как сайт называется и какие страницы отдаёт по адресу «/» и при ошибке адреса.',
+  'settings.viewTransitions': 'Плавные переходы между страницами',
+  'settings.viewTransitionsHint':
+    'Страницы сайта сменяют друг друга плавно в браузерах, которые это умеют (Chrome и Edge 126+, Safari 18.2+); в остальных они открываются как обычно. Шаблоны менять не нужно.',
   'settings.notFoundHint':
     'Её увидят посетители, если адреса нет; ответ будет со статусом 404.',
   'settings.sectionLanguages': 'Языки',
@@ -1277,6 +1303,21 @@ export var messages = {
   'settings.pagingCanonicalFirst': 'Первая порция списка',
   'settings.pagingCanonicalHint':
     'Если поисковик склеивает порции с первой, выберите «Первая порция».',
+  'settings.sectionAddresses': 'Стиль адресов',
+  'settings.sectionAddressesHint':
+    'Чем кончаются адреса страниц. Нужно сайту, перенесённому с Evo: адреса остаются прежними.',
+  'settings.urlSuffix': 'Окончание адреса',
+  'settings.urlSuffixExample': 'o-nas',
+  'settings.urlSuffixNone': 'Без окончания',
+  'settings.urlSuffixOther': 'Другое расширение…',
+  'settings.urlSuffixHint':
+    'Пусто — /o-nas, .html — /o-nas.html, / — /o-nas/. Так было у сайта на Evo; смена меняет адреса всех страниц сайта.',
+  'settings.urlSuffixCustom': 'Расширение',
+  'settings.urlSuffixCustomHint':
+    'Точка и до 10 строчных латинских букв или цифр: .htm, .php.',
+  'settings.folderSlash': 'Адрес папки кончается на /',
+  'settings.folderSlashHint':
+    'У страниц-папок адрес с косой чертой в конце: /katalog/. Папкой страница становится сама, когда в ней появляется вложенная.',
   'settings.sectionRobots': 'robots.txt',
   'settings.sectionRobotsHint':
     'Файл собирается сам: менеджер закрыт, sitemap.xml указан, ИИ — по выбору выше.',
@@ -2013,6 +2054,8 @@ export var errors = {
   'backup.newer':
     'Копия сделана более новой версией программы: обновите её перед восстановлением.',
   'content.alias_taken': 'Такой адрес уже есть у соседней страницы.',
+  'content.address_taken':
+    'Такой адрес уже у другой страницы: совпал из-за скрытого в адресах алиаса раздела или окончания адреса.',
   'content.invalid_alias':
     'Адрес — строчная латиница, цифры и дефисы, можно с расширением: feed.xml.',
   'content.old_path_not_found': 'У этой страницы нет такого старого адреса.',
@@ -2078,7 +2121,7 @@ export var errors = {
   'extensions.compile_failed': 'Плагин не компилируется — {detail}',
   'extensions.forbidden_import': 'Такой импорт в плагине запрещён — {detail}',
   'extensions.invalid_plugin':
-    'Плагин должен экспортировать по умолчанию { render?, notFound?, on? }.',
+    'Плагин должен экспортировать по умолчанию { render?, notFound?, handle?, schedule?, on? }.',
   'site.invalid_name': 'Название сайта не может быть пустым.',
   'site.invalid_language': 'Язык — код вроде en, ru или pt-BR.',
   'site.invalid_url': 'Адрес сайта — целиком, с https://: https://example.com.',
@@ -2090,6 +2133,9 @@ export var errors = {
   'site.invalid_cache': 'Объём кэша — целое число от 16 до 4096 МБ.',
   'site.invalid_paging':
     'Слово в адресе порций — строчная латиница через дефис, например page.',
+  'site.invalid_view_transitions': 'Переходы — включены или выключены.',
+  'site.invalid_suffix':
+    'Окончание адреса — пусто, / или расширение вроде .html.',
   'site.invalid_key':
     'Ключ — латиница, цифры и _, начинается с буквы: phone, footerText.',
   'site.invalid_setting': 'Значение слишком длинное.',
@@ -2198,6 +2244,10 @@ export var errors = {
   'extensions.plugin_exists': 'Плагин с таким именем уже есть.',
   'content.field_exists': 'Такое поле уже есть.',
   'content.field_not_found': 'Такого поля нет.',
+  'media.linked_file':
+    'Файл лежит в связанной папке на сервере: измените его там и запустите cms media link.',
+  'media.stem_taken':
+    'Картинка с таким же именем, но другим расширением уже есть, а уменьшенные копии называются без расширения. Назовите файл иначе или замените ту картинку.',
   'media.unsupported_type': 'Такой тип файла не принимается.',
   'media.invalid_path': 'Папка и имя файла — строчная латиница, цифры, дефисы.',
   'media.invalid_size': 'Файл пустой или больше 25 МБ.',

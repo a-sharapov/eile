@@ -110,13 +110,15 @@ export type RedirectRules = {
   readonly hit: (id: number) => void;
 };
 
-/** Хуки расширений: последнее слово о HTML и редирект вместо 404. */
+/** Хуки расширений: последнее слово о HTML, свой ответ плагина и редирект вместо 404. */
 export type Hooks = {
   readonly render: (
     html: string,
     context: { readonly path: string; readonly status: number }
   ) => Promise<string>;
   readonly notFound: (path: string) => Promise<string | null>;
+  /** Запрос, на который сайт не ответил: ответ плагина или null (ADR 0067). */
+  readonly handle?: (request: Request) => Promise<Response | null>;
 };
 
 /**

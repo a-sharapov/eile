@@ -141,10 +141,27 @@ const disconnectAi = () =>
     )
     .then(undefined, failed);
 
+// Окончание адреса — из списка; своё расширение (.htm, .php) вписывается вручную, как тип страницы.
+const _SUFFIXES = ['', '.html', '/'];
+const _CUSTOM_SUFFIX = 'custom';
+let customSuffix = $state(false);
+
+const pickSuffix = (value: string) =>
+  void (
+    settings &&
+    ((customSuffix = value === _CUSTOM_SUFFIX),
+    (settings.urlSuffix = customSuffix
+      ? settings.urlSuffix.startsWith('.')
+        ? settings.urlSuffix
+        : ''
+      : value))
+  );
+
 function accept(next: Settings) {
   settings = next;
   saved = JSON.stringify(next);
   languagesText = next.languages.join(', ');
+  customSuffix = !_SUFFIXES.includes(next.urlSuffix);
 }
 
 const dirty = $derived(settings !== null && JSON.stringify(settings) !== saved);
@@ -161,6 +178,7 @@ const _SITE = [
   'language',
   'languages',
   'pageCacheMb',
+  'viewTransitions',
 ] as const;
 const _SEARCH = [
   'siteUrl',
@@ -172,6 +190,8 @@ const _SEARCH = [
   'searchSynonyms',
   'pagingSegment',
   'pagingCanonical',
+  'urlSuffix',
+  'folderSlash',
 ] as const;
 
 const changedIn = (keys: readonly (keyof Settings)[]): boolean =>
@@ -559,6 +579,10 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
             <small>{t('settings.notFoundHint')}</small>
           </label>
         </div>
+        <label class="option">
+          <input type="checkbox" bind:checked={settings.viewTransitions} />
+          <span><strong>{t('settings.viewTransitions')}</strong><small class="help">{t('settings.viewTransitionsHint')}</small></span>
+        </label>
       </div>
     </section>
     <section class="form-section">
@@ -618,6 +642,37 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
         <label class="option">
           <input type="checkbox" bind:checked={settings.aiTraining} />
           <span><strong>{t('settings.aiTraining')}</strong><small class="help">{t('settings.aiTrainingHint')}</small></span>
+        </label>
+      </div>
+    </section>
+    <section class="form-section">
+      <header>
+        <h2>{t('settings.sectionAddresses')}</h2>
+        <p>{t('settings.sectionAddressesHint')}</p>
+      </header>
+      <div class="fields">
+        <div class="fields-2">
+          <label>
+            {t('settings.urlSuffix')}
+            <select form="settings-form" value={customSuffix ? _CUSTOM_SUFFIX : settings.urlSuffix} onchange={(e) => pickSuffix(e.currentTarget.value)}>
+              <option value="">{t('settings.urlSuffixNone')} · /{t('settings.urlSuffixExample')}</option>
+              <option value=".html">.html · /{t('settings.urlSuffixExample')}.html</option>
+              <option value="/">/ · /{t('settings.urlSuffixExample')}/</option>
+              <option value={_CUSTOM_SUFFIX}>{t('settings.urlSuffixOther')}</option>
+            </select>
+            <small>{t('settings.urlSuffixHint')}</small>
+          </label>
+          {#if customSuffix}
+            <label>
+              <span>{t('settings.urlSuffixCustom')}<span class="required" aria-hidden="true"> *</span></span>
+              <input form="settings-form" class="code" required maxlength="11" pattern={'\\.[a-z0-9]{1,10}'} title={t('settings.urlSuffixCustomHint')} bind:value={settings.urlSuffix} placeholder=".htm" spellcheck="false" autocomplete="off" data-ai="off" />
+              <small>{t('settings.urlSuffixCustomHint')}</small>
+            </label>
+          {/if}
+        </div>
+        <label class="option">
+          <input type="checkbox" bind:checked={settings.folderSlash} />
+          <span><strong>{t('settings.folderSlash')}</strong><small class="help">{t('settings.folderSlashHint')}</small></span>
         </label>
       </div>
     </section>

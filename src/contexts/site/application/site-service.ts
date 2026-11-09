@@ -120,6 +120,20 @@ export var defineSiteService = ({
         dictionary.removeSetting(parseKey(key)),
         changed('site.custom_settings_changed')
       ),
+      /**
+       * Значение из кода сервера (плагин, ADR 0067) с теми же проверками, что в менеджере; пояснение остаётся.
+       * То же значение — ни записи, ни события: задание по расписанию не сбрасывает кэш страниц зря. Ответ —
+       * изменилось ли.
+       */
+      set: (key: string, value: unknown): boolean =>
+        ((next) =>
+          next.value === customMap().get(next.key)?.value
+            ? false
+            : (dictionary.saveSetting(next),
+              changed('site.custom_settings_changed'),
+              true))(
+          createCustomSetting(key, value, customMap().get(key)?.note ?? '')
+        ),
       value: (key: string): string | null =>
         customMap().get(key)?.value ?? null,
     },

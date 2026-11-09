@@ -26,6 +26,8 @@ export type {
   FormSummary,
   FormsService,
   SubmitResult,
+  TrustedOptions,
+  TrustedResult,
 } from './application/forms-service.ts';
 export type { Letter } from './domain/confirmation.ts';
 export type {

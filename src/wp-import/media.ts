@@ -5,6 +5,7 @@ import {
   MAX_MEDIA_SIZE,
   type Media,
   parseMediaPath,
+  stemOf,
 } from '../contexts/media/index.ts';
 import {
   type BodyBytes,
@@ -76,6 +77,17 @@ const _segment = (raw: string): string =>
 const _withSuffix = (path: string, n: number): string =>
   path.replace(/(\.[a-z0-9]+)?$/, (ext) => `-${n}${ext}`);
 
+// JPEG, PNG и WebP с одной основой (`photo.jpg`, `photo.png`) делили бы варианты размеров: вторая — `-2`.
+const _resizable = (path: string): boolean =>
+  /\.(?:jpe?g|png|webp)$/.test(path);
+
+const _free = (
+  taken: ReadonlySet<string>,
+  stems: ReadonlySet<string>,
+  path: string
+): boolean =>
+  !taken.has(path) && !(_resizable(path) && stems.has(stemOf(path)));
+
 // Путь файла из адреса вложения, если в метаполях его нет: всё после `/uploads/`.
 const _fileFromUrl = (url: string): string =>
   ((at) => (at < 0 ? '' : decodeURIComponent(url.slice(at + 9))))(
@@ -92,6 +104,7 @@ export var attachmentsOf = (
       list: Attachment[];
       unsupported: MediaSkip[];
       taken: Set<string>;
+      stems: Set<string>;
     }>(
       (acc, post) => {
         const file =
@@ -101,7 +114,7 @@ export var attachmentsOf = (
         const path = [
           base,
           ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => _withSuffix(base, n)),
-        ].find((_) => !acc.taken.has(_))!;
+        ].find((_) => _free(acc.taken, acc.stems, _))!;
         const supported =
           file !== '' &&
           attempt(
@@ -114,6 +127,7 @@ export var attachmentsOf = (
           ? {
               ...acc,
               taken: acc.taken.add(path),
+              stems: _resizable(path) ? acc.stems.add(stemOf(path)) : acc.stems,
               list: [
                 ...acc.list,
                 {
@@ -143,7 +157,7 @@ export var attachmentsOf = (
               ],
             };
       },
-      { list: [], unsupported: [], taken: new Set() }
+      { list: [], unsupported: [], taken: new Set(), stems: new Set() }
     );
 
 type Loaded =

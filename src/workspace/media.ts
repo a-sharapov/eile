@@ -1,14 +1,19 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import type { App } from '../app.ts';
 import {
   checkSize,
   contentTypeOf,
+  isResizable,
+  type LinkReport,
+  linkedSegment,
   type MediaFile,
   mediaHash,
   parseAlt,
   parseMediaPath,
   stemOf,
+  stemOwner,
+  type UnlinkReport,
   variantWidth,
 } from '../contexts/media/index.ts';
 import { type BodyBytes, openFile } from '../platform/body.ts';
@@ -159,6 +164,43 @@ const _entryProblems = (found: _Found, path: string): Problem[] =>
         (error) => [problemOf(found.file, error)]
       );
 
+// Путь картинки JPEG, PNG или WebP: у неё бывают варианты размеров. Путь уже проверен правилами папки.
+const _resizable = (path: string): boolean =>
+  attempt(
+    () =>
+      ((parsed) =>
+        isResizable({ path: parsed, contentType: contentTypeOf(parsed) }))(
+        parseMediaPath(path)
+      ),
+    () => false
+  );
+
+// Две картинки папки с одной основой (`photo.jpg` и `photo.png`) делили бы варианты размеров `photo@960.webp`.
+const _stemProblems = (entries: readonly MediaEntry[]): Problem[] =>
+  entries
+    .filter((_) => _resizable(_.path))
+    .reduce<{
+      owners: Map<string, string>;
+      problems: Problem[];
+    }>(
+      (acc, entry) =>
+        ((owner) =>
+          owner === undefined
+            ? (acc.owners.set(stemOf(entry.path), entry.file), acc)
+            : {
+                ...acc,
+                problems: [
+                  ...acc.problems,
+                  _problem(
+                    entry.file,
+                    'media.stem_taken',
+                    `${entry.file} and ${owner} differ only in the extension, and image sizes are named without it: rename one of them`
+                  ),
+                ],
+              })(acc.owners.get(stemOf(entry.path))),
+      { owners: new Map(), problems: [] }
+    ).problems;
+
 const _isObject = (
   value: unknown
 ): value is Readonly<Record<string, unknown>> =>
@@ -190,14 +232,15 @@ const _NO_ALTS: _Alts = { alts: new Map(), problems: [] };
 const _text = (dir: string): string =>
   readFileSync(join(dir, MEDIA_JSON), 'utf8').replace(/^﻿/, '');
 
-// Описания: ключ — файл папки, значение — `parseAlt`; ошибки — по ключу, все сразу.
+// Описания: ключ — файл папки, значение — `parseAlt`; ошибки — по ключу, все сразу. `pathOf` — под каким
+// ключом описание пойдёт дальше; undefined — такого файла в папке нет.
 const _altsOf = (
   raw: Readonly<Record<string, { readonly alt?: string }>>,
-  files: ReadonlyMap<string, string>
+  pathOf: (file: string) => string | undefined
 ): _Alts =>
   Object.entries(raw).reduce<_Alts>(
     (acc, { 0: file, 1: entry }) =>
-      !files.has(file)
+      pathOf(file) === undefined
         ? {
             ...acc,
             problems: [
@@ -216,7 +259,7 @@ const _altsOf = (
                 ...acc,
                 alts: new Map([
                   ...acc.alts,
-                  [files.get(file)!, parseAlt(entry.alt!)],
+                  [pathOf(file)!, parseAlt(entry.alt!)],
                 ]),
               }),
               (error) => ({
@@ -227,7 +270,10 @@ const _altsOf = (
     _NO_ALTS
   );
 
-const _readAlts = (dir: string, files: ReadonlyMap<string, string>): _Alts =>
+const _readAlts = (
+  dir: string,
+  pathOf: (file: string) => string | undefined
+): _Alts =>
   existsSync(join(dir, MEDIA_JSON))
     ? attempt<_Alts>(
         () =>
@@ -242,7 +288,7 @@ const _readAlts = (dir: string, files: ReadonlyMap<string, string>): _Alts =>
                   }
                 : _altsOf(
                     raw as Readonly<Record<string, { alt?: string }>>,
-                    files
+                    pathOf
                   ))(_shapeProblems(raw)))(JSON.parse(_text(dir))),
         (error) => ({
           alts: new Map(),
@@ -270,13 +316,16 @@ export var readMediaFolder = (dir: string, into = ''): Promise<MediaFolder> =>
           into,
           entries: entries.map((_) => _.entry),
           alts: alts.alts,
-          problems: [
-            ...entries.flatMap((_) => _entryProblems(_.found, _.entry.path)),
+          problems: ((own) => [
+            ...own,
+            // Основы — только у файлов с правильными путями: иначе одна ошибка дала бы две.
+            ...(own.length > 0
+              ? []
+              : _stemProblems(entries.map((_) => _.entry))),
             ...alts.problems,
-          ],
+          ])(entries.flatMap((_) => _entryProblems(_.found, _.entry.path))),
         }))(
-          _readAlts(
-            root,
+          ((files) => _readAlts(root, (file) => files.get(file)))(
             new Map(entries.map((_) => [_.entry.file, _.entry.path]))
           )
         ))(
@@ -365,12 +414,13 @@ const _prunePlan = (
   const holders = _holders(services);
   const checked = prune ? originals.map((_) => holders(_.path)) : [];
   const gone = new Set(checked.filter((_) => !_held(_)).map((_) => _.path));
-  const stems = new Set([
-    ...folder.entries.map((_) => stemOf(_.path)),
-    ...library
-      .filter((_) => !_isVariant(_) && !gone.has(_.path))
-      .map((_) => stemOf(_.path)),
-  ]);
+  // Варианты держит только картинка, что остаётся по тому же пути. Новой картинке с той же основой (замена
+  // формата `photo.jpg` → `photo.webp`) прежние варианты показывали бы старую — они уходят, сервер сделает свои.
+  const stems = new Set(
+    library
+      .filter((_) => isResizable(_) && !gone.has(_.path))
+      .map((_) => stemOf(_.path))
+  );
   const variants = prune
     ? absent
         .filter((_) => _isVariant(_) && !stems.has(stemOf(_.path)))
@@ -396,7 +446,51 @@ type _Plan = {
   readonly described: readonly string[];
   readonly same: number;
   readonly prune: _Prune;
+  /** Удалить до записи: картинки, чью основу занимает новая картинка папки, и их варианты. */
+  readonly free: readonly string[];
+  /** Новая картинка с основой картинки, которая остаётся: не пишется ничего. */
+  readonly problems: readonly Problem[];
 };
+
+// Новая картинка папки и картинка медиатеки с той же основой: с `--prune` прежняя уходит до записи новой,
+// иначе — отказ с причиной.
+const _stemPlan = (
+  added: readonly MediaEntry[],
+  library: readonly MediaFile[],
+  prune: _Prune,
+  pruning: boolean
+): Pick<_Plan, 'free' | 'problems'> =>
+  ((clashes) =>
+    ((freed) => ({
+      free: prune.remove.filter((_) => freed.has(stemOf(_))),
+      problems: clashes
+        .filter((_) => !prune.remove.includes(_.owner))
+        .map(({ entry, owner }) =>
+          _problem(
+            entry.file,
+            'media.stem_taken',
+            pruning
+              ? `${entry.path} differs from ${owner} only in the extension, and ${owner} stays because it is in use: image sizes are named without the extension — rename the new file`
+              : `${entry.path} differs from ${owner} only in the extension, and image sizes are named without it: push with --prune to replace ${owner}, or rename the new file`
+          )
+        ),
+    }))(
+      new Set(
+        clashes
+          .filter((_) => prune.remove.includes(_.owner))
+          .map((_) => stemOf(_.entry.path))
+      )
+    ))(
+    added.flatMap((entry) =>
+      ((owner) => (owner === null ? [] : [{ entry, owner }]))(
+        ((path) =>
+          stemOwner(
+            { path, contentType: contentTypeOf(path) },
+            library.filter((_) => stemOf(_.path) === stemOf(path))
+          ))(parseMediaPath(entry.path))
+      )
+    )
+  );
 
 const _plan = (
   services: MediaServices,
@@ -405,28 +499,34 @@ const _plan = (
 ): _Plan =>
   ((library) =>
     ((byPath) =>
-      ((states) => ({
-        added: states.filter((_) => _.state === 'added').map((_) => _.entry),
-        changed: states
-          .filter((_) => _.state === 'changed')
-          .map((_) => _.entry),
-        described: states
-          .filter(
-            (_) =>
-              _.state === 'same' &&
-              folder.alts.has(_.entry.path) &&
-              folder.alts.get(_.entry.path) !== byPath.get(_.entry.path)!.alt
-          )
-          .map((_) => _.entry.path),
-        same: states.filter((_) => _.state === 'same').length,
-        prune: _prunePlan(services, folder, library, prune),
-      }))(
+      ((states) =>
+        ((added, pruned) => ({
+          added,
+          changed: states
+            .filter((_) => _.state === 'changed')
+            .map((_) => _.entry),
+          described: states
+            .filter(
+              (_) =>
+                _.state === 'same' &&
+                folder.alts.has(_.entry.path) &&
+                folder.alts.get(_.entry.path) !== byPath.get(_.entry.path)!.alt
+            )
+            .map((_) => _.entry.path),
+          same: states.filter((_) => _.state === 'same').length,
+          prune: pruned,
+          ..._stemPlan(added, library, pruned, prune),
+        }))(
+          states.filter((_) => _.state === 'added').map((_) => _.entry),
+          _prunePlan(services, folder, library, prune)
+        ))(
         folder.entries.map((entry) => ({
           entry,
           state: _stateOf(folder.dir, byPath)(entry),
         }))
       ))(new Map(library.map((_) => [_.path as string, _]))))(
-    services.media.files.list()
+    // Файлы связанных папок — не этой команды: их меняет cms media link (ADR 0065).
+    services.media.files.list().filter((_) => _.linked === undefined)
   );
 
 const _tryAt = (file: string, run: () => void): Problem | null =>
@@ -476,32 +576,44 @@ type _Written = {
   readonly removed: readonly string[];
 };
 
+type _Removal = { readonly path: string; readonly problem: Problem | null };
+
+const _removeAll = (
+  services: MediaServices,
+  paths: readonly string[]
+): _Removal[] =>
+  paths.map((path) => ({ path, problem: _remove(services)(path) }));
+
+const _done = (removals: readonly _Removal[]): string[] =>
+  removals.filter((_) => _.problem === null).map((_) => _.path);
+
 // По файлу, а не одной транзакцией: каждая запись коротка, сервер на той же базе не ждёт всю папку, а
-// прерванную отправку доделает повтор — совпавшие файлы он пропустит. Удаление — только после удачной записи.
+// прерванную отправку доделает повтор — совпавшие файлы он пропустит. Удаление — только после удачной записи;
+// раньше — лишь картинки, чью основу занимает новая картинка папки: иначе её не записать.
 const _write = (
   services: MediaServices,
   folder: MediaFolder,
   plan: _Plan
 ): _Written =>
-  ((written) =>
-    written.length > 0
-      ? { problems: written, removed: [] }
-      : ((removals) => ({
-          problems: _problems(removals.map((_) => _.problem)),
-          removed: removals
-            .filter((_) => _.problem === null)
-            .map((_) => _.path),
-        }))(
-          plan.prune.remove.map((path) => ({
-            path,
-            problem: _remove(services)(path),
-          }))
-        ))(
-    _problems([
-      ...[...plan.added, ...plan.changed].map(_save(services, folder)),
-      ...plan.described.map(_describe(services, folder)),
-    ])
-  );
+  ((freed) =>
+    ((written) =>
+      written.length > 0
+        ? { problems: written, removed: _done(freed) }
+        : ((removals) => ({
+            problems: _problems(removals.map((_) => _.problem)),
+            removed: [..._done(freed), ..._done(removals)].sort(),
+          }))(
+            _removeAll(
+              services,
+              plan.prune.remove.filter((_) => !plan.free.includes(_))
+            )
+          ))(
+      _problems([
+        ...freed.map((_) => _.problem),
+        ...[...plan.added, ...plan.changed].map(_save(services, folder)),
+        ...plan.described.map(_describe(services, folder)),
+      ])
+    ))(_removeAll(services, plan.free));
 
 const _report = (
   plan: _Plan,
@@ -529,6 +641,8 @@ const _EMPTY: _Plan = {
   described: [],
   same: 0,
   prune: { remove: [], kept: [], missing: [] },
+  free: [],
+  problems: [],
 };
 
 /**
@@ -545,12 +659,167 @@ export var pushMedia = (
     _.problems.length > 0
       ? _report(_EMPTY, { problems: _.problems, removed: [] }, 0, true)
       : ((plan) =>
-          options.dryRun
-            ? _report(plan, _NOTHING, 0, true)
-            : ((written) =>
-                services.media.variants
-                  .run()
-                  .then((variants) => _report(plan, written, variants, false)))(
-                _write(services, _, plan)
-              ))(_plan(services, _, options.prune === true))
+          plan.problems.length > 0
+            ? _report(_EMPTY, { problems: plan.problems, removed: [] }, 0, true)
+            : options.dryRun
+              ? _report(plan, _NOTHING, 0, true)
+              : ((written) =>
+                  services.media.variants
+                    .run()
+                    .then((variants) =>
+                      _report(plan, written, variants, false)
+                    ))(_write(services, _, plan)))(
+          _plan(services, _, options.prune === true)
+        )
+  );
+
+// --- связанная папка (ADR 0065) ---------------------------------------------
+
+export type MediaLinkOptions = {
+  /** Приставка путей медиатеки; не задана — имя папки по правилу имён связанной папки. */
+  readonly into?: string;
+  /** Отдавать файлы и по исходным адресам; не задано — как было (у новой папки — нет). */
+  readonly serveOriginal?: boolean;
+  /** Папка-сайт (ADR 0068): статический сайт по `/<приставка>/…`, без строк в медиатеке. */
+  readonly staticSite?: boolean;
+  readonly dryRun?: boolean;
+};
+
+/** Итог `cms media link` по одной папке: сверка, варианты картинок и проблемы media.json. */
+export type MediaLinkReport = LinkReport & {
+  /** Сколько вариантов размеров картинок сделано после сверки. */
+  readonly variants: number;
+  readonly problems: readonly Problem[];
+};
+
+/** Приставка по умолчанию — имя папки: `old_assets` → `old_assets`, `Фото` → `foto`. */
+export var defaultPrefix = (dir: string): string =>
+  linkedSegment(basename(resolve(dir)));
+
+const _unknown = (files: readonly string[]): Problem[] =>
+  files.map((file) =>
+    _problem(
+      MEDIA_JSON,
+      'workspace.unknown_media',
+      `"${file}": there is no such file in the folder`
+    )
+  );
+
+const _refused = (
+  report: LinkReport,
+  problems: readonly Problem[]
+): MediaLinkReport => ({
+  ...report,
+  added: [],
+  changed: [],
+  removed: [],
+  described: [],
+  queued: 0,
+  saved: false,
+  variants: 0,
+  problems,
+});
+
+/**
+ * Папка на диске — в медиатеку без байтов в базе: связать впервые или сверить. Описания — из media.json в
+ * корне папки, ключи — пути на диске от корня; ошибка в нём — ничего не записано. Варианты картинок сервер
+ * делает сразу после сверки: `image()` отдаёт srcset, как только команда закончилась. Папка-сайт
+ * (`staticSite`, ADR 0068) записывается только сама: её файлы не медиатека.
+ */
+export var linkMedia = (
+  services: Pick<App, 'media'>,
+  dir: string,
+  options: MediaLinkOptions = {}
+): Promise<MediaLinkReport> =>
+  Promise.resolve(dir).then((root) =>
+    (options.staticSite ??
+    services.media.links
+      .list()
+      .find((_) => _.prefix === (options.into ?? defaultPrefix(root)))
+      ?.staticSite)
+      ? _linkStatic(services, root, options)
+      : _linkFolder(services, root, options)
+  );
+
+// Папка-сайт: ни media.json, ни вариантов — только сама папка (ADR 0068).
+const _linkStatic = (
+  services: Pick<App, 'media'>,
+  root: string,
+  options: MediaLinkOptions
+): MediaLinkReport => ({
+  ...services.media.links.sync({
+    dir: root,
+    prefix: options.into ?? defaultPrefix(root),
+    staticSite: true,
+    ...(options.serveOriginal === undefined
+      ? {}
+      : { serveOriginal: options.serveOriginal }),
+    ...(options.dryRun ? { dryRun: true } : {}),
+  }),
+  variants: 0,
+  problems: [],
+});
+
+const _linkFolder = (
+  services: Pick<App, 'media'>,
+  root: string,
+  options: MediaLinkOptions
+): MediaLinkReport | Promise<MediaLinkReport> => {
+  const alts = _readAlts(root, (file) => file);
+  const input = {
+    dir: root,
+    prefix: options.into ?? defaultPrefix(root),
+    ...(options.serveOriginal === undefined
+      ? {}
+      : { serveOriginal: options.serveOriginal }),
+    ...(options.staticSite === false ? { staticSite: false } : {}),
+    alts: alts.alts,
+  };
+  // Пробный проход — без записи и без хэшей новых файлов: ключи media.json сверяются до записи.
+  const check =
+    alts.problems.length > 0 || alts.alts.size > 0 || options.dryRun
+      ? services.media.links.sync({ ...input, dryRun: true })
+      : null;
+  const problems =
+    alts.problems.length > 0
+      ? alts.problems
+      : _unknown(check?.unknownAlts ?? []);
+  return check !== null && problems.length > 0
+    ? _refused(check, problems)
+    : check !== null && options.dryRun
+      ? { ...check, variants: 0, problems: [] }
+      : ((report) =>
+          services.media.variants
+            .run()
+            .then((variants) => ({ ...report, variants, problems: [] })))(
+          services.media.links.sync(input)
+        );
+};
+
+/** Сверить все связанные папки (или одну, `into`) с их местом на диске, как оно записано. */
+export var relinkMedia = (
+  services: Pick<App, 'media'>,
+  options: MediaLinkOptions = {}
+): Promise<MediaLinkReport[]> =>
+  services.media.links
+    .list()
+    .filter((_) => options.into === undefined || _.prefix === options.into)
+    .reduce<Promise<MediaLinkReport[]>>(
+      (done, link) =>
+        done.then((reports) =>
+          linkMedia(services, link.dir, { ...options, into: link.prefix }).then(
+            (_) => [...reports, _]
+          )
+        ),
+      Promise.resolve([])
+    );
+
+/** Отвязать папку: её файлы и варианты уходят из медиатеки вместе с описаниями; сами файлы на диске остаются. */
+export var unlinkMedia = (
+  services: Pick<App, 'media'>,
+  prefix: string,
+  options: { readonly dryRun?: boolean } = {}
+): Promise<UnlinkReport> =>
+  Promise.resolve(prefix).then((_) =>
+    services.media.links.unlink(_, options.dryRun === true)
   );

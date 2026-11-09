@@ -5,8 +5,12 @@ export type Encoding = 'br' | 'gzip';
 // Качество brotli 9 сжимает почти как 11, но в разы быстрее; результат всё равно запоминается.
 const _STORED_QUALITY = 9;
 
+// Тело — строка (страница) или байты (файл с диска: кодировку его текста не угадываем).
 const _COMPRESS: Readonly<
-  Record<Encoding, (body: string, quality: number) => Uint8Array>
+  Record<
+    Encoding,
+    (body: string | Uint8Array<ArrayBuffer>, quality: number) => Uint8Array
+  >
 > = {
   br: (body, quality) =>
     brotliCompressSync(body, {
@@ -79,7 +83,11 @@ export var defineCompressionCache = (budget = 32 * 1024 * 1024) => {
   );
 
   return {
-    compress: (etag: string, encoding: Encoding, body: string): Uint8Array =>
+    compress: (
+      etag: string,
+      encoding: Encoding,
+      body: string | Uint8Array<ArrayBuffer>
+    ): Uint8Array =>
       entries.get(`${encoding}${etag}`) ??
       store(`${encoding}${etag}`, _COMPRESS[encoding](body, _STORED_QUALITY)),
   };

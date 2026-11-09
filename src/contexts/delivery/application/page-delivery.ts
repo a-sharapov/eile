@@ -7,7 +7,13 @@ import {
 } from '../../../shared/kernel/report.ts';
 import type { PageView, PublishedContent } from '../../content/index.ts';
 import type { SiteSettings } from '../../site/index.ts';
-import { canonicalPath, pageUrl } from '../domain/canonical-path.ts';
+import {
+  canonicalPath,
+  cleanPath,
+  endingOf,
+  markdownPath,
+  pageUrl,
+} from '../domain/canonical-path.ts';
 import {
   type ContentPart,
   contentComponents,
@@ -24,6 +30,7 @@ import {
   islandLoader,
   type Rendered,
   regionMarker,
+  viewTransitionHead,
 } from '../domain/document.ts';
 import {
   PAGING_TITLE_KEY,
@@ -73,6 +80,11 @@ export type Delivery =
       readonly pageId: number | null;
       /** Язык показанной страницы; у голого 404 — пусто. */
       readonly language: string;
+    }
+  | {
+      /** Ответ плагина на запрос, которому не нашлось страницы (ADR 0067): отдаётся как есть, мимо кэша. */
+      readonly kind: 'response';
+      readonly response: Response;
     }
   | {
       readonly kind: 'redirect';
@@ -333,7 +345,7 @@ export var definePageDelivery = ({
     const image = page.socialImage || site.socialImage;
     const base = pageUrl(page, site.homePageId);
     const at = (_: number) =>
-      `${origin}${pagingPath(base, site.pagingSegment, _)}`;
+      `${origin}${pagingPath(base, site.pagingSegment, _, endingOf(page))}`;
     // Порции 2, 3… — свои заголовок и описание, иначе поисковик видит дубли первой.
     const suffix =
       number > 1 ? ` — ${pageLabel(languageOf(page, site), number)}` : '';
@@ -347,6 +359,7 @@ export var definePageDelivery = ({
         description: description && description + suffix,
         language: languageOf(page, site),
         url: site.pagingCanonical === 'first' ? at(1) : at(number),
+        markdown: `${origin}${markdownPath(base, endingOf(page))}`,
         pagination:
           pages === null || pages < 2
             ? null
@@ -487,6 +500,7 @@ export var definePageDelivery = ({
               base: pageUrl(page, site.homePageId),
               number,
               segment: site.pagingSegment,
+              ending: endingOf(page),
             },
           }
         );
@@ -503,7 +517,11 @@ export var definePageDelivery = ({
             head: template
               ? head +
                 views.styles(result.styles ?? []).join('') +
-                seo(request, page, site, status, head, { number, pages })
+                seo(request, page, site, status, head, { number, pages }) +
+                viewTransitionHead(site.viewTransitions, [
+                  head,
+                  ...(result.styles ?? []).map((_) => _.code),
+                ])
               : '',
             regions,
             language,
@@ -720,7 +738,8 @@ export var definePageDelivery = ({
         ? pagingPath(
             pageUrl(base, site.homePageId),
             site.pagingSegment,
-            tail.number
+            tail.number,
+            endingOf(base)
           )
         : null;
   };
@@ -738,6 +757,7 @@ export var definePageDelivery = ({
 
   // Правила владельца сайта: после живых страниц (ошибка в правиле не закроет страницу), но раньше
   // прежних адресов и плагинов — явное решение человека важнее автоматического.
+  // Правила записаны без завершающего `/`: `/old/` и `/old` находят одно правило.
   const ruled = (path: string, site: SiteSettings): Delivery | null =>
     ((found) =>
       found &&
@@ -747,7 +767,7 @@ export var definePageDelivery = ({
           : (redirects!.hit(found.id),
             _redirect(to, !to.startsWith('/'), found.status, true)))(
         ruleTarget(found.to, site)
-      ))(redirects?.match(path) ?? null);
+      ))(redirects?.match(canonicalPath(path) ?? path) ?? null);
 
   // Правило с query (`/?p=12` со старого WordPress) — раньше страницы и кэша: страница query не видит, и
   // главная молча открылась бы с 200 вместо записи. Узнанные параметры в адрес цели не идут.
@@ -763,7 +783,7 @@ export var definePageDelivery = ({
                   ..._redirect(to, !to.startsWith('/'), found.status, true),
                   consumed: found.consumed ?? [],
                 }))(ruleTarget(found.to, settings())))(
-          redirects.matchQuery(path, request.query)
+          redirects.matchQuery(canonicalPath(path) ?? path, request.query)
         )
       : null;
 
@@ -774,24 +794,51 @@ export var definePageDelivery = ({
       movedTo(path, site)
     );
 
+  // Сайт без адресов на `/`: `/old/` без страницы, как и раньше, уходит на `/old` — пусть там решают
+  // плагины и страница 404. У стиля адресов со слэшем `/` — часть адреса, и такого шага нет.
+  const unslashed = (path: string, site: SiteSettings): Delivery | null =>
+    path !== '/' &&
+    path.endsWith('/') &&
+    !site.folderSlash &&
+    site.urlSuffix !== '/'
+      ? _redirect(path.slice(0, -1))
+      : null;
+
+  // Ничто на сайте не ответило: сначала свой ответ плагина (`handle`), потом редирект плагина (`notFound`),
+  // потом страница 404. Ответ плагина — только запросу посетителя (`raw`): предпросмотру и Markdown — нет.
+  const answered = (raw: Request | null): Promise<Delivery | null> =>
+    raw === null || !hooks.handle
+      ? Promise.resolve(null)
+      : hooks
+          .handle(raw)
+          .then((response) =>
+            response === null ? null : { kind: 'response', response }
+          );
+
   const notFound = (
     request: RequestInfo,
-    site: SiteSettings
+    site: SiteSettings,
+    raw: Request | null
   ): Promise<Delivery> =>
     ((moved) =>
       moved
         ? Promise.resolve(moved)
-        : hooks
-            .notFound(request.path)
-            .then((location) =>
-              location === null
-                ? notFoundPage(request, site)
-                : _redirect(location, !location.startsWith('/'))
-            ))(redirectOf(request.path, site));
+        : answered(raw).then(
+            (answer) =>
+              answer ??
+              hooks
+                .notFound(request.path)
+                .then((location) =>
+                  location === null
+                    ? notFoundPage(request, site)
+                    : _redirect(location, !location.startsWith('/'))
+                )
+          ))(redirectOf(request.path, site) ?? unslashed(request.path, site));
 
+  // Страница по адресу или его варианту (`/katalog` при адресе `/katalog/`): лишнее окончание — 301 в serve.
   const resolve = (path: string, site: SiteSettings): PageView | null =>
     path !== '/'
-      ? content.byPath(path)
+      ? content.locate(path)
       : site.homePageId === null
         ? null
         : content.page(site.homePageId);
@@ -799,11 +846,12 @@ export var definePageDelivery = ({
   const followLink = (
     request: RequestInfo,
     site: SiteSettings,
-    page: PageView
+    page: PageView,
+    raw: Request | null
   ): Promise<Delivery> => {
     const target = links.urlOf(page);
     return target === null
-      ? notFound(request, site)
+      ? notFound(request, site, raw)
       : Promise.resolve(_redirect(target, !target.startsWith('/')));
   };
 
@@ -812,16 +860,18 @@ export var definePageDelivery = ({
     request: RequestInfo,
     site: SiteSettings,
     page: PageView,
-    number: number
+    number: number,
+    raw: Request | null
   ): Promise<Delivery> => {
     const url = pagingPath(
       pageUrl(page, site.homePageId),
       site.pagingSegment,
-      number
+      number,
+      endingOf(page)
     );
     return page.kind === 'link'
       ? number === 1
-        ? followLink(request, site, page)
+        ? followLink(request, site, page, raw)
         : notFoundPage(request, site)
       : url === request.path
         ? render(request, page, site, 200, number)
@@ -844,19 +894,35 @@ export var definePageDelivery = ({
         : null;
   };
 
-  const fromTree = (request: RequestInfo): Promise<Delivery> =>
+  const fromTree = (
+    request: RequestInfo,
+    raw: Request | null
+  ): Promise<Delivery> =>
     ((site) =>
       ((found) =>
         found
-          ? serve(request, site, found.page, found.number)
-          : notFound(request, site))(located(request.path, site)))(settings());
+          ? serve(request, site, found.page, found.number, raw)
+          : notFound(request, site, raw))(located(request.path, site)))(
+      settings()
+    );
 
-  // `/old/` и `//old`: правило и прежний адрес страницы ведут к цели сразу, без лишнего шага через
-  // `/old`. Живая страница важнее правила — у неё, как и без правил, 301 на `/old`.
-  const normalized = (canonical: string): Delivery =>
+  // `//old`: правило и прежний адрес страницы ведут к цели сразу, без лишнего шага через `/old`. Живая
+  // страница важнее правила — у неё 301 сразу на её адрес.
+  const normalized = (clean: string): Delivery =>
     ((site) =>
-      (located(canonical, site) ? null : redirectOf(canonical, site)) ??
-      _redirect(canonical))(settings());
+      ((found) =>
+        found
+          ? _redirect(
+              pagingPath(
+                pageUrl(found.page, site.homePageId),
+                site.pagingSegment,
+                found.number,
+                endingOf(found.page)
+              )
+            )
+          : (redirectOf(clean, site) ?? _redirect(clean)))(
+        located(clean, site)
+      ))(settings());
 
   const fromCache = (
     request: RequestInfo,
@@ -870,23 +936,33 @@ export var definePageDelivery = ({
           _page(200, 'hit', pageId, contentType, language)
         );
 
-  const route =
+  // Плагины правят HTML: CSS или ленту им не отдаём.
+  const rendered =
     (request: RequestInfo) =>
-    (canonical: string | null): Promise<Delivery> => {
+    (_: Delivery): Delivery | Promise<Delivery> =>
+      _.kind === 'page' && isHtml(_.contentType)
+        ? hooks
+            .render(_.html, { path: request.path, status: _.status })
+            .then((html) => ({ ..._, html }))
+        : _;
+
+  const route =
+    (request: RequestInfo, raw: Request | null) =>
+    (clean: string | null): Promise<Delivery> => {
       const cached =
-        canonical === null || !cacheable(request)
+        clean === null || !cacheable(request)
           ? undefined
-          : cache.get(cacheKey(request, canonical));
-      const ruled = canonical === null ? null : queried(request, canonical);
+          : cache.get(cacheKey(request, clean));
+      const ruled = clean === null ? null : queried(request, clean);
       return ruled
         ? Promise.resolve(ruled)
-        : canonical === null
-          ? notFound(request, settings())
-          : canonical !== request.path
-            ? Promise.resolve(normalized(canonical))
+        : clean === null
+          ? notFound(request, settings(), raw)
+          : clean !== request.path
+            ? Promise.resolve(normalized(clean))
             : cached
               ? fromCache(request, cached)
-              : fromTree(request);
+              : fromTree(request, raw);
     };
 
   return {
@@ -901,20 +977,22 @@ export var definePageDelivery = ({
           contentType: page.contentType,
         }))
       ),
-    deliver: (request: RequestInfo): Promise<Delivery> =>
+    /** `raw` — сам запрос посетителя: без него (Markdown, предпросмотр) плагины не отвечают. */
+    deliver: (
+      request: RequestInfo,
+      raw: Request | null = null
+    ): Promise<Delivery> =>
       Promise.resolve(request.path).then(
-        pipe(
-          canonicalPath,
-          route(request),
-          // Плагины правят HTML: CSS или ленту им не отдаём.
-          (_): Delivery | Promise<Delivery> =>
-            _.kind === 'page' && isHtml(_.contentType)
-              ? hooks
-                  .render(_.html, { path: request.path, status: _.status })
-                  .then((html) => ({ ..._, html }))
-              : _
-        )
+        pipe(cleanPath, route(request, raw), rendered(request))
       ),
+    /**
+     * Страница 404 сайта сразу, без поиска страницы, правил и плагинов: адрес папки-сайта без файла
+     * (ADR 0068) — её адреса принадлежат ей.
+     */
+    notFound: (request: RequestInfo): Promise<Delivery> =>
+      Promise.resolve(request)
+        .then((_) => notFoundPage(_, settings()))
+        .then(rendered(request)),
   };
 };
 

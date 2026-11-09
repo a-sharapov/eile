@@ -279,6 +279,8 @@ const _STATUS: Readonly<Record<string, number>> = {
   nothing_open: 409,
   page_published: 409,
   page_not_in_set: 409,
+  // Файл связанной папки живёт на диске сервера: удалить или заменить его через менеджер нельзя.
+  linked_file: 409,
   agent_gone: 409,
   not_agent: 403,
   forbidden: 403,
@@ -514,8 +516,9 @@ const _SESSION_ONLY: ReadonlySet<string> = new Set([
 
 // Эти настройки меняет только человек в менеджере, не ключ API и не агент (даже администраторский): адрес
 // сайта задаёт ссылки сброса пароля в письмах (подменённый увёл бы их на чужой сайт), robots.txt и правила
-// ИИ-ботов — выдачу поисковикам, кэш — отдачу страниц. Тот же список исключён из полей инструмента
-// update_settings (agent-tools.ts) — здесь он закрыт и для прямого запроса ключом.
+// ИИ-ботов — выдачу поисковикам, кэш — отдачу страниц, стиль адресов — все адреса сайта разом (ADR 0063).
+// Тот же список исключён из полей инструмента update_settings (agent-tools.ts) — здесь он закрыт и для
+// прямого запроса ключом.
 const _HUMAN_SETTINGS: readonly (keyof SiteSettings)[] = [
   'siteUrl',
   'robots',
@@ -523,6 +526,8 @@ const _HUMAN_SETTINGS: readonly (keyof SiteSettings)[] = [
   'aiTraining',
   'pagingCanonical',
   'pageCacheMb',
+  'urlSuffix',
+  'folderSlash',
 ];
 
 export var sessionToken = (request: Request): string | null =>
@@ -684,7 +689,7 @@ const _routes = (
       ...status.gateway,
       recent: notify.gateway.recent(),
       shadows: ((page) => page && { id: page.id, title: page.title })(
-        content.published.byPath(status.gateway.path.slice(0, -1))
+        content.published.locate(status.gateway.path.slice(0, -1))
       ),
     },
   });
@@ -1823,6 +1828,14 @@ const _routes = (
           updates: upkeep.updates.status(),
           offsite: upkeep.offsite.status(),
           database: upkeep.database.status(),
+          // Связанные папки в копию базы не входят: экран копий говорит об этом прямо (ADR 0065).
+          linked: media.links.list().map((_) => ({
+            prefix: _.prefix,
+            dir: _.dir,
+            present: _.present,
+            files: _.files,
+            bytes: _.bytes,
+          })),
         }),
     ],
     [
@@ -2318,7 +2331,13 @@ const _routes = (
       'content.edit',
       ({ params }) =>
         _json(200, {
-          pages: content.usage.media(params.path!),
+          pages: content.usage.media(
+            params.path!,
+            attempt(
+              () => media.files.original(params.path!),
+              () => null
+            ) ?? undefined
+          ),
           site: site.settings.get().socialImage === params.path,
         }),
     ],

@@ -68,6 +68,12 @@ const _PAGE = {
   description: _string('Description for search results and social cards'),
   introText: _string('Summary for lists of pages'),
   alias: _string('Address segment; empty — from the title'),
+  folder: _boolean(
+    'A section page: when the site address style ends folders with /, its address does (/catalog/); set by itself when the page gets a child'
+  ),
+  aliasInPath: _boolean(
+    'false — the alias is left out of the addresses of the pages under it (/cities/minsk/ → /minsk/); the page keeps its own address'
+  ),
   template: _string('Template name: see list_templates'),
   content: _string(
     'Page text: an HTML fragment; components as [[Name prop="x"]], forms as [#Form:name], page links as [~id~]; a trailing hidden ([[Name hidden]]) hides a block without deleting it'
@@ -728,6 +734,12 @@ export var AGENT_TOOLS: readonly AgentTool[] = [
       pagingSegment: _string(
         'Word in the address of list parts: page → /blog/page-2'
       ),
+      // Только вид переходов между страницами: ни адресов, ни выдачи поисковикам, — агенту можно (ADR 0066).
+      viewTransitions: {
+        type: 'boolean',
+        description:
+          'Smooth cross-document view transitions between site pages; templates need no rule of their own',
+      },
     }),
     request: (_) => ({ method: 'PATCH', path: '/settings', body: _ }),
   },

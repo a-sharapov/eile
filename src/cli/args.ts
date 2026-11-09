@@ -87,6 +87,10 @@ export type Options = {
   readonly media?: string;
   /** `cms import-wp --into <id>`: перенос под эту страницу, а не в пустой сайт. */
   readonly into?: string;
+  /** `cms media link --serve-original` / `--no-serve-original`: отдавать файлы папки по исходным адресам. */
+  readonly serveOriginal?: boolean;
+  /** `cms media link --static`: папка-сайт — статический сайт по `/<приставка>/…` (ADR 0068). */
+  readonly staticSite?: boolean;
 };
 
 /** Разобранная строка вызова: команда, её аргументы и параметры; или ошибка для человека. */
@@ -141,6 +145,9 @@ const _OPTIONS = {
   'dry-run': { type: 'boolean' },
   media: { type: 'string' },
   into: { type: 'string' },
+  'serve-original': { type: 'boolean' },
+  'no-serve-original': { type: 'boolean' },
+  static: { type: 'boolean' },
 } as const;
 
 // parseArgs говорит длинно: «Unknown option '--prot'…» — самое частое говорим коротко и на языке CLI.
@@ -238,6 +245,12 @@ export var parseInvocation = (argv: readonly string[], env: Env): Invocation =>
             ...(parsed.values['dry-run'] ? { dryRun: true } : {}),
             ...(parsed.values.media ? { media: parsed.values.media } : {}),
             ...(parsed.values.into ? { into: parsed.values.into } : {}),
+            ...(parsed.values['serve-original']
+              ? { serveOriginal: true }
+              : parsed.values['no-serve-original']
+                ? { serveOriginal: false }
+                : {}),
+            ...(parsed.values.static ? { staticSite: true } : {}),
             ...(parsed.values.to ? { to: parsed.values.to } : {}),
             ...(parsed.values.resolver
               ? { resolver: parsed.values.resolver }

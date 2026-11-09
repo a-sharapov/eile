@@ -18,6 +18,23 @@ const _escapeAttribute = (value: string): string =>
 // браузеры сливают непредсказуемо.
 const _VIEWPORT = /<meta\b[^>]*\bname\s*=\s*["']?viewport\b/i;
 
+// Переходы между документами (View Transitions, ADR 0066): браузер без поддержки правило пропускает, а при
+// «уменьшить движение» в системе переход не играет.
+const _VIEW_TRANSITION =
+  '<style>@media (prefers-reduced-motion: no-preference){@view-transition{navigation:auto}}</style>';
+
+/**
+ * Правило плавных переходов для head страницы сайта: включено в настройках и своего `@view-transition` нет ни в
+ * head вида, ни в его стилях.
+ */
+export var viewTransitionHead = (
+  enabled: boolean,
+  own: readonly string[]
+): string =>
+  enabled && !own.some((_) => _.includes('@view-transition'))
+    ? _VIEW_TRANSITION
+    : '';
+
 export var htmlDocument = (language: string, { head, body }: Rendered) =>
   [
     '<!doctype html>',

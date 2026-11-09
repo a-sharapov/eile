@@ -1,6 +1,6 @@
 import type { PageView, PublishedContent } from '../../content/index.ts';
 import type { SiteSettings } from '../../site/index.ts';
-import { pageUrl } from '../domain/canonical-path.ts';
+import { endingOf, markdownPath, pageUrl } from '../domain/canonical-path.ts';
 import { resolvePageLinks } from '../domain/content-tags.ts';
 import { isHtml } from '../domain/content-type.ts';
 import {
@@ -72,10 +72,9 @@ export var defineDiscovery = ({
   const url = (page: PageView, site: SiteSettings, origin: string) =>
     `${origin}${pageUrl(page, site.homePageId)}`;
 
+  // Markdown-версия — адрес без окончания и `.md`: `/katalog/` → `/katalog.md` (ADR 0063).
   const markdownUrl = (page: PageView, site: SiteSettings, origin: string) =>
-    page.id === site.homePageId
-      ? `${origin}/index.md`
-      : `${url(page, site, origin)}.md`;
+    `${origin}${markdownPath(pageUrl(page, site.homePageId), endingOf(page))}`;
 
   // Переводы страницы — те же, что в hreflang её шапки: находимые, по одному на язык.
   const alternates = (page: PageView, site: SiteSettings, origin: string) =>
@@ -173,11 +172,13 @@ export var defineDiscovery = ({
   };
 
   // /about.md → страница /about целиком, как её видит посетитель, но в Markdown; /index.md — главная.
+  // `/katalog.md` — страница `/katalog/`: путь без `.md` — вариант её адреса.
   const markdown = (request: RequestInfo): Promise<Discovered> => {
     const site = settings();
     const origin = originOf(request, site);
-    const path = request.path === '/index.md' ? '/' : request.path.slice(0, -3);
-    const page = path === '/' ? null : content.byPath(path);
+    const bare = request.path === '/index.md' ? '/' : request.path.slice(0, -3);
+    const page = bare === '/' ? null : content.locate(bare);
+    const path = page ? pageUrl(page, site.homePageId) : bare;
     return page && !findable(page, site)
       ? Promise.resolve({
           status: 404,

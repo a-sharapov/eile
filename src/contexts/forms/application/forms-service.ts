@@ -197,6 +197,22 @@ export type SubmitResult = { readonly back: string } & (
   | { readonly kind: 'missing' }
 );
 
+/** Заявка от кода сервера (плагин, ADR 0067): откуда она и кто её прислал, если это известно. */
+export type TrustedOptions = {
+  /** Страница сайта (id): скрытые поля страницы и адрес заявки. */
+  readonly page?: number;
+  readonly referrer?: string;
+  /** Адрес вне сайта, откуда пришла заявка (лендинг): `http(s)://…`, иное не записывается. */
+  readonly origin?: string;
+  readonly ip?: string;
+  readonly userAgent?: string;
+};
+
+/** ok — записана (`spam` — со статусом «спам», без уведомлений); иначе ошибки полей. */
+export type TrustedResult =
+  | { readonly ok: true; readonly id: number; readonly spam: boolean }
+  | { readonly ok: false; readonly errors: Readonly<Record<string, string>> };
+
 /** Сводка формы для менеджера. */
 export type FormSummary = Pick<
   Form,
@@ -216,6 +232,29 @@ const _gone = (message: string): Error => new Error(message);
 
 const _first = (posted: Posted, name: string): string =>
   posted[name]?.[0] ?? '';
+
+// Значения от плагина — как присланные формой: строки, несколько — у `multiple`; служебные `_…` не берутся.
+const _posted = (values: Readonly<Record<string, unknown>>): Posted =>
+  Object.fromEntries(
+    Object.entries(values)
+      .filter(
+        ({ 0: name, 1: value }) =>
+          !name.startsWith('_') && value !== null && value !== undefined
+      )
+      .map(({ 0: name, 1: value }) => [
+        name,
+        (Array.isArray(value) ? value : [value]).map(String),
+      ])
+  );
+
+// Адрес лендинга, откуда пришла заявка: только http(s); в заявке — хост подписью и сам адрес.
+const _origin = (
+  raw: string | undefined
+): { readonly title: string; readonly url: string } | null =>
+  ((url) =>
+    url && (url.protocol === 'https:' || url.protocol === 'http:')
+      ? { title: url.host, url: url.href.slice(0, 500) }
+      : null)(raw ? URL.parse(raw) : null);
 
 const _decodeFlash = (raw: string | null): Flash | null =>
   raw
@@ -479,14 +518,15 @@ export var defineFormsService = ({
     );
 
   // `unproven` — без доказательства работы из браузера без JS: заявка сохраняется спамом, ничего не теряется.
-  const accept = (
+  // `origin` — адрес вне сайта, откуда заявку прислал плагин; у заявки со страницы его нет.
+  const record = (
     form: Form,
     input: SubmitInput,
     page: FormPage | null,
     values: Value[],
-    unproven: boolean
-  ): SubmitResult => {
-    const back = page?.path ?? '/';
+    unproven: boolean,
+    origin: { readonly title: string; readonly url: string } | null = null
+  ): { readonly id: number; readonly spam: boolean } => {
     const fields = fieldsOf(form);
     const context = contextOf(
       page,
@@ -508,8 +548,8 @@ export var defineFormsService = ({
       values: final,
       context: {
         pageId: page?.id ?? null,
-        pageTitle: page?.title ?? '',
-        url: page ? `${site().url}${page.path}` : '',
+        pageTitle: page?.title ?? origin?.title ?? '',
+        url: page ? `${site().url}${page.path}` : (origin?.url ?? ''),
         referrer: _first(input.fields, '_ref').slice(0, 500),
         utm: parseUtm(_first(input.fields, '_utm')),
         ...(unproven ? { proof: 'missing' as const } : {}),
@@ -568,8 +608,66 @@ export var defineFormsService = ({
         userAgent: input.userAgent,
       }))
     );
-    count(`${clientKey(input.ip)}|${form.name}`);
-    return sent(form, back);
+    return { id, spam };
+  };
+
+  const accept = (
+    form: Form,
+    input: SubmitInput,
+    page: FormPage | null,
+    values: Value[],
+    unproven: boolean
+  ): SubmitResult => (
+    record(form, input, page, values, unproven),
+    count(`${clientKey(input.ip)}|${form.name}`),
+    sent(form, page?.path ?? '/')
+  );
+
+  /**
+   * Заявка от кода сервера — плагина, который принял её своим адресом (ADR 0067). Печати, ловушки, задачи защиты,
+   * минимального времени и лимита частоты нет: это решает плагин. Остальное как у формы на сайте: поля —
+   * только из разметки и по её правилам, скрытые поля страницы и сайта — с сервера, фильтр спама,
+   * уведомление, письмо отправителю, вебхук и цель статистики.
+   */
+  const submitTrusted = (
+    name: string,
+    values: Readonly<Record<string, unknown>>,
+    options: TrustedOptions = {}
+  ): TrustedResult => {
+    const form =
+      find(name) ?? fail('forms.form_not_found', `No form "${name}"`);
+    const page =
+      options.page === undefined ? null : pages.page(Number(options.page));
+    const input = trusted(
+      form,
+      {
+        fields: {
+          ..._posted(values ?? {}),
+          _ref: [String(options.referrer ?? '').slice(0, 500)],
+        },
+        ip: String(options.ip ?? ''),
+        userAgent: String(options.userAgent ?? ''),
+      },
+      page
+    );
+    const checked = checkValues(
+      fieldsOf(form),
+      input.fields,
+      page?.language || site().language
+    );
+    return Object.keys(checked.errors).length > 0
+      ? { ok: false, errors: checked.errors }
+      : {
+          ok: true,
+          ...record(
+            form,
+            input,
+            page,
+            checked.values,
+            false,
+            _origin(options.origin)
+          ),
+        };
   };
 
   // Скрытые поля с источником на сервере — его значения ещё до проверки: присланное не решает условий.
@@ -877,6 +975,7 @@ export var defineFormsService = ({
     },
     render,
     submit,
+    submitTrusted,
     /**
      * Что принять до чтения тела: формы нет, с адреса уже слишком много отправок, форма с файлами (большое
      * тело) или без. Так тело в 50 МБ не читается ради несуществующей формы или формы без файлов.

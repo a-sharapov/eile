@@ -7,6 +7,7 @@ import {
 } from '../../../platform/chunks.ts';
 import type { Database, Migration } from '../../../platform/database.ts';
 import { imageSize } from '../domain/image-size.ts';
+import type { MediaLink } from '../domain/linked.ts';
 import {
   type MediaFile,
   type MediaPath,
@@ -14,6 +15,8 @@ import {
   variantWidth,
 } from '../domain/media.ts';
 import type {
+  LinkedRow,
+  LinkTotals,
   MediaPiece,
   MediaRepository,
   UploadContent,
@@ -158,6 +161,35 @@ export var mediaMigrations: readonly Migration[] = [
   { id: 'media/004_image_size', run: _measureStored },
   { id: 'media/005_chunks', run: _toChunks },
   { id: 'media/006_variant_jobs', run: _queueVariants },
+  {
+    // Связанные папки (ADR 0065): у файла папки — приставка папки и путь на диске, кусков нет; у его варианта
+    // путь на диске пустой, байты — в кэше медиатеки. Индексы описания снова покрывающие.
+    id: 'media/007_linked_folders',
+    sql: `
+      ALTER TABLE media_files ADD COLUMN link TEXT;
+      ALTER TABLE media_files ADD COLUMN file TEXT;
+      ALTER TABLE media_files ADD COLUMN mtime INTEGER;
+      DROP INDEX media_files_meta;
+      DROP INDEX media_files_stem;
+      CREATE INDEX media_files_meta
+        ON media_files (path, content_type, size, hash, width, height, alt, link, file);
+      CREATE INDEX media_files_stem
+        ON media_files (stem, path, content_type, size, hash, width, height, alt, link, file);
+      CREATE UNIQUE INDEX media_files_linked ON media_files (link, file) WHERE file IS NOT NULL;
+      CREATE TABLE media_links (
+        prefix TEXT PRIMARY KEY,
+        root TEXT NOT NULL,
+        serve_original INTEGER NOT NULL DEFAULT 0,
+        linked_at TEXT NOT NULL,
+        synced_at TEXT NOT NULL
+      );
+    `,
+  },
+  {
+    // Папка-сайт (ADR 0068): связанная папка, которая отдаётся статическим сайтом; строк файлов у неё нет.
+    id: 'media/008_static_sites',
+    sql: 'ALTER TABLE media_links ADD COLUMN static_site INTEGER NOT NULL DEFAULT 0;',
+  },
 ];
 
 type MetaRow = {
@@ -168,9 +200,11 @@ type MetaRow = {
   width: number | null;
   height: number | null;
   alt: string;
+  link: string | null;
+  file: string | null;
 };
 
-const _META = 'path, content_type, size, hash, width, height, alt';
+const _META = 'path, content_type, size, hash, width, height, alt, link, file';
 
 const _toFile = (row: MetaRow): MediaFile => ({
   path: row.path as MediaPath,
@@ -180,7 +214,30 @@ const _toFile = (row: MetaRow): MediaFile => ({
   width: row.width,
   height: row.height,
   alt: row.alt,
+  ...(row.link === null
+    ? {}
+    : { linked: { prefix: row.link, file: row.file } }),
 });
+
+type LinkRow = {
+  prefix: string;
+  root: string;
+  serve_original: number;
+  static_site: number;
+  linked_at: string;
+  synced_at: string;
+};
+
+const _toLink = (row: LinkRow): MediaLink => ({
+  prefix: row.prefix,
+  root: row.root,
+  serveOriginal: row.serve_original === 1,
+  staticSite: row.static_site === 1,
+  linkedAt: row.linked_at,
+  syncedAt: row.synced_at,
+});
+
+const _LINK = 'prefix, root, serve_original, static_site, linked_at, synced_at';
 
 export var defineMediaRepository = (
   db: Database,
@@ -206,27 +263,69 @@ export var defineMediaRepository = (
     `SELECT ${_META} FROM media_files INDEXED BY media_files_stem WHERE stem = ?`
   );
   const upsert = db.query(`
-    INSERT INTO media_files (path, stem, content_type, size, hash, width, height, alt, updated_at)
-    VALUES ($path, $stem, $contentType, $size, $hash, $width, $height, $alt, $now)
+    INSERT INTO media_files (path, stem, content_type, size, hash, width, height, alt, link, file, mtime, updated_at)
+    VALUES ($path, $stem, $contentType, $size, $hash, $width, $height, $alt, $link, $file, $mtime, $now)
     ON CONFLICT (path) DO UPDATE SET
       content_type = excluded.content_type, size = excluded.size, hash = excluded.hash,
       width = excluded.width, height = excluded.height, alt = excluded.alt,
+      link = excluded.link, file = excluded.file, mtime = excluded.mtime,
       updated_at = excluded.updated_at`);
+  const original = db.query<MetaRow, [string, string]>(
+    `SELECT ${_META} FROM media_files INDEXED BY media_files_linked WHERE link = ? AND file = ?`
+  );
+  const linked = db.query<MetaRow & { mtime: number | null }, [string]>(
+    `SELECT ${_META}, mtime FROM media_files WHERE link = ? AND file IS NOT NULL ORDER BY file`
+  );
+  const mtime = db.query<{ mtime: number | null }, [string]>(
+    'SELECT mtime FROM media_files WHERE path = ?'
+  );
+  const derived = db.query<MetaRow, []>(
+    `SELECT ${_META} FROM media_files INDEXED BY media_files_meta
+     WHERE link IS NOT NULL AND file IS NULL ORDER BY path`
+  );
+  const links = db.query<LinkRow, []>(
+    `SELECT ${_LINK} FROM media_links ORDER BY prefix`
+  );
+  const link = db.query<LinkRow, [string]>(
+    `SELECT ${_LINK} FROM media_links WHERE prefix = ?`
+  );
+  const saveLink = db.query(`
+    INSERT INTO media_links (${_LINK})
+    VALUES ($prefix, $root, $serveOriginal, $staticSite, $linkedAt, $syncedAt)
+    ON CONFLICT (prefix) DO UPDATE SET
+      root = excluded.root, serve_original = excluded.serve_original,
+      static_site = excluded.static_site, synced_at = excluded.synced_at`);
+  const removeLink = db.query('DELETE FROM media_links WHERE prefix = ?');
+  const totals = db.query<{ link: string; files: number; bytes: number }, []>(
+    `SELECT link, count(*) AS files, coalesce(sum(size), 0) AS bytes FROM media_files
+     WHERE link IS NOT NULL AND file IS NOT NULL GROUP BY link`
+  );
   const removeFile = db.query('DELETE FROM media_files WHERE path = ?');
   const removeChunks = db.query('DELETE FROM media_chunks WHERE path = ?');
   const insertChunk = db.query<unknown, [string, number, Uint8Array]>(
     'INSERT INTO media_chunks (path, n, data) VALUES (?, ?, ?)'
   );
   const describe = db.query('UPDATE media_files SET alt = ? WHERE path = ?');
-  // Описание и куски меняются вместе: читатель не увидит хэш одной версии рядом с кусками другой.
+  const row = (file: MediaFile, mtime: number | null) => ({
+    path: file.path,
+    stem: stemOf(file.path),
+    contentType: file.contentType,
+    size: file.size,
+    hash: file.hash,
+    width: file.width,
+    height: file.height,
+    alt: file.alt,
+    link: file.linked?.prefix ?? null,
+    file: file.linked?.file ?? null,
+    mtime,
+    now: new Date().toISOString(),
+  });
+  // Описание и куски меняются вместе: читатель не увидит хэш одной версии рядом с кусками другой. У файла
+  // связанной папки и его варианта кусков нет: байты на диске.
   const save = db.transaction((file: MediaFile, content: UploadContent) => {
-    upsert.run({
-      ...file,
-      stem: stemOf(file.path),
-      now: new Date().toISOString(),
-    });
+    upsert.run(row(file, null));
     removeChunks.run(file.path);
-    chunkNumbers(content.size).forEach(
+    (file.linked ? [] : chunkNumbers(content.size)).forEach(
       (n) =>
         void insertChunk.run(
           file.path,
@@ -261,6 +360,33 @@ export var defineMediaRepository = (
     remove: (path) => void remove(path),
     describe: (path, alt) => void describe.run(alt, path),
     transaction: (run) => db.transaction(run)(),
+    original: (prefix, file) =>
+      ((found) => found && _toFile(found))(original.get(prefix, file)),
+    linked: (prefix): LinkedRow[] =>
+      linked.all(prefix).map((_) => ({ ..._toFile(_), mtime: _.mtime })),
+    mtime: (path) => mtime.get(path)?.mtime ?? null,
+    place: (file, mtime) => void upsert.run(row(file, mtime)),
+    derived: () => derived.all().map(_toFile),
+    links: {
+      list: () => links.all().map(_toLink),
+      get: (prefix) => ((found) => found && _toLink(found))(link.get(prefix)),
+      save: (_) =>
+        void saveLink.run({
+          prefix: _.prefix,
+          root: _.root,
+          serveOriginal: _.serveOriginal ? 1 : 0,
+          staticSite: _.staticSite ? 1 : 0,
+          linkedAt: _.linkedAt,
+          syncedAt: _.syncedAt,
+        }),
+      remove: (prefix) => void removeLink.run(prefix),
+      totals: () =>
+        new Map<string, LinkTotals>(
+          totals
+            .all()
+            .map((_) => [_.link, { files: _.files, bytes: _.bytes }] as const)
+        ),
+    },
   };
 };
 

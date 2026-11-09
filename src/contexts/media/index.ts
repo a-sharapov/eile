@@ -4,19 +4,43 @@ import type { Report } from '../../shared/kernel/report.ts';
 import { defineMediaService } from './application/media-service.ts';
 import { type MediaEvent, stemOf } from './domain/media.ts';
 import type { ImageResizer, MediaCache } from './domain/ports.ts';
+import { defineLinkedDisk } from './infrastructure/linked-disk.ts';
 import {
   defineMediaRepository,
   defineVariantQueue,
 } from './infrastructure/sqlite-media.ts';
-import { defineMediaHandler } from './interface/media-handler.ts';
+import {
+  defineMediaHandler,
+  defineOriginalHandler,
+  defineStaticHandler,
+} from './interface/media-handler.ts';
 
+export type {
+  LinkGap,
+  LinkInput,
+  LinkReport,
+  LinkView,
+  SkippedFile,
+  SkipReason,
+  UnlinkReport,
+} from './application/linked-folders.ts';
 export {
   type ImageSet,
+  type MediaRead,
   type MediaService,
   mediaHash,
+  type StaticAnswer,
+  type StaticFile,
   type Upload,
   type UploadContent,
 } from './application/media-service.ts';
+export {
+  linkedPath,
+  linkedSegment,
+  type MediaLink,
+  parseLinkPrefix,
+  RESERVED_PREFIXES,
+} from './domain/linked.ts';
 export {
   checkSize,
   contentTypeOf,
@@ -29,6 +53,7 @@ export {
   variantWidth,
 } from './domain/media.ts';
 export type { ImageResizer, MediaCache } from './domain/ports.ts';
+export { isResizable, stemOwner } from './domain/variants.ts';
 export { defineImageResizer } from './infrastructure/bun-image.ts';
 export {
   defineMediaCache,
@@ -49,12 +74,18 @@ export var defineMedia = ({
   cache,
   resize,
   report,
+  base = null,
+  notFound,
 }: {
   db: Database;
   bus: EventBus;
   cache: MediaCache;
   resize: ImageResizer;
   report: Report;
+  /** Каталог файла базы: путь к связанной папке внутри него записывается от него; у базы в памяти — null. */
+  base?: string | null;
+  /** Страница 404 сайта — адресу папки-сайта без файла и без её `404.html`; по умолчанию голый 404. */
+  notFound?: (request: Request) => Promise<Response>;
 }) => {
   let kick = (): void => undefined;
   const files = defineMediaRepository(db, stemOf);
@@ -63,6 +94,7 @@ export var defineMedia = ({
     queue: defineVariantQueue(db),
     resize,
     cache,
+    disk: defineLinkedDisk(base),
     bus,
     report,
     kick: () => kick(),
@@ -70,16 +102,36 @@ export var defineMedia = ({
   // Замена и удаление убирают с диска прежние версии; новую вынесет из базы первый запрос.
   const forget = (event: MediaEvent): void =>
     cache.forget(event.path, files.meta(event.path)?.hash ?? null);
+  const originals = defineOriginalHandler(service);
+  const statics = defineStaticHandler(service, notFound);
   bus.on<MediaEvent>('media.file_saved', forget);
   bus.on<MediaEvent>('media.file_removed', forget);
   return {
     ...service,
     handle: defineMediaHandler(service),
     /**
+     * Исходный адрес файла связанной папки или адрес папки-сайта (ADR 0065, 0068); null — адрес не их, дальше
+     * страницы и правила. Приставки папок не вкладываются, поэтому порядок двух обработчиков не важен.
+     */
+    original: (request: Request): Promise<Response> | null =>
+      statics(request) ?? originals(request),
+    /**
      * Фон у сервера: варианты — сразу после загрузки, то, что ждало, — при запуске, а раз в минуту — задания,
-     * которые записал другой процесс (`cms mcp`). Команды CLI и тесты гоняют очередь сами.
+     * которые записал другой процесс (`cms mcp`). Команды CLI и тесты гоняют очередь сами. При запуске —
+     * строка в журнал о связанных папках, которых нет на диске, и варианты их картинок, пропавшие из кэша.
      */
     start: (): (() => void) => {
+      service.links
+        .gaps()
+        .forEach(
+          (_) =>
+            void console.error(
+              _.present
+                ? `Linked folder ${_.dir} (${_.prefix}): ${_.missing.length} file(s) are missing on disk and answer 404; run cms media link to resync`
+                : `Linked folder ${_.dir} (${_.prefix}) is missing: its files answer 404`
+            )
+        );
+      service.links.heal();
       let stopped = false;
       // Ошибка внутри задания Bun.cron без перехвата завершила бы сервер.
       const drain = (): Promise<void> =>
