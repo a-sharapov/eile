@@ -1372,6 +1372,21 @@ const _routes = (
         ),
     ],
     [
+      // Журнал целиком, страницами: правки от offset и сколько их всего (журнал хранит последнюю тысячу).
+      'GET',
+      '/activity/page',
+      'content.edit',
+      ({ request }) =>
+        ((params) =>
+          _json(200, {
+            items: activity.page(
+              Math.max(Number(params.get('offset')) || 0, 0),
+              Math.min(Math.max(Number(params.get('limit')) || 50, 1), 200)
+            ),
+            total: activity.count(),
+          }))(new URL(request.url).searchParams),
+    ],
+    [
       'POST',
       '/pages',
       'content.edit',
@@ -1633,6 +1648,26 @@ const _routes = (
       'inbox.read',
       ({ request }) =>
         _json(200, forms.inbox.list(inboxQuery(request, 50)).map(rowOf)),
+    ],
+    [
+      // Страница входящих с номером: заявки от offset и сколько их всего под фильтром — для пейджера.
+      'GET',
+      '/inbox/page',
+      'inbox.read',
+      ({ request }) =>
+        ((params) =>
+          ((query) =>
+            _json(200, {
+              items: forms.inbox.list(query).map(rowOf),
+              total: forms.inbox.count(query),
+            }))({
+            ...inboxQuery(
+              request,
+              Math.min(Math.max(Number(params.get('limit')) || 50, 1), 200)
+            ),
+            before: undefined,
+            offset: Math.max(Number(params.get('offset')) || 0, 0),
+          }))(searchOf(request)),
     ],
     [
       'GET',
@@ -2324,6 +2359,30 @@ const _routes = (
               )
               .finally(body.close)
           ))(context.request.headers.get('content-type') ?? ''),
+    ],
+    [
+      // Какие файлы медиатеки стоят на страницах, в полях или картинкой для соцсетей — все разом: для
+      // фильтра «не используется». Исходный путь файла связанной папки тоже в счёт.
+      'GET',
+      '/media-used',
+      'content.edit',
+      () =>
+        ((references, social) =>
+          _json(200, {
+            used: media.files
+              .list()
+              .filter(
+                (_) =>
+                  !/@\d+\.[a-z0-9]+$/.test(_.path) &&
+                  (references.has(_.path) ||
+                    _.path === social ||
+                    ((original) =>
+                      original !== null && references.has(original))(
+                      media.files.original(_.path)
+                    ))
+              )
+              .map((_) => _.path),
+          }))(content.usage.mediaReferences(), site.settings.get().socialImage),
     ],
     [
       'GET',

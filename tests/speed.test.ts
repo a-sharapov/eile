@@ -153,6 +153,17 @@ describe('некэшируемые регионы', () => {
     expect(await second.text()).toContain('<b>Привет, Боб</b>');
   });
 
+  it('queryAll: все значения повторённого параметра по порядку, query — последнее', async () => {
+    app.design.components.save(
+      'Greeting',
+      "<script>import { request } from '$core';</script><b>{request().queryAll('stone').join('+') || 'нет'} / {request().query.stone}</b>"
+    );
+    expect(
+      await (await get('/kontakty?stone=gabbro&stone=aurora')).text()
+    ).toContain('<b>gabbro+aurora / aurora</b>');
+    expect(await (await get('/kontakty')).text()).toContain('<b>нет / </b>');
+  });
+
   it('шаблон, читающий запрос сам, в кэш не попадает', async () => {
     app.design.templates.save(
       'Base',

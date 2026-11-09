@@ -72,7 +72,8 @@ description: Как устроены шаблоны и компоненты CMS 
     страницы, иначе сайта; отсутствующий ключ по-прежнему читается как `{i18n.key}` / `[@key]`. Словарь для
     скрипта страницы — `{@html '<script type="application/json">' + JSON.stringify(site.i18n).replaceAll('<',
     '\\u003c') + '</script>'}`: `<script>` прямо в разметке Svelte оставляет текстом (ADR 0061);
-  - `request()` — запрос; читать только внутри `Uncached`;
+  - `request()` — запрос: `path`, `query` (у повторённого параметра — последнее значение), `queryAll(name)` —
+    все значения `?stone=a&stone=b` по порядку, `header(name)`, `cookie(name)`; читать только внутри `Uncached`;
   - `media(path)` — URL файла медиатеки с версией;
   - `image(path)` — `{ src, srcset, width, height, alt }` из вариантов `photo@960.webp`; `alt` —
     описание картинки из медиатеки (пусто — не описана).

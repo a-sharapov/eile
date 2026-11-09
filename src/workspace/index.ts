@@ -1,6 +1,8 @@
 export { type AgentsOptions, agentsGuide, CLAUDE_MD } from './agents-md.ts';
 export { entryOf, type Files, PATTERNS } from './layout.ts';
 export {
+  type CarriedFolder,
+  carryFolders,
   defaultPrefix,
   type KeptFile,
   linkMedia,

@@ -997,6 +997,9 @@ export var defineFormsService = ({
             `${now.toISOString().slice(0, 10)}T00:00:00.000Z`
           ))(clock()),
       list: (query: SubmissionQuery): Submission[] => submissions.list(query),
+      /** Сколько заявок под фильтром — для пейджера. */
+      count: (query: Omit<SubmissionQuery, 'limit'>): number =>
+        submissions.count(query),
       /** Заявка для менеджера: первое открытие делает её прочитанной. */
       open: (id: number, userId: number): Submission =>
         saveSubmission(markRead(userId, iso())(load(id))),

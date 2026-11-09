@@ -10,6 +10,7 @@ import { refreshInbox } from '#lib/inbox.svelte.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
 import { fileSize } from '#lib/media.ts';
 import { failed, notify } from '#lib/notices.svelte.ts';
+import { definePager } from '#lib/pager.svelte.ts';
 import { session } from '#lib/session.svelte.ts';
 import { aliasFromTitle } from '#lib/translit.ts';
 import type {
@@ -19,11 +20,10 @@ import type {
 } from '#lib/types.ts';
 import LoadState from '#lib/ui/LoadState.svelte';
 import PageHeader from '#lib/ui/PageHeader.svelte';
+import Pager from '#lib/ui/Pager.svelte';
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import { page } from '$app/state';
-
-const _PAGE = 50;
 
 const _STATUSES: readonly { id: SubmissionStatus | ''; label: MessageKey }[] = [
   { id: '', label: 'inbox.statusAll' },
@@ -62,47 +62,58 @@ $effect(() =>
 let status = $state<SubmissionStatus | ''>('');
 let query = $state('');
 let rows = $state<InboxRow[]>([]);
-let more = $state(false);
+// Входящие — страницами с номерами: заявки страницы и сколько их всего под фильтром.
+const pager = definePager('inbox', 50, [25, 50, 100, 200]);
+let total = $state(0);
+let listTop = $state<HTMLElement>();
 let detail = $state<SubmissionDetail | null>(null);
 let note = $state('');
 let busy = $state(false);
 
-const params = (before?: number): string =>
+const params = (): string =>
   new URLSearchParams(
     Object.entries({
       form,
       status,
       q: query.trim(),
-      before: before ? String(before) : '',
+      offset: String((pager.page - 1) * pager.size),
+      limit: String(pager.size),
     }).filter(({ 1: value }) => value !== '')
   ).toString();
 
 const list = defineLoad(() =>
   Promise.all([
-    api.get<InboxRow[]>(`/inbox?${params()}`).then((_) => {
-      rows = _;
-      more = _.length === _PAGE;
-    }),
+    api
+      .get<{ items: InboxRow[]; total: number }>(`/inbox/page?${params()}`)
+      .then((_) => {
+        rows = _.items;
+        total = _.total;
+      }),
     forms.items === null ? loadForms() : Promise.resolve(forms.items),
   ])
 );
 
-// Фильтры перезагружают список; поиск — с паузой, пока печатают.
+// Фильтры и страница перезагружают список; новый фильтр — с первой страницы, поиск — с паузой.
 let timer = 0;
 $effect(() => {
-  void [form, status];
+  void [form, status, pager.page, pager.size];
   void list.retry();
 });
 const search = () => {
   clearTimeout(timer);
-  timer = window.setTimeout(() => void list.retry(), 300);
+  timer = window.setTimeout(
+    () => (pager.page === 1 ? void list.retry() : (pager.page = 1)),
+    300
+  );
 };
 
-const loadMore = () =>
-  api
-    .get<InboxRow[]>(`/inbox?${params(rows.at(-1)?.id)}`)
-    .then((_) => ((rows = [...rows, ..._]), (more = _.length === _PAGE)))
-    .then(undefined, failed);
+// Сменили страницу внизу списка — его начало снова в кадре.
+const toTop = () =>
+  void (
+    listTop &&
+    listTop.getBoundingClientRect().top < 0 &&
+    listTop.scrollIntoView({ block: 'start' })
+  );
 
 // Открытая заявка — по ?id: ссылка из Telegram и письма ведёт прямо в неё.
 $effect(() => {
@@ -195,7 +206,7 @@ const remove = () =>
       api
         .send('DELETE', `/inbox/${detail!.id}`)
         .then(() => {
-          rows = rows.filter((_) => _.id !== detail!.id);
+          void list.retry();
           void refreshInbox();
           return open(null);
         })
@@ -333,14 +344,14 @@ const copyTag = (name: string) =>
   <div class="inbox">
     <section class="list" aria-label={t('inbox.list')}>
       <div class="filters">
-        <select bind:value={form} aria-label={t('inbox.form')}>
+        <select bind:value={form} aria-label={t('inbox.form')} onchange={() => (pager.page = 1)}>
           <option value="">{t('inbox.allForms')}</option>
           {#each forms.items ?? [] as item (item.name)}<option value={item.name}>{item.title}</option>{/each}
         </select>
         <input type="search" bind:value={query} oninput={search} placeholder={t('inbox.search')} aria-label={t('inbox.search')} />
         <div class="segmented statuses" role="group" aria-label={t('inbox.status')}>
           {#each _STATUSES as item (item.id)}
-            <button type="button" aria-pressed={status === item.id} onclick={() => (status = item.id)}>{t(item.label)}</button>
+            <button type="button" aria-pressed={status === item.id} onclick={() => ((status = item.id), (pager.page = 1))}>{t(item.label)}</button>
           {/each}
         </div>
       </div>
@@ -348,7 +359,7 @@ const copyTag = (name: string) =>
         {#if rows.length === 0}
           <p class="muted none">{form || status || query ? t('inbox.nothing') : t('inbox.empty')}</p>
         {:else}
-          <ul class="rows">
+          <ul class="rows" bind:this={listTop}>
             {#each rows as row (row.id)}
               <li>
                 <button type="button" class="row" class:unread={!row.read} aria-current={row.id === selected ? 'true' : undefined} onclick={() => open(row.id)}>
@@ -361,7 +372,7 @@ const copyTag = (name: string) =>
               </li>
             {/each}
           </ul>
-          {#if more}<button type="button" class="button ghost more" onclick={loadMore}>{t('inbox.more')}</button>{/if}
+          <Pager {pager} {total} onpage={toTop} />
         {/if}
       </LoadState>
     </section>
@@ -599,9 +610,6 @@ const copyTag = (name: string) =>
     font-size: 0.8125rem;
   }
 
-  .more {
-    margin-top: 0.5rem;
-  }
 
   .none,
   .pick {

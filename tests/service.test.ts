@@ -521,7 +521,7 @@ const fake = (overrides: Partial<Host> = {}): Fake => {
       (state.version = '0.1.0')),
     place: (from, name) => (
       calls.push(['place', from, name]),
-      Promise.resolve(`/var/lib/private/${name}/site.db`)
+      Promise.resolve({ db: `/var/lib/private/${name}/site.db`, folders: [] })
     ),
     snapshot: (db, target) =>
       void (calls.push(['snapshot', db, target]),

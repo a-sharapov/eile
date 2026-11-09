@@ -35,6 +35,8 @@ export {
   type UploadContent,
 } from './application/media-service.ts';
 export {
+  CACHE_ONLY,
+  inLinkedFolder,
   linkedPath,
   linkedSegment,
   type MediaLink,

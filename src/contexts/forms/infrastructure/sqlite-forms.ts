@@ -12,6 +12,7 @@ import type {
   FormRepository,
   InboxStats,
   SubmissionFile,
+  SubmissionQuery,
   SubmissionRepository,
   UploadedFile,
   WebhookRepository,
@@ -150,14 +151,18 @@ const _search = (values: readonly Value[], note = ''): string =>
     .toLowerCase();
 
 // Один запрос на все сочетания фильтров: пустой фильтр не сужает выборку, спам — только по просьбе.
-const _LIST = `
-  SELECT * FROM forms_submissions
+const _WHERE = `
   WHERE ($form IS NULL OR form = $form)
     AND (CASE WHEN $status IS NULL THEN status <> 'spam' ELSE status = $status END)
     AND ($unread = 0 OR read_at IS NULL)
-    AND ($text IS NULL OR instr(search, $text) > 0)
+    AND ($text IS NULL OR instr(search, $text) > 0)`;
+
+const _LIST = `
+  SELECT * FROM forms_submissions ${_WHERE}
     AND ($before IS NULL OR id < $before)
-  ORDER BY id DESC LIMIT $limit`;
+  ORDER BY id DESC LIMIT $limit OFFSET $offset`;
+
+const _COUNT = `SELECT count(*) AS n FROM forms_submissions ${_WHERE}`;
 
 export var defineSubmissionRepository = (
   db: Database
@@ -174,6 +179,15 @@ export var defineSubmissionRepository = (
   const list = db.query<SubmissionRow, Record<string, string | number | null>>(
     _LIST
   );
+  const count = db.query<{ n: number }, Record<string, string | number | null>>(
+    _COUNT
+  );
+  const _filter = (query: Omit<SubmissionQuery, 'limit'>) => ({
+    form: query.form ?? null,
+    status: query.status ?? null,
+    unread: query.unread ? 1 : 0,
+    text: query.text ? query.text.toLowerCase() : null,
+  });
   const update = db.query(`
     UPDATE forms_submissions SET status = $status, note = $note, read_at = $readAt,
       read_by = $readBy, search = $search, updated_at = $updatedAt
@@ -228,14 +242,13 @@ export var defineSubmissionRepository = (
     list: (query) =>
       list
         .all({
-          form: query.form ?? null,
-          status: query.status ?? null,
-          unread: query.unread ? 1 : 0,
-          text: query.text ? query.text.toLowerCase() : null,
+          ..._filter(query),
           before: query.before ?? null,
+          offset: query.offset ?? 0,
           limit: query.limit,
         })
         .map(_submission),
+    count: (query) => count.get(_filter(query))!.n,
     save: (submission) =>
       void update.run({
         id: submission.id,

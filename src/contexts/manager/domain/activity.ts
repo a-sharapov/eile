@@ -23,6 +23,10 @@ export type ActivityLog = {
   readonly record: (entry: Activity) => void;
   /** Последние правки, новые первыми. */
   readonly recent: (limit: number) => readonly Activity[];
+  /** Страница журнала: правки от `offset`, новые первыми. */
+  readonly page: (offset: number, limit: number) => readonly Activity[];
+  /** Сколько правок в журнале. */
+  readonly count: () => number;
 };
 
 const _MERGE_MS = 10 * 60_000;

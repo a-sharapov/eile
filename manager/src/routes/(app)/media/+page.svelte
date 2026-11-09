@@ -9,10 +9,13 @@ import { icons } from '#lib/icons.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
 import { fileSize, folderOf, originals, previewUrl } from '#lib/media.ts';
 import { failed, notify } from '#lib/notices.svelte.ts';
+import { definePager, pageOf } from '#lib/pager.svelte.ts';
+import { pageOfIndex } from '#lib/pager.ts';
 import { session } from '#lib/session.svelte.ts';
 import type { MediaFile, PageRef } from '#lib/types.ts';
 import LoadState from '#lib/ui/LoadState.svelte';
 import PageHeader from '#lib/ui/PageHeader.svelte';
+import Pager from '#lib/ui/Pager.svelte';
 import {
   confirmReplace,
   folderSlug,
@@ -22,6 +25,7 @@ import {
 } from '#lib/upload.ts';
 import { resolve } from '$app/paths';
 import { page as route } from '$app/state';
+import AltBatch from './AltBatch.svelte';
 
 let files = $state<MediaFile[]>([]);
 let folder = $state(uploadFolder());
@@ -32,11 +36,28 @@ let query = $state('');
 let shownFolder = $state('');
 // Откуда файл: загружен в медиатеку или лежит в связанной папке на сервере (ADR 0065).
 let shownOrigin = $state<'' | 'uploaded' | 'linked'>('');
+// Что показать: всё, картинки без описания или файлы, которых нет ни на одной странице.
+let shownState = $state<'' | 'noAlt' | 'unused'>('');
+// Файлы, что стоят на страницах, — один запрос на все: сервер проходит тексты сайта разом.
+let used = $state<ReadonlySet<string> | null>(null);
+let batch = $state(false);
 let fileInput = $state<HTMLInputElement>();
 
 const load = () => api.get<MediaFile[]>('/media').then((_) => (files = _));
 
-const loading = defineLoad(load);
+// Ссылка `?file=…` открывает и ту страницу списка, где плитка файла, — один раз, при первой загрузке.
+let revealed = false;
+const reveal = () =>
+  void (
+    !revealed &&
+    selectedPath &&
+    ((revealed = true),
+    ((index) => index >= 0 && (pager.page = pageOfIndex(index, pager.size)))(
+      shown.findIndex((_) => _.path === selectedPath)
+    ))
+  );
+
+const loading = defineLoad(() => load().then(reveal));
 
 $effect(() => void loading.retry());
 
@@ -49,9 +70,47 @@ const shown = $derived(
       (shownFolder === '' || folderOf(_.path) === shownFolder) &&
       (shownOrigin === '' ||
         (shownOrigin === 'linked') === Boolean(_.linked)) &&
+      (shownState === '' ||
+        (shownState === 'noAlt'
+          ? _.contentType.startsWith('image/') && !_.alt
+          : used !== null && !used.has(_.path))) &&
       _.path.toLowerCase().includes(query.trim().toLowerCase())
   )
 );
+
+const usedLoad = defineLoad(() =>
+  api
+    .get<{ used: string[] }>('/media-used')
+    .then((_) => void (used = new Set(_.used)))
+);
+
+// Список сменился (загрузка, удаление) — «не используется» считается заново.
+$effect(() => void (files && shownState === 'unused' && usedLoad.retry()));
+
+const described = (saved: readonly MediaFile[]) =>
+  void (files = files.map(
+    (file) => saved.find((_) => _.path === file.path) ?? file
+  ));
+// В связанной папке тысячи файлов: плитки идут страницами. Новый поиск или фильтр — с первой страницы.
+const pager = definePager('media');
+const visible = $derived(pageOf(shown, pager));
+
+// Картинки этой страницы списка без описания — их ИИ может описать пачкой.
+const undescribed = $derived(
+  visible.filter((_) => _.contentType.startsWith('image/') && !_.alt)
+);
+const fromStart = () => void (pager.page = 1);
+
+let list = $state<HTMLElement>();
+
+// Сменили страницу внизу списка — его начало снова в кадре.
+const toTop = () =>
+  void (
+    list &&
+    list.getBoundingClientRect().top < 0 &&
+    list.scrollIntoView({ block: 'start' })
+  );
+
 // Превью плитки — вариант 480, если он есть: в связанной папке тысячи снимков по сотне КБ и больше.
 const thumbs = $derived(
   new Map(
@@ -134,12 +193,17 @@ const copy = (file: MediaFile) =>
     .writeText(url(file))
     .then(() => notify(t('media.copied')), failed);
 
+// Файл и его варианты размеров — они есть только у JPEG, PNG и WebP: SVG с той же основой чужих не берёт.
 const family = (file: MediaFile): MediaFile[] =>
-  files.filter(
-    (_) =>
-      _.path === file.path ||
-      _.path.startsWith(`${file.path.slice(0, file.path.lastIndexOf('.'))}@`)
-  );
+  _RESIZABLE.test(file.contentType)
+    ? files.filter(
+        (_) =>
+          _.path === file.path ||
+          _.path.startsWith(
+            `${file.path.slice(0, file.path.lastIndexOf('.'))}@`
+          )
+      )
+    : [file];
 
 // Карточка файла: щелчок по плитке открывает панель — превью, сведения, описание, где используется.
 // Ссылка `?file=…` из диагностики открывает карточку файла сразу.
@@ -242,14 +306,11 @@ const remove = (file: MediaFile) =>
         tone: 'danger',
       })
     )
+    // Варианты размеров сервер удаляет вместе с картинкой.
     .then((confirmed) =>
       confirmed
-        ? family(file)
-            .reduce<Promise<unknown>>(
-              (done, _) =>
-                done.then(() => api.send('DELETE', `/media/${_.path}`)),
-              Promise.resolve()
-            )
+        ? api
+            .send('DELETE', `/media/${file.path}`)
             .then(load)
             .then(
               () => (
@@ -304,40 +365,54 @@ const remove = (file: MediaFile) =>
     <div class="filters">
       <label class="search">
         <span class="sr-only">{t('picker.search')}</span>
-        <input type="search" bind:value={query} placeholder={t('picker.search')} />
+        <input type="search" bind:value={query} placeholder={t('picker.search')} oninput={fromStart} />
       </label>
       {#if anyLinked}
         <label class="show-folder">
           <span class="sr-only">{t('media.origin')}</span>
-          <select bind:value={shownOrigin}>
+          <select bind:value={shownOrigin} onchange={fromStart}>
             <option value="">{t('media.originAll')}</option>
             <option value="uploaded">{t('media.originUploaded')}</option>
             <option value="linked">{t('media.originLinked')}</option>
           </select>
         </label>
       {/if}
+      <label class="show-folder">
+        <span class="sr-only">{t('media.show')}</span>
+        <select bind:value={shownState} onchange={fromStart}>
+          <option value="">{t('media.showAll')}</option>
+          <option value="noAlt">{t('media.showNoAlt')}</option>
+          <option value="unused">{t('media.showUnused')}</option>
+        </select>
+      </label>
       {#if folders.length > 1}
         <label class="show-folder">
           <span class="sr-only">{t('media.folder')}</span>
-          <select bind:value={shownFolder}>
+          <select bind:value={shownFolder} onchange={fromStart}>
             <option value="">{t('picker.allFolders')}</option>
             {#each folders as name (name)}<option value={name}>{name || '/'}</option>{/each}
           </select>
         </label>
       {/if}
       <span class="muted count">{shown.length} / {all.length}</span>
+      {#if session.ai && undescribed.length > 0}
+        <button type="button" class="batch" aria-disabled={!session.aiVision} title={session.aiVision ? t('media.altBatchHint') : t('media.altNoVision')} onclick={() => session.aiVision && (batch = true)}>{@html icons.wand}{t('media.altBatchButton', { n: undescribed.length })}</button>
+      {/if}
     </div>
+    {#if shownState === 'unused'}
+      <p class="muted unused-hint" aria-live="polite">{usedLoad.state.error ?? (used === null ? t('media.loadingUsage') : t('media.unusedHint'))}</p>
+    {/if}
   {/if}
 
   <div class="library" data-open={selected ? '' : undefined}>
-    <div class="files">
+    <div class="files" bind:this={list}>
     {#if all.length === 0}
       <p class="muted">{t('media.empty')}</p>
     {:else if shown.length === 0}
       <p class="muted">{t('picker.nothing')}</p>
     {:else}
       <ul class="grid-files">
-        {#each shown as file (file.path)}
+        {#each visible as file (file.path)}
           <li>
             <button type="button" class="tile" data-file={file.path} aria-pressed={selectedPath === file.path} aria-controls="file-details" onclick={() => select(file)}>
               <span class="thumb">
@@ -356,6 +431,7 @@ const remove = (file: MediaFile) =>
           </li>
         {/each}
       </ul>
+      <Pager {pager} total={shown.length} onpage={toTop} />
     {/if}
     </div>
     {#if selected}
@@ -417,6 +493,7 @@ const remove = (file: MediaFile) =>
   </div>
   </LoadState>
 </div>
+<AltBatch bind:open={batch} files={undescribed} preview={(_) => url(thumbOf(_))} onsaved={described} />
 
 <style>
   .page {
@@ -585,6 +662,23 @@ const remove = (file: MediaFile) =>
 
   .library[data-open] {
     grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
+  }
+
+
+  /* Списки отбора — по содержимому, не во всю строку, когда фильтры переносятся. */
+  .filters .show-folder select {
+    width: auto;
+    max-width: 18rem;
+  }
+
+  .unused-hint {
+    margin: -0.25rem 0 1rem;
+    font-size: 0.8125rem;
+  }
+
+  /* Под шапкой экрана: начало списка видно после перехода на другую страницу. */
+  .files {
+    scroll-margin-top: calc(var(--topbar, 0) + 4.5rem);
   }
 
   .details {

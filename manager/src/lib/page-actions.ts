@@ -1,6 +1,7 @@
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import { api } from './api.ts';
+import { isHtml } from './content-types.ts';
 import { ask, askValue } from './dialog.svelte.ts';
 import { moment } from './format.ts';
 import { quoted, t } from './i18n.ts';
@@ -303,3 +304,69 @@ export var moveMany = (nodes: readonly PageNode[]): Promise<void> =>
             )
       )
       .then(undefined, failed))(_tops(nodes));
+
+// Шаблон и меню есть у страниц с текстом: у ссылки шаблона нет, файл (robots.txt, ленты) в меню не попадает.
+const _withTemplate = (node: PageNode): boolean =>
+  node.kind === 'page' && isHtml(node.contentType);
+
+const _inMenu = (node: PageNode): boolean =>
+  node.kind !== 'page' || isHtml(node.contentType);
+
+const _patch = (node: PageNode, changes: Record<string, unknown>) =>
+  api.send('PATCH', `/pages/${node.id}`, changes);
+
+/** Шаблон разом — выбором из списка; «Вернуть» ставит каждой странице её прежний. */
+export var templateMany = (
+  nodes: readonly PageNode[],
+  templates: readonly string[]
+): Promise<void> =>
+  ((pages) =>
+    pages.length === 0
+      ? Promise.resolve()
+      : askValue({
+          title: t('bulk.templateTitle'),
+          items: _titles(pages),
+          input: {
+            label: t('page.template'),
+            type: 'text',
+            value: pages[0]!.template,
+            options: [...new Set([...templates, pages[0]!.template])].map(
+              (name) => ({ value: name, label: name })
+            ),
+          },
+          confirm: t('bulk.templateConfirm'),
+        })
+          .then((template) =>
+            template === null
+              ? undefined
+              : ((changing) =>
+                  _each(changing, (node) => _patch(node, { template })).then(
+                    () =>
+                      _finish(`${t('bulk.templated')} ${changing.length}`, () =>
+                        _each(changing, (node) =>
+                          _patch(node, { template: node.template })
+                        )
+                      )
+                  ))(pages.filter((_) => _.template !== template))
+          )
+          .then(undefined, failed))(nodes.filter(_withTemplate));
+
+/** Показать в меню или скрыть разом; «Вернуть» возвращает каждой прежнее. */
+export var menuMany = (
+  nodes: readonly PageNode[],
+  shown: boolean
+): Promise<void> =>
+  ((changing) =>
+    _each(changing, (node) => _patch(node, { hiddenFromMenu: !shown }))
+      .then(() =>
+        _finish(
+          `${t(shown ? 'bulk.menuShown' : 'bulk.menuHidden')} ${changing.length}`,
+          () =>
+            _each(changing, (node) =>
+              _patch(node, { hiddenFromMenu: node.hiddenFromMenu })
+            )
+        )
+      )
+      .then(undefined, failed))(
+    nodes.filter((_) => _inMenu(_) && _.hiddenFromMenu === shown)
+  );

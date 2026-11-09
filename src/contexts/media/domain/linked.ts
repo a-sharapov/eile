@@ -179,10 +179,20 @@ export var assignLinkedPaths = (
       new Map()
     );
 
+/**
+ * Приставка варианта картинки из базы, сделанного сервером: он, как варианты картинок папки, лежит в кэше
+ * медиатеки, а в базе — только строка. Пропал из кэша — делается заново.
+ */
+export var CACHE_ONLY = '';
+
+/** Файл связанной папки или вариант её картинки: меняется только сверкой папки. */
+export var inLinkedFolder = (file: Pick<MediaFile, 'linked'>): boolean =>
+  file.linked !== undefined && file.linked.prefix !== CACHE_ONLY;
+
 /** Файл связанной папки: лежит в ней на диске. */
 export var isLinkedOriginal = (file: Pick<MediaFile, 'linked'>): boolean =>
   file.linked !== undefined && file.linked.file !== null;
 
-/** Вариант размера картинки связанной папки: лежит в кэше медиатеки, при пропаже делается заново. */
+/** Вариант размера, сделанный сервером: лежит в кэше медиатеки, при пропаже делается заново. */
 export var isDerived = (file: Pick<MediaFile, 'linked'>): boolean =>
   file.linked !== undefined && file.linked.file === null;

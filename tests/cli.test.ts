@@ -355,6 +355,61 @@ describe('команды на базе', () => {
     ).rejects.toThrow('--password-stdin');
   });
 
+  it('users remove: удаляет и закрывает сеансы; последнего администратора — нет', async () => {
+    const file = join(dir, 'users-remove.db');
+    const app = createApp({ databasePath: file, scaffold: DEMO });
+    await app.identity.users.create({
+      email: 'owner@example.com',
+      password: 'correct horse battery',
+      role: 'admin',
+    });
+    await app.identity.users.create({
+      email: 'agent@example.com',
+      password: 'correct horse battery',
+      role: 'admin',
+    });
+    app.close();
+    output.length = 0;
+    await RUN.users!(context(['remove', 'Agent@Example.com'], file));
+    expect(output.join('\n')).toContain('agent@example.com удалён');
+    expect(
+      await RUN.users!(context(['remove', 'owner@example.com'], file)).then(
+        () => null,
+        (_) => explain(_, 'ru')
+      )
+    ).toContain('последний администратор');
+    expect(
+      RUN.users!(context(['remove', 'nobody@example.com'], file))
+    ).rejects.toThrow('Нет пользователя');
+    const after = createApp({ databasePath: file });
+    expect(after.identity.users.list().map((_) => _.email)).toEqual([
+      'owner@example.com',
+    ]);
+    after.close();
+  });
+
+  it('elements push --prune --dry-run показывает, что удалится, и ничего не трогает', async () => {
+    const file = join(dir, 'elements-dry.db');
+    const app = createApp({ databasePath: file, scaffold: DEMO });
+    app.design.components.save('Spare', '<p>spare</p>');
+    const extra = { name: 'Spare' };
+    app.close();
+    const folder = join(dir, 'elements-dry');
+    output.length = 0;
+    await RUN.elements!(context(['pull', folder], file));
+    rmSync(join(folder, 'components', `${extra.name}.svelte`));
+    output.length = 0;
+    const dry = context(['push', folder], file);
+    await RUN.elements!({
+      ...dry,
+      options: { ...dry.options, prune: true, dryRun: true },
+    }).then(undefined, () => undefined);
+    expect(output.join('\n')).toContain(`- components/${extra.name}.svelte`);
+    const after = createApp({ databasePath: file });
+    expect(after.design.elements.get('component', extra.name)).not.toBeNull();
+    after.close();
+  });
+
   it('ошибки контекстов — по-русски', () => {
     const app = createApp();
     expect(

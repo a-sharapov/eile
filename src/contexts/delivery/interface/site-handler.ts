@@ -58,6 +58,7 @@ const _requestInfo = (
     get query() {
       return query ?? (query = Object.fromEntries(url.searchParams));
     },
+    queryAll: (name) => url.searchParams.getAll(name),
     header: (name) => request.headers.get(name),
     cookie: (name) =>
       (cookies ?? (cookies = _cookies(request.headers.get('cookie')))).get(

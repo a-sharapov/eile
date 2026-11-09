@@ -250,6 +250,12 @@ describe('журнал правок', () => {
       [contacts, 'unpublished', 'admin'],
       [contacts, 'edited', 'admin'],
     ]);
+    // Журнал страницами: от offset, и сколько всего.
+    const second = await json(
+      await call('GET', '/activity/page?offset=1&limit=1')
+    );
+    expect(second.total).toBe(3);
+    expect(second.items.map((_: any) => _.action)).toEqual(['unpublished']);
   });
 
   it('неудачная правка в журнал не попадает', async () => {
@@ -550,6 +556,24 @@ describe('удаление и создание без перезаписи', () 
     expect(
       (await json(await call('GET', '/media-usage/images/b.png'))).pages
     ).toEqual([]);
+  });
+
+  it('какие файлы медиатеки используются — все разом: текст, поля, картинка для соцсетей', async () => {
+    const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    ['images/a.png', 'images/b.png', 'images/c.png', 'images/d.png'].forEach(
+      (path) => void app.media.files.save({ path, data: png })
+    );
+    await call('POST', '/pages', {
+      title: 'С картинкой',
+      template: 'Base',
+      content: '<p><img src="/media/images/a.png?v=1" alt=""></p>',
+    });
+    app.site.settings.update({ socialImage: 'images/c.png' });
+    const used = (await json(await call('GET', '/media-used'))).used;
+    expect(used).toContain('images/a.png');
+    expect(used).toContain('images/c.png');
+    expect(used).not.toContain('images/b.png');
+    expect(used).not.toContain('images/d.png');
   });
 
   it('плагин удаляется', async () => {

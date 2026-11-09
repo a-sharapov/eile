@@ -145,7 +145,10 @@ export type RequestInfo = {
   readonly path: string;
   /** `https://example.com` — для абсолютных адресов, если в настройках не задан адрес сайта. */
   readonly origin: string;
+  /** Параметры адреса; у повторённого (`?stone=a&stone=b`) — последнее значение, все — в `queryAll`. */
   readonly query: Readonly<Record<string, string>>;
+  /** Все значения параметра по порядку: `?stone=a&stone=b` → `['a', 'b']`; нет параметра — `[]`. */
+  readonly queryAll: (name: string) => string[];
   readonly header: (name: string) => string | null;
   readonly cookie: (name: string) => string | null;
 };

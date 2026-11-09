@@ -23,7 +23,7 @@ type VariantUpload = {
   readonly data: Uint8Array | UploadContent;
   readonly width: number;
   readonly height: number;
-  /** Приставка связанной папки оригинала: вариант ляжет в кэш медиатеки, а не в базу. */
+  /** Вариант ляжет в кэш медиатеки, а не в базу: приставка папки оригинала или `CACHE_ONLY`. */
   readonly link?: string;
 };
 
@@ -79,7 +79,7 @@ export var defineVariantJobs = ({
   maxPixels = MAX_DECODED_PIXELS,
   variantsOf,
   read,
-  storable,
+  placeOf,
   store,
 }: {
   files: MediaRepository;
@@ -90,8 +90,8 @@ export var defineVariantJobs = ({
   variantsOf: (path: MediaPath) => MediaFile[];
   /** Байты оригинала целиком: из базы или с диска связанной папки. */
   read: (file: MediaFile) => Uint8Array;
-  /** Варианты этого оригинала есть где хранить: у картинки связанной папки — только кэш на диске. */
-  storable: (file: MediaFile) => boolean;
+  /** Куда класть варианты оригинала: приставка — в кэш медиатеки, undefined — в базу, null — некуда. */
+  placeOf: (file: MediaFile) => string | undefined | null;
   /** Записать то, что вернёт `collect`, одной транзакцией с ним. */
   store: (collect: () => readonly VariantUpload[]) => MediaFile[];
 }) => {
@@ -135,7 +135,9 @@ export var defineVariantJobs = ({
                 data: made[k]!,
                 width: _.width,
                 height: _.height,
-                ...(live.linked ? { link: live.linked.prefix } : {}),
+                ...((place) => (place == null ? {} : { link: place }))(
+                  placeOf(live)
+                ),
               }))
             : [];
         }).length;
@@ -196,7 +198,7 @@ export var defineVariantJobs = ({
         : job.attempts > _MAX_ATTEMPTS
           ? Promise.resolve((finish(job), tell(job, _crashed(job.path)), 0))
           : // Кэша нет — картинка папки без вариантов, это не сбой: резать её впустую незачем.
-            storable(file)
+            placeOf(file) !== null
             ? make(job, file)
             : Promise.resolve((finish(job), 0)))(current(job));
 

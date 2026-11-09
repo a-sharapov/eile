@@ -40,6 +40,12 @@ export var defineActivityLog = (db: Database): ActivityLog => {
   const recent = db.query<Row, [number]>(
     'SELECT * FROM manager_activity ORDER BY at DESC, id DESC LIMIT ?'
   );
+  const page = db.query<Row, [number, number]>(
+    'SELECT * FROM manager_activity ORDER BY at DESC, id DESC LIMIT ? OFFSET ?'
+  );
+  const count = db.query<{ n: number }, []>(
+    'SELECT count(*) AS n FROM manager_activity'
+  );
   return {
     record: (entry) =>
       ((previous) =>
@@ -54,5 +60,7 @@ export var defineActivityLog = (db: Database): ActivityLog => {
             ),
             prune.run(_KEEP))))(last.get()),
     recent: (limit) => recent.all(limit).map(_activity),
+    page: (offset, limit) => page.all(limit, offset).map(_activity),
+    count: () => count.get()!.n,
   };
 };
