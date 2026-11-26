@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type App, createApp } from '../src/app.ts';
@@ -798,9 +798,10 @@ const erasedTally = (path = siteDb()): string[] =>
     'SELECT * FROM analytics_erased_daily ORDER BY day, sender, type, test'
   ).map((_) => `${_.day} ${_.sender} ${_.type} ${_.test} ${_.events}`);
 
+// Файл пишется синхронно: путь сразу уходит в загрузку, а `Bun.write` без ожидания на Windows не успевал (ENOENT).
 const jsonlFile = (name: string, body: readonly unknown[]): string =>
   ((path) => (
-    Bun.write(
+    writeFileSync(
       path,
       body
         .map((_) => (typeof _ === 'string' ? _ : JSON.stringify(_)))

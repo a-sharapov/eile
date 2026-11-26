@@ -127,11 +127,18 @@ const literalsIn = (source: string, codes: readonly string[]): string[] =>
     new RegExp(`(['"\`])${_escape(code)}\\1`).test(source)
   );
 
+/**
+ * Файлы каталога от корня репозитория — всегда с прямой косой чертой: на Windows Glob отдаёт пути с обратной, и
+ * сравнения и фильтры по пути (`startsWith('src/scaffolds/')`) молча ничего бы не находили.
+ */
+const tree = (dir: string, pattern: string): string[] =>
+  Array.from(new Glob(pattern).scanSync(join(ROOT, dir))).map(
+    (_) => `${dir}/${_.replaceAll('\\', '/')}`
+  );
+
 const files = (): string[] =>
   PLACES.filter((_) => existsSync(join(ROOT, _.dir))).flatMap((place) =>
-    Array.from(new Glob(place.pattern).scanSync(join(ROOT, place.dir)))
-      .filter((_) => !_.endsWith('.test.ts'))
-      .map((_) => join(place.dir, _))
+    tree(place.dir, place.pattern).filter((_) => !_.endsWith('.test.ts'))
   );
 
 // Наборы-образцы бинарника на всех языках менеджера: коды у языков одни, а ищутся — как коды сайта-примера.
@@ -258,12 +265,13 @@ describe('ядро без имён продукта', () => {
   it('род дела сайта-образца — названия его собственных элементов — не встречается в src/, локалях и экранах менеджера', async () => {
     expect(sitePhrases().length).toBeGreaterThan(5);
     const sources = ['src', 'manager/src'].flatMap((dir) =>
-      Array.from(new Glob('**/*.{ts,svelte}').scanSync(join(ROOT, dir)))
+      tree(dir, '**/*.{ts,svelte}')
         .filter((_) => !_.endsWith('.test.ts'))
-        .map((_) => join(dir, _))
         // Образцы бинарника — свой род дела с общими словами («Откуда вы узнали?»); их проверяют коды выше.
         .filter((_) => !_.startsWith('src/scaffolds/'))
     );
+    expect(sources.some((_) => _.startsWith('src/scaffolds/'))).toBe(false);
+    expect(sources).toContain('src/contexts/analytics/domain/quality.ts');
     const found = await Promise.all(
       sources.map((file) =>
         Bun.file(join(ROOT, file))
@@ -278,9 +286,7 @@ describe('ядро без имён продукта', () => {
 
   it('названия набора, отправителя и бота сайта-образца нет нигде в src/ и manager/src/: ни в коде, ни в комментариях', async () => {
     const sources = ['src', 'manager/src'].flatMap((dir) =>
-      Array.from(new Glob('**/*.{ts,svelte}').scanSync(join(ROOT, dir))).map(
-        (_) => join(dir, _)
-      )
+      tree(dir, '**/*.{ts,svelte}')
     );
     const found = await Promise.all(
       sources.map((file) =>
