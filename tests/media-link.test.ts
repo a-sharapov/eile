@@ -81,7 +81,7 @@ describe('связанная папка: связывание и сверка', 
       scaffold: DEMO,
       mediaCache: cache,
     });
-    put('images/proudcts/4a_(5).jpg', await picture(640, 480, 'jpeg'));
+    put('images/products/4a_(5).jpg', await picture(640, 480, 'jpeg'));
     put('files/price list.pdf', '%PDF-1.4 price');
     put('js/app.js', 'alert(1)');
     put('.htaccess', 'deny');
@@ -90,19 +90,19 @@ describe('связанная папка: связывание и сверка', 
     expect(first).toMatchObject({
       prefix: 'assets',
       created: true,
-      added: ['assets/files/price-list.pdf', 'assets/images/proudcts/4a-5.jpg'],
+      added: ['assets/files/price-list.pdf', 'assets/images/products/4a-5.jpg'],
       skipped: [{ file: 'js/app.js', reason: 'type' }],
       files: 2,
       hashed: 2,
       saved: true,
       problems: [],
     });
-    const photo = app.media.files.read('assets/images/proudcts/4a-5.jpg')!;
+    const photo = app.media.files.read('assets/images/products/4a-5.jpg')!;
     expect(photo.meta).toMatchObject({
       contentType: 'image/jpeg',
       width: 640,
       height: 480,
-      linked: { prefix: 'assets', file: 'images/proudcts/4a_(5).jpg' },
+      linked: { prefix: 'assets', file: 'images/products/4a_(5).jpg' },
     });
     // Два файла и вариант 480 картинки — строки без единого куска хранения.
     expect(stored(db, 'assets')).toEqual({ rows: 3, chunks: 0 });
@@ -331,23 +331,23 @@ describe('связанная папка: путь к папке', () => {
 describe('связанная папка: поиск и отдача', () => {
   it('media() и image() принимают и исходный путь, в том числе с %-кодами', async () => {
     const app = open();
-    put('images/Фото/Притыцкого 89.JPG', await picture(800, 600, 'jpeg'));
+    put('images/Фото/Садовая 12.JPG', await picture(800, 600, 'jpeg'));
     // Регистр различает не всякая файловая система: на Windows Photo.jpg и photo.jpg — один файл.
     if (!WINDOWS) {
       put('images/Photo.jpg', 'upper');
       put('images/photo.jpg', 'lower');
     }
     await link(app);
-    const library = '/media/assets/images/foto/pritytskogo-89.jpg?v=';
-    expect(app.media.url('assets/images/Фото/Притыцкого 89.JPG')).toStartWith(
+    const library = '/media/assets/images/foto/sadovaya-12.jpg?v=';
+    expect(app.media.url('assets/images/Фото/Садовая 12.JPG')).toStartWith(
       library
     );
     expect(
       app.media.url(
-        `assets/images/${encodeURIComponent('Фото')}/${encodeURIComponent('Притыцкого 89.JPG')}`
+        `assets/images/${encodeURIComponent('Фото')}/${encodeURIComponent('Садовая 12.JPG')}`
       )
     ).toStartWith(library);
-    expect(app.media.url('/assets/images/Фото/Притыцкого 89.JPG')).toStartWith(
+    expect(app.media.url('/assets/images/Фото/Садовая 12.JPG')).toStartWith(
       library
     );
     // Путь на диске точнее имени медиатеки: Photo.jpg и photo.jpg — разные файлы.
@@ -359,9 +359,7 @@ describe('связанная папка: поиск и отдача', () => {
         '/media/assets/images/photo-2.jpg?v='
       );
     }
-    expect(
-      app.media.image('assets/images/Фото/Притыцкого 89.JPG')
-    ).toMatchObject({
+    expect(app.media.image('assets/images/Фото/Садовая 12.JPG')).toMatchObject({
       src: expect.stringContaining(library),
       width: 800,
       height: 600,
@@ -405,14 +403,14 @@ describe('связанная папка: поиск и отдача', () => {
 
   it('исходный адрес — только с --serve-original; файл важнее страниц и правил, нет файла — дальше страницы', async () => {
     const app = open();
-    put('images/proudcts/memorial-08-1/4a_(5).jpg', 'jpeg bytes');
+    put('images/products/item-08-1/4a_(5).jpg', 'jpeg bytes');
     await link(app);
-    const legacy = `/assets/images/proudcts/memorial-08-1/${encodeURIComponent('4a_(5).jpg')}`;
+    const legacy = `/assets/images/products/item-08-1/${encodeURIComponent('4a_(5).jpg')}`;
     expect((await get(app, legacy)).status).toBe(404);
 
     await link(app, { serveOriginal: true });
     app.redirects.rules.create({
-      from: '/assets/images/proudcts/memorial-08-1/4a_(5).jpg',
+      from: '/assets/images/products/item-08-1/4a_(5).jpg',
       to: '/',
       status: 301,
     });
@@ -476,22 +474,22 @@ describe('связанная папка: поиск и отдача', () => {
 describe('связанная папка: варианты картинок', () => {
   it('srcset готов сразу после связывания; варианты — в кэше на диске, не в базе', async () => {
     const app = open();
-    put('images/proudcts/4a_(5).jpg', await picture(1200, 900, 'jpeg'));
+    put('images/products/4a_(5).jpg', await picture(1200, 900, 'jpeg'));
     const report = await link(app);
     expect(report.variants).toBe(2);
-    const image = app.media.image('assets/images/proudcts/4a_(5).jpg')!;
+    const image = app.media.image('assets/images/products/4a_(5).jpg')!;
     expect(image.srcset).toContain(
-      '/media/assets/images/proudcts/4a-5@480.webp?v='
+      '/media/assets/images/products/4a-5@480.webp?v='
     );
     expect(image.srcset).toContain(
-      '/media/assets/images/proudcts/4a-5@960.webp?v='
+      '/media/assets/images/products/4a-5@960.webp?v='
     );
     const variant = app.media.files
       .list()
-      .find((_) => _.path === 'assets/images/proudcts/4a-5@960.webp')!;
+      .find((_) => _.path === 'assets/images/products/4a-5@960.webp')!;
     expect(variant.linked).toEqual({ prefix: 'assets', file: null });
     expect(
-      readdirSync(join(cache, 'assets~images~proudcts~4a-5@960.webp'))
+      readdirSync(join(cache, 'assets~images~products~4a-5@960.webp'))
     ).toEqual([variant.hash]);
     const served = await get(app, `/media/${variant.path}?v=${variant.hash}`);
     expect(served.status).toBe(200);
@@ -502,12 +500,12 @@ describe('связанная папка: варианты картинок', () 
     const moved = await get(app, `/media/${variant.path}?v=${variant.hash}`);
     expect(moved.status).toBe(307);
     expect(moved.headers.get('location')).toStartWith(
-      '/media/assets/images/proudcts/4a-5.jpg?v='
+      '/media/assets/images/products/4a-5.jpg?v='
     );
     expect(app.media.variants.pending()).toBe(1);
     expect(await app.media.variants.run()).toBe(2);
     expect(
-      app.media.image('assets/images/proudcts/4a-5.jpg')!.srcset
+      app.media.image('assets/images/products/4a-5.jpg')!.srcset
     ).toContain('4a-5@960.webp');
     app.close();
   });
@@ -604,11 +602,11 @@ describe('связанная папка в менеджере', () => {
       listed.find((_) => _.path === 'assets/images/4a-5.jpg')?.linked
     ).toEqual({ prefix: 'assets', file: 'images/4a_(5).jpg' });
     const described = await call('PATCH', '/media/assets/images/4a-5.jpg', {
-      alt: 'Памятник',
+      alt: 'Изделие',
     });
     expect(described.status).toBe(200);
     expect(app.media.files.read('assets/images/4a-5.jpg')!.meta.alt).toBe(
-      'Памятник'
+      'Изделие'
     );
     const removed = await call('DELETE', '/media/assets/images/4a-5.jpg');
     expect(removed.status).toBe(409);
@@ -629,8 +627,8 @@ describe('связанная папка в менеджере', () => {
     expect(app.media.files.read('assets/images/4a-5.jpg')).not.toBeNull();
 
     const page = app.content.pages.create({
-      title: 'Памятники',
-      alias: 'pamyatniki',
+      title: 'Каталог',
+      alias: 'catalog',
       template: 'Base',
       content: '<p><img src="/assets/images/4a_(5).jpg" alt=""></p>',
     });

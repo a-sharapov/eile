@@ -184,7 +184,7 @@ export type Page = {
   searchable: boolean;
   /** Папка (`isfolder` в Evo): при «адрес папки кончается на /» её адрес кончается на `/`. */
   folder: boolean;
-  /** Алиас в адресах потомков (`alias_visible` в Evo); false — дети без него: /cities/baran → /baran. */
+  /** Алиас в адресах потомков (`alias_visible` в Evo); false — дети без него: /cities/riga → /riga. */
   aliasInPath: boolean;
   socialImage: string;
   language: string;
@@ -586,9 +586,10 @@ export type GoalSlice = {
   rate: number;
 };
 
+/** Цель: заявка формы, ссылка-цель маячка или переход `/_cms/go/<код>`; у `go:` (любой переход) имя пустое. */
 export type StatsGoal = {
   goal: string;
-  kind: 'form' | 'link';
+  kind: 'form' | 'link' | 'go';
   name: string;
   label: string;
   visitors: number;
@@ -615,6 +616,8 @@ export type StatsReport = {
   utmSources: StatsRow[];
   utmMediums: StatsRow[];
   utmCampaigns: StatsRow[];
+  utmContents: StatsRow[];
+  utmTerms: StatsRow[];
   entries: StatsRow[];
   devices: StatsRow[];
   browserLanguages: StatsRow[];
@@ -891,4 +894,1180 @@ export type ShareLink = {
   lastUsedAt: string | null;
   uses: number;
   live: boolean;
+};
+
+// Аналитика клиентского пути (ADR 0072): /manager/api/analytics/…
+
+export type AnalyticsSettings = {
+  enabled: boolean;
+  /** Хранить историю столько месяцев после последнего события человека; 0 — бессрочно. */
+  retentionMonths: number;
+  /** Валюта отчётов, код ISO 4217; null — не задана. Задаёт только человек, вошедший в менеджер. */
+  baseCurrency: string | null;
+};
+
+export type EventRole =
+  | 'touch'
+  | 'survey'
+  | 'trial'
+  | 'payment'
+  | 'refund'
+  | 'amendment'
+  | 'lapse'
+  | 'action'
+  | 'summary'
+  | 'erasure';
+
+export type RoleSpec = {
+  role: EventRole;
+  subject: 'required' | 'forbidden';
+  fields: { code: string; kind: string; required: boolean }[];
+};
+
+export type SetupGroup =
+  | 'sender'
+  | 'type'
+  | 'property'
+  | 'dictionary'
+  | 'value'
+  | 'schema'
+  | 'referrer'
+  | 'link'
+  | 'milestone'
+  | 'funnel';
+
+type SetupBase = { name: string; note: string; archivedAt: string | null };
+
+/** Ключ отправителя без самого ключа: подпись, последние четыре знака и даты. */
+export type SenderKeyView = {
+  id: number;
+  sender: string;
+  label: string;
+  hint: string;
+  createdAt: string;
+  usedAt: string | null;
+};
+
+/** Ключ, как его выдают: сам ключ — только в этом ответе. */
+export type IssuedSenderKey = SenderKeyView & { key: string };
+
+export type AnalyticsSender = SetupBase & {
+  code: string;
+  enabled: boolean;
+  /** Час сводки `ЧЧ:ММ` по UTC: к нему ждут сводку за прошедшие сутки; null — сводок не ждать. */
+  summaryAt: string | null;
+};
+
+export type SenderView = AnalyticsSender & {
+  keys: SenderKeyView[];
+  hasKey: boolean;
+};
+
+export type EventType = SetupBase & {
+  sender: string;
+  code: string;
+  role: EventRole;
+  properties: { code: string; required: boolean }[];
+};
+
+export type PropertyKind =
+  | 'string'
+  | 'number'
+  | 'money'
+  | 'date'
+  | 'boolean'
+  | 'choice';
+
+export type PropertyScope = 'event' | 'person';
+
+/** Отметка сверки свойства: что ядро считает само и с чем сверяет присланное отправителем. */
+export type ReconcileMark =
+  | 'payment_number'
+  | 'customer_since'
+  | 'after_trial'
+  | 'returning';
+
+export type AnalyticsProperty = SetupBase & {
+  scope: PropertyScope;
+  code: string;
+  kind: PropertyKind;
+  dictionary: string | null;
+  dimension: boolean;
+  untrusted: boolean;
+  /** Только у свойства событий нужного вида; одна отметка — у одного свойства сайта. */
+  reconcile: ReconcileMark | null;
+};
+
+export type DictionaryPurpose = 'values' | 'answers' | 'parts';
+
+export type UtmParameter =
+  | 'utm_source'
+  | 'utm_medium'
+  | 'utm_campaign'
+  | 'utm_content'
+  | 'utm_term';
+
+export type DictionaryValue = SetupBase & {
+  dictionary: string;
+  code: string;
+  position: number;
+  /** «Ждёт расхода» — только у значения части метки; у других назначений null. */
+  awaitsSpend: boolean | null;
+};
+
+export type AnalyticsDictionary = SetupBase & {
+  code: string;
+  purpose: DictionaryPurpose;
+  /** Часть метки: параметр UTM посещения; у других назначений null. */
+  utm: UtmParameter | null;
+  /** Часть метки: предел длины значения; у других назначений null. */
+  length: number | null;
+};
+
+/** Части метки: код части → значение. */
+export type Parts = Record<string, string>;
+
+export type LabelSchema = SetupBase & {
+  sender: string;
+  separator: '__' | '--' | '.' | '~';
+  length: number;
+  parts: string[];
+};
+
+export type ReferrerRule = SetupBase & {
+  code: string;
+  kind: 'host' | 'any' | 'none';
+  host: string | null;
+  parts: Parts;
+};
+
+export type GoLink = SetupBase & {
+  code: string;
+  sender: string;
+  target: string;
+  parts: Parts;
+};
+
+export type MilestoneCondition =
+  | { property: string; gte: number }
+  | { property: string; eq: string | number | boolean };
+
+export type Milestone = SetupBase & {
+  code: string;
+  sender: string;
+  type: string;
+  count: number;
+  condition: MilestoneCondition | null;
+  days: number | null;
+  anchor: string | null;
+  column: boolean;
+  position: number;
+};
+
+export type FunnelStep =
+  | { kind: 'visits'; page: string | null }
+  | { kind: 'goal'; goal: string }
+  | { kind: 'arrival' }
+  | { kind: 'trial' }
+  | { kind: 'payment'; number: number }
+  | { kind: 'milestone'; milestone: string }
+  | { kind: 'type'; sender: string; type: string };
+
+export type Funnel = SetupBase & {
+  code: string;
+  strict: boolean;
+  main: boolean;
+  steps: FunnelStep[];
+  position: number;
+};
+
+/** GET /analytics/setup: вся настройка; значения справочника, вехи и воронки — по порядку. */
+export type SetupView = {
+  revision: number;
+  senders: SenderView[];
+  types: EventType[];
+  properties: AnalyticsProperty[];
+  dictionaries: (AnalyticsDictionary & { values: DictionaryValue[] })[];
+  schemas: LabelSchema[];
+  referrers: ReferrerRule[];
+  links: GoLink[];
+  milestones: Milestone[];
+  funnels: Funnel[];
+  /** Встроенные проверки данных с поправками (этап 4); у старого сервера поля нет. */
+  checks?: CheckView[];
+  roles: RoleSpec[];
+};
+
+export type PersonState = 'new' | 'trial' | 'customer' | 'returned' | 'lapsed';
+
+/** Касание и отправитель события, которое его принесло: метка разбирается по схеме этого отправителя. */
+export type Touch = { label: string; at: string; sender: string };
+
+/** Деньги по валютам в минимальных единицах: `{ EUR: 10900 }`. */
+export type Amounts = Record<string, number>;
+
+/** Возвращение: оплата после конца доступа, касание возврата и его части. */
+export type ReturnFact = { at: string; touch: Touch | null; parts: Parts };
+
+/** Веха на момент чтения: достиг, ещё в окне, не достиг; окно — от `from` до `until`. */
+export type MilestoneView = {
+  state: 'reached' | 'open' | 'missed';
+  reachedAt: string | null;
+  from: string | null;
+  until: string | null;
+};
+
+/** Источник привлечения кодами: названия значений и ответа подставляет экран. */
+export type Acquisition =
+  | { kind: 'parts'; parts: Parts }
+  | { kind: 'answer'; question: string; answer: string }
+  | { kind: 'unknown' };
+
+export type PersonFacts = {
+  subject: string;
+  test: boolean;
+  senders: string[];
+  firstAt: string;
+  lastAt: string;
+  events: number;
+  invalid: number;
+  /** Приход: первое касание, без касаний — первое событие. */
+  arrivedAt: string;
+  firstTouch: Touch | null;
+  firstTouchConflict: boolean;
+  lastTouch: Touch | null;
+  firstParts: Parts;
+  lastParts: Parts;
+  acquisition: Acquisition;
+  answers: Record<string, { answer: string; text: string | null; at: string }>;
+  trialAt: string | null;
+  trialEndsAt: string | null;
+  payments: number;
+  firstPaidAt: string | null;
+  lastPaidAt: string | null;
+  paidUntil: string | null;
+  firstTermEnd: string | null;
+  lapsedAt: string | null;
+  returnedAt: string | null;
+  returns: ReturnFact[];
+  revenue: Amounts;
+  fees: Amounts;
+  milestones: Record<string, MilestoneView>;
+  /** Свойство-разрез → значение самого раннего события, тип которого его объявляет. */
+  dims: Record<string, string | number | boolean>;
+  traits: Record<string, string | number | boolean | null>;
+};
+
+export type PersonListed = PersonFacts & { state: PersonState };
+
+export type PeoplePage = {
+  people: PersonListed[];
+  total: number;
+  /** Людей, которых фон ещё пересчитывает по новой настройке. */
+  stale: number;
+};
+
+export type AnalyticsEvent = {
+  seq: number;
+  sender: string;
+  id: string;
+  type: string;
+  /** Название из справочника; null — незнакомый тип. */
+  name: string | null;
+  role: EventRole | null;
+  at: string;
+  receivedAt: string;
+  subject: string | null;
+  test: boolean;
+  origin: 'http' | 'file';
+  future: boolean;
+  fields: Record<string, string | number | boolean>;
+};
+
+export type EventsPage = { events: AnalyticsEvent[]; next: number | null };
+
+/** Событие с телом как пришло: экран показывает его только текстом. */
+export type RawEvent = Omit<AnalyticsEvent, 'fields'> & { body: string };
+
+export type ConflictEntry = {
+  sender: string;
+  id: string;
+  count: number;
+  firstAt: string;
+  lastAt: string;
+};
+
+export type PersonCard = {
+  person: PersonFacts & {
+    /**
+     * Оплаты больше нуля и возвраты меньше: момент, валюта, сумма в минимальных единицах; у возврата — момент
+     * курса, момент его оплаты (нет — свой).
+     */
+    money: [at: string, currency: string, amount: number, pricedAt?: string][];
+    /** Комиссии по времени: момент оплаты (уточнение без оплаты — свой), валюта комиссии, сумма. */
+    feeMoney: [at: string, currency: string, fee: number][];
+    /** Отрезки доступа: от оплаты до конца срока или «конца доступа»; null — конца ещё нет. */
+    access: [from: string, to: string | null][];
+    /** `отправитель/тип` → момент первого события. */
+    firsts: Record<string, string>;
+    unmatched: number;
+  };
+  state: PersonState;
+  events: AnalyticsEvent[];
+  next: number | null;
+  conflicts: ConflictEntry[];
+};
+
+export type UnknownReport = {
+  types: { sender: string; type: string; lastAt: string; count: number }[];
+  questions: { question: string; count: number }[];
+  answers: { question: string; answer: string; count: number }[];
+  values: { property: string; value: string; count: number }[];
+  traits: { trait: string; value: string; count: number }[];
+  /** Значения частей меток не из справочника: счёт — первые и последние касания людей. */
+  parts: { sender: string; part: string; value: string; count: number }[];
+  /** Метки первых касаний не из реестра, после чистки: счёт — люди; до 1000 самых частых. */
+  labels: { sender: string; label: string; count: number }[];
+};
+
+/** Доля: засчитанные из знаменателя; `open` — «ещё в окне», в знаменатель не входят. */
+export type Share = { count: number; base: number; open: number };
+
+/** «Мало данных»: новых людей меньше 30, новых клиентов меньше 10 (у `return` — вернувшихся меньше 10). */
+export type LowData = { people: boolean; customers: boolean };
+
+/** Пороги «мало данных» из настройки (`low_data`): шапка каждого отчёта. */
+export type LowDataThresholds = { people: number; customers: number };
+
+/** Значение строки: код; `~none` — не указано, `~unknown` — не из справочника (у `label` — не из реестра), `~rest` — остальные. */
+export type ReportValue = string;
+
+/**
+ * Столбец «Источников», который есть у сайта; у вехи — код и название. Деньги этапа 3 — после «Продления»:
+ * LTV — при роли «оплата» и базовой валюте, расход и цена человека — ещё и при строках расхода у сайта, CAC,
+ * LTV / CAC и окупаемость — при всём этом. `payment7`, `payment30` — столбцы когорт по приходу.
+ */
+export type SourcesColumn =
+  | {
+      kind:
+        | 'people'
+        | 'trial'
+        | 'payment'
+        | 'customers'
+        | 'revenue'
+        | 'perCustomer'
+        | 'renewal'
+        | 'ltvCustomer'
+        | 'ltvPerson'
+        | 'spend'
+        | 'cac'
+        | 'costPerPerson'
+        | 'ltvCac'
+        | 'payback'
+        | 'returned'
+        | 'payments'
+        | 'payment7'
+        | 'payment30';
+    }
+  | { kind: 'milestone'; code: string; name: string };
+
+/** Срок жизни LTV в месяцах; 0 — всё время. */
+export type Lifetime = 0 | 3 | 6 | 12;
+
+/** Выручка до комиссии (`gross`, по умолчанию) или после (`net`). */
+export type FeesMode = 'gross' | 'net';
+
+/** С чем сравнить: прошлый период той же длины встык или те же дни годом раньше. */
+export type CompareKind = 'previous' | 'year';
+
+/** LTV: выручка проживших срок на одного; `open` — ещё живут срок, в знаменатель не входят. */
+export type Ltv = {
+  /** Минимальные единицы базовой валюты; null — не прожил никто. */
+  value: number | null;
+  revenue: BaseSum;
+  base: number;
+  open: number;
+  /** Проживших меньше 10 клиентов или 30 людей. */
+  low: boolean;
+};
+
+/** Окупаемость: за сколько месяцев жизни (0 — сразу, CAC ноль; null — ещё нет); `lived` — у самого старого клиента. */
+export type Payback = { months: number | null; lived: number };
+
+/** Строка «Источников» при `attribution=first`; столбца нет у сайта — null. Итог — та же строка с пустым `value`. */
+export type SourcesRow = {
+  value: ReportValue;
+  name: string | null;
+  people: number;
+  milestones: Record<string, Share>;
+  trial: Share | null;
+  /** Оплата за окно: первая оплата не позже прихода + окно. */
+  payment: Share | null;
+  customers: number | null;
+  /** Оплаты минус возвраты периода по валютам; `{}` — денег не было, `{ EUR: 0 }` — было, в сумме ноль. */
+  revenue: Amounts | null;
+  perCustomer: { payments: number; customers: number } | null;
+  renewal: Share | null;
+  /** Выручка одной цифрой в базовой валюте; null — нет базовой валюты или роли «оплата». У строки без денег — ноль: «—» по пустому `revenue`. */
+  revenueBase: BaseSum | null;
+  ltvCustomer: Ltv | null;
+  ltvPerson: Ltv | null;
+  /** Расход строки долей дней; null — строк расхода у строки нет или расход не разложить (`spend.scope`). */
+  spend: BaseSum | null;
+  /** Значение «ждёт расхода» без расхода в периоде: «расход не введён», а не «—». */
+  spendMissing: boolean;
+  /** Расход / новые клиенты; расход есть, клиентов нет — null («нет клиентов»). */
+  cac: number | null;
+  costPerPerson: number | null;
+  /** До сотых; CAC ноль — null («бесплатно»). */
+  ltvCac: number | null;
+  payback: Payback | null;
+  lowData: LowData;
+};
+
+/** Строка «Источников» при `attribution=return`: оплаты и выручка — от возвращения до конца периода. */
+export type ReturnRow = {
+  value: ReportValue;
+  name: string | null;
+  returned: number;
+  payments: number;
+  revenue: Amounts;
+  /** Выручка с возвращения в базовой валюте; null — нет базовой валюты. */
+  revenueBase: BaseSum | null;
+  lowData: LowData;
+};
+
+/** Расход отчёта: где он, почему не по строкам, разложен ли по дням, что не разложено. */
+export type SpendSummary = {
+  /** `rows` — по строкам; `total` — только итог (группа не по части); `none` — нигде (фильтр не по части, возврат). */
+  scope: 'rows' | 'total' | 'none';
+  reason: 'group' | 'filter' | 'return' | null;
+  /** Период не по границам месяцев: «расход разложен по дням периода». */
+  prorated: boolean;
+  /** Расход без части группы: в итоге, ни в одной строке. */
+  unassigned: BaseSum | null;
+  /** Расход шире фильтра: не учтён нигде. */
+  broader: BaseSum | null;
+};
+
+/** Шапка отчёта: дни — в поясе статистики. */
+export type ReportHead = {
+  from: string;
+  to: string;
+  timeZone: string;
+  asOf: string;
+  /** Людей ещё в пересчёте: больше нуля — экран пишет «пересчитывается». */
+  stale: number;
+  /** `part.<код>` и прочие → значение. */
+  filters: Record<string, string>;
+  test: boolean;
+  /** Пороги, по которым приглушены строки этого ответа. */
+  lowData: LowDataThresholds;
+};
+
+/** GET /analytics/sources: и `life`, `fees`, `compare`. */
+export type SourcesReport = ReportHead & {
+  group: string;
+  window: 0 | 7 | 30;
+  /** null — базовой валюты нет: экран просит её задать, денег одной цифрой нет. */
+  baseCurrency: string | null;
+  life: Lifetime;
+  fees: FeesMode;
+  /** Только при `fees=net`: «комиссия известна у 2 из 10 оплат». */
+  feeCoverage: { payments: number; withFee: number } | null;
+  /** null — у сайта нет строк расхода или базовой валюты: «Введите расходы, чтобы увидеть CAC и окупаемость». */
+  spend: SpendSummary | null;
+  /** Итог прошлого периода той же формы, что `total`. */
+  compare: {
+    kind: CompareKind;
+    from: string;
+    to: string;
+    total: SourcesRow | ReturnRow;
+  } | null;
+} & (
+    | {
+        attribution: 'first';
+        columns: SourcesColumn[];
+        total: SourcesRow;
+        rows: SourcesRow[];
+        daily: { day: string; people: number; customers: number }[];
+      }
+    | {
+        attribution: 'return';
+        columns: SourcesColumn[];
+        total: ReturnRow;
+        rows: ReturnRow[];
+        daily: { day: string; returned: number }[];
+      }
+  );
+
+/** Деньги шага «оплата номер N»: по валютам и на человека; в базовой валюте — суммой и на заплатившего; до комиссии. */
+export type StepMoney = {
+  amounts: Amounts;
+  perPerson: Amounts;
+  base: BaseSum | null;
+  perPersonBase: number | null;
+};
+
+/** Шаг воронки в отчёте; у шага-посещения при выключенном счёте посещений `count` — null. */
+export type FunnelStepReport = {
+  step: FunnelStep;
+  side: 'visits' | 'people';
+  count: number | null;
+  open: number;
+  skipped: number;
+  /** Шаг «оплата номер N». */
+  money: StepMoney | null;
+  /** Шаг-посещение не получил части фильтров (признак, свойство, ответ, отправитель, страница входа). */
+  unfiltered: boolean;
+  lowData: boolean;
+};
+
+/** GET /analytics/funnel: и `compare`. */
+export type FunnelReport = ReportHead & {
+  funnel: { code: string; name: string; strict: boolean; main: boolean };
+  baseCurrency: string | null;
+  steps: FunnelStepReport[];
+  /** С какого дня у сводок посещений есть разрез источника. */
+  visitsSince: string | null;
+  /** Шаги прошлого периода по порядку шагов: числа и деньги, обе стороны. */
+  compare: {
+    kind: CompareKind;
+    from: string;
+    to: string;
+    steps: { count: number | null; money: StepMoney | null }[];
+  } | null;
+};
+
+/** Итоги «Обзора» за период, без фильтров. */
+export type OverviewTotals = {
+  people: number;
+  /** null — у сайта нет роли «оплата». */
+  customers: number | null;
+  /** До комиссии, по валютам. */
+  revenue: Amounts | null;
+  revenueBase: BaseSum | null;
+  /** После комиссии; null — нет базовой валюты или ни у одной оплаты сайта нет комиссии. */
+  revenueNet: BaseSum | null;
+  /** Клиенты с доступом в конце периода (не позже «сейчас»); null — у сайта нет данных о доступе. */
+  active: number | null;
+  /** Все строки расхода долей дней; null — нет базовой валюты, строк у сайта или в периоде. */
+  spend: BaseSum | null;
+  cac: number | null;
+};
+
+/** GET /analytics/overview: период (по умолчанию 30 дней) и `test`; прошлый период той же длины — всегда. */
+export type OverviewReport = ReportHead & {
+  baseCurrency: string | null;
+  current: OverviewTotals;
+  previous: OverviewTotals;
+  compare: { from: string; to: string };
+  /** Смены версий отправителей с сутками сводки в периоде — отметки на графике. */
+  versions: VersionMark[];
+};
+
+/** Когорты по первой оплате или по приходу. */
+export type CohortBasis = 'payment' | 'arrival';
+
+export type CohortMetric = 'cumulative' | 'monthly' | 'active';
+
+/** Полная — прожили все; неполная — не все или месяц ещё идёт (в среднее не входит); будущая — пустая. */
+export type CohortState = 'complete' | 'incomplete' | 'future';
+
+export type CohortCell = {
+  state: CohortState;
+  /** Прожили месяц k целиком: «1 из 2» — `base` из `customers` строки. */
+  base: number;
+  /** Деньги — минимальные единицы базовой валюты на клиента; `active` — сколько с доступом из `base`. */
+  value: number | null;
+  unpriced: boolean;
+  staleRate: boolean;
+};
+
+export type CohortRow = {
+  /** Месяц первой оплаты, `ГГГГ-ММ`. */
+  month: string;
+  customers: number;
+  /** Месяц ещё идёт: «идёт». */
+  open: boolean;
+  lowData: boolean;
+  /** Месяцы жизни 0–12. */
+  cells: CohortCell[];
+};
+
+/** Среднее месяца жизни по полным ячейкам без сумм без курса; у `active` — сколько с доступом из `customers`. */
+export type CohortAverage = {
+  value: number | null;
+  cohorts: number;
+  customers: number;
+};
+
+export type ArrivalCohortRow = {
+  /** Месяц прихода; у среднего — пусто. */
+  month: string;
+  people: number;
+  open: boolean;
+  lowData: boolean;
+  milestones: Record<string, Share>;
+  trial: Share | null;
+  payment7: Share | null;
+  payment30: Share | null;
+  /** Клиенты на сегодня. */
+  customers: number | null;
+};
+
+/** GET /analytics/cohorts: период (по умолчанию `days=365`), `basis`, `metric`, `fees`, фильтры, `test`. */
+export type CohortsReport =
+  | (ReportHead & {
+      basis: 'payment';
+      metric: CohortMetric;
+      /** Показатели, которые есть у сайта: `active` — с ролью «конец доступа» или `paid_until`. */
+      metrics: CohortMetric[];
+      fees: FeesMode;
+      baseCurrency: string | null;
+      rows: CohortRow[];
+      average: CohortAverage[];
+    })
+  | (ReportHead & {
+      basis: 'arrival';
+      columns: SourcesColumn[];
+      rows: ArrivalCohortRow[];
+      average: ArrivalCohortRow;
+    });
+
+/** GET /analytics/milestones: вехи не в архиве по порядку — какая лучше предсказывает оплату. */
+export type MilestoneComparison = ReportHead & {
+  window: 0 | 7 | 30;
+  people: number;
+  milestones: {
+    code: string;
+    name: string;
+    reached: number;
+    missed: number;
+    open: number;
+    paidReached: Share | null;
+    paidMissed: Share | null;
+    lowData: boolean;
+  }[];
+};
+
+export type AnswersColumn = {
+  value: ReportValue;
+  name: string | null;
+  people: number;
+};
+
+/** GET /analytics/answers: строки — значения группы, столбцы — ответы; `cells` — ответ → людей. */
+export type AnswersReport = ReportHead & {
+  group: string;
+  question: string;
+  columns: AnswersColumn[];
+  total: AnswersColumn & { cells: Record<string, number> };
+  rows: (AnswersColumn & { cells: Record<string, number> })[];
+};
+
+/** Метка реестра: из каких частей, чей переход, кто и когда выдал. */
+export type RegisteredLabel = {
+  sender: string;
+  label: string;
+  name: string;
+  parts: Parts;
+  link: string | null;
+  author: { name: string; agent: boolean } | null;
+  createdAt: string;
+};
+
+/** POST /analytics/labels: 201 — новая, 200 и `existing` — такая уже была. */
+export type LabelIssued = RegisteredLabel & {
+  existing: boolean;
+  links: { direct: string | null; site: string | null };
+};
+
+/** GET /analytics/labels. */
+export type LabelsPage = { labels: RegisteredLabel[]; total: number };
+
+/** GET /analytics/labels/check. */
+export type LabelCheck = {
+  from: 'utm' | 'go' | 'link' | 'label';
+  sender: string | null;
+  label: string;
+  link: string | null;
+  parts: {
+    part: string;
+    value: string | null;
+    state: 'known' | 'archived' | 'unknown' | 'empty';
+  }[];
+  notes: ('invalid' | 'extra' | 'length' | 'schema')[];
+  registered: RegisteredLabel | null;
+};
+
+export type IntakeRefusal = {
+  at: string;
+  reason: 'invalid' | 'unauthorized' | 'throttled';
+  sender: string | null;
+  id: string | null;
+  errors: Record<string, string>;
+};
+
+export type IntakeSummary = {
+  enabled: boolean;
+  /** Принято событий с полуночи UTC. */
+  today: number;
+  lastAt: string | null;
+  refusals: IntakeRefusal[];
+};
+
+/** Исход в счёте приёма: решение по событию, отметки `future` и `late` среди принятых, отказы 400, 401, 429, 503. */
+export type TallyOutcome =
+  | 'accepted'
+  | 'duplicate'
+  | 'conflict'
+  | 'erased'
+  | 'erasure'
+  | 'future'
+  | 'late'
+  | 'invalid'
+  | 'unauthorized'
+  | 'throttled'
+  | 'disabled';
+
+/** Строка счёта приёма: сутки UTC приёма; отправитель `''` — ключ не узнан или не проверялся. */
+export type IntakeDay = {
+  day: string;
+  sender: string;
+  origin: 'http' | 'file';
+  outcome: TallyOutcome;
+  count: number;
+};
+
+/** GET /analytics/intake/daily: `days` (1–400), `from`, `to` — сутки UTC, по умолчанию 30. */
+export type IntakeDaily = { from: string; to: string; days: IntakeDay[] };
+
+/** Сводка отправителя за сутки UTC: последняя присланная за эти сутки. */
+export type SummaryDay = {
+  sender: string;
+  day: string;
+  test: boolean;
+  seq: number;
+  at: string;
+  receivedAt: string;
+  /** Код типа → число, как прислано. */
+  counts: Record<string, number>;
+  /** Валюта → минимальные единицы; null — отправитель выручку не шлёт. */
+  revenue: Record<string, number> | null;
+  failed: number | null;
+  /** Версия после чистки; null — не прислана. */
+  version: string | null;
+};
+
+/** Смена версии отправителя: сутки сводки, версия до и после, сошёлся ли счёт этого дня (null — не проверяли). */
+export type VersionMark = {
+  day: string;
+  sender: string;
+  name: string;
+  from: string;
+  to: string;
+  matched: boolean | null;
+};
+
+/** GET /analytics/summaries: `sender`, `from`, `to` (сутки UTC, до 400), `test=1` — и тестовые. */
+export type SummariesReport = {
+  from: string;
+  to: string;
+  summaries: SummaryDay[];
+  versions: VersionMark[];
+};
+
+/** Состояние строки дня проверки данных. */
+export type CheckState = 'ok' | 'warning' | 'failure' | 'no_data';
+
+/** Когда уведомлять: при сбое, при сбое и замечании, никогда. */
+export type CheckNotify = 'failure' | 'any' | 'off';
+
+/** Сутки строки: UTC, пояс отчётов, месяц. */
+export type CheckZone = 'utc' | 'report' | 'month';
+
+/** Показатель своей пороговой проверки. */
+export type CheckMetric =
+  | 'events'
+  | 'role'
+  | 'people'
+  | 'customers'
+  | 'revenue'
+  | 'visitors'
+  | 'goal';
+
+/** Своя пороговая: показатель за 1, 7 или 30 суток пояса отчётов против порога. */
+export type ThresholdRule = {
+  metric: CheckMetric;
+  sender: string | null;
+  type: string | null;
+  role: EventRole | null;
+  goal: string | null;
+  currency: string | null;
+  compare: 'lt' | 'gt';
+  /** Счёт; у выручки — минимальные единицы валюты правила. */
+  threshold: number;
+  days: 1 | 7 | 30;
+  severity: 'warning' | 'failure';
+};
+
+/** Проверка: встроенная — с порогами ядра рядом с действующими, своя — с правилом. */
+export type CheckView = {
+  code: string;
+  builtin: boolean;
+  /** У встроенной пусто: название — по коду, на языке менеджера; у своей — владельца. */
+  name: string;
+  note: string;
+  zone: CheckZone;
+  /** null — не по расписанию: пороги «мало данных». */
+  scope: 'sender' | 'site' | null;
+  enabled: boolean;
+  notify: CheckNotify;
+  params: Record<string, number> | ThresholdRule;
+  defaults: Record<string, number> | null;
+  /** Есть поправка: её удаление возвращает значения ядра; у своей — false. */
+  corrected: boolean;
+  archivedAt: string | null;
+};
+
+/** Выписка месяца рядом с выручкой сайта: GET и PUT /analytics/statements. */
+export type StatementView = {
+  /** ГГГГ-ММ пояса отчётов. */
+  month: string;
+  currency: string;
+  /** Минимальные единицы, со знаком. */
+  amount: number;
+  fees: 'gross' | 'net';
+  note: string;
+  site: number;
+  difference: number;
+  /** Расхождение в процентах от выписки; null — у выписки ноль. */
+  share: number | null;
+  author: { name: string; agent: boolean } | null;
+  updatedAt: string;
+};
+
+export type StatementsReport = {
+  from: string | null;
+  to: string | null;
+  statements: StatementView[];
+};
+
+export type StatementsSaved = {
+  statements: StatementView[];
+  created: number;
+  changed: number;
+};
+
+/** Снятие вручную: кто, когда, агент ли, заметка о причине. */
+export type CheckResolution = {
+  at: string;
+  by: string;
+  agent: boolean;
+  note: string;
+};
+
+/** Ячейка сетки «день × проверка». */
+export type QualityCell = {
+  day: string;
+  state: CheckState;
+  /** Причина кодом: missing, late, extra, intake_off, no_summary, low_volume, … */
+  reason: string | null;
+  value: number | null;
+  resolved: CheckResolution | null;
+  notified: boolean;
+};
+
+/** Строка сетки: проверка у отправителя (`scope`) или сайта (null). */
+export type QualityRow = {
+  check: string;
+  scope: string | null;
+  test: boolean;
+  zone: CheckZone;
+  /** Последний наступивший день и его состояние; null — строк ещё нет. */
+  day: string | null;
+  state: CheckState | null;
+  lastOk: string | null;
+  cells: QualityCell[];
+};
+
+/** Сверка сводки за сутки: по типам, валютам, неотправленные, версия. */
+export type SummaryCheck = {
+  sender: string;
+  day: string;
+  test: boolean;
+  types: {
+    type: string;
+    /** null — тип незнаком настройке. */
+    name: string | null;
+    summary: number;
+    site: number;
+    erased: number;
+    missing: number;
+  }[];
+  currencies: { currency: string; summary: number; site: number }[];
+  failed: number | null;
+  version: string | null;
+};
+
+/** Строка дня с подробностями; у проверок сводки — и сама сводка. */
+export type CheckDayView = QualityCell & {
+  check: string;
+  scope: string | null;
+  test: boolean;
+  detail: Record<string, unknown>;
+  version: string | null;
+  evaluatedAt: string;
+  summary: SummaryDay | null;
+};
+
+/** GET /analytics/quality: `days` (1–90, по умолчанию 30), `from`, `to`, `check`, `sender`, `test=1`, `detail=1`. */
+export type QualityReport = {
+  asOf: string;
+  from: string;
+  to: string;
+  timeZone: string;
+  /** Есть ли каналы сбоев с адресатами: без них уведомления не уходят. */
+  channels: boolean;
+  checks: CheckView[];
+  rows: QualityRow[];
+  summaries?: SummaryCheck[];
+  open?: CheckDayView[];
+  versions?: VersionMark[];
+};
+
+/** GET /analytics/quality/status: нерешённое в последние наступившие дни — для отметки в меню. */
+export type QualityStatus = {
+  failures: number;
+  warnings: number;
+  day: string | null;
+};
+
+/** Элемент в отчёте пробы набора: группа, ключ и название; у поправки встроенной проверки название пустое. */
+export type SetItemNote = {
+  group: SetupGroup | 'check';
+  key: string;
+  name: string;
+};
+
+export type SetWarning = {
+  /** Путь в наборе: `senders[0]`; у правки элемента не из файла — пусто, у `newer_file` — `eile`. */
+  path: string;
+  code:
+    | 'role_changed'
+    | 'sender_created'
+    | 'sender_disabled'
+    | 'archive_kept'
+    | 'summary_hour'
+    | 'newer_file';
+  message: string;
+  group: SetupGroup | 'check' | null;
+  key: string | null;
+};
+
+/**
+ * POST /analytics/set/plan и POST /analytics/set: что создастся, изменится, останется. Ошибки по путям — ничего
+ * не применено; загрузка с ошибками — 422 `{ error, errors, report }`.
+ */
+export type SetPlanReport = {
+  name: string;
+  dryRun: boolean;
+  applied: boolean;
+  revision: number | null;
+  created: (SetItemNote & { archived: boolean })[];
+  changed: (SetItemNote & { fields: string[] })[];
+  unchanged: number;
+  kept: Partial<Record<SetupGroup | 'check', number>>;
+  warnings: SetWarning[];
+  errors: Record<string, string>;
+  untouched: (
+    | 'intake'
+    | 'retention'
+    | 'base_currency'
+    | 'keys'
+    | 'labels'
+    | 'rates'
+    | 'spend'
+    | 'statements'
+    | 'events'
+    | 'people'
+    | 'results'
+  )[];
+};
+
+/** GET /analytics/set/samples: образцы бинарника на языке запроса. */
+export type SetSampleView = {
+  code: string;
+  title: string;
+  description: string;
+  counts: Partial<Record<SetupGroup | 'check', number>>;
+};
+
+export type ImportReport = {
+  sender: string;
+  dryRun: boolean;
+  lines: number;
+  empty: number;
+  accepted: number;
+  erasures: number;
+  duplicates: number;
+  conflicts: number;
+  erased: number;
+  rejected: number;
+  errors: { line: number; path: string; message: string }[];
+  warnings: Record<string, number>;
+  /** Людей, чьи события приняты или стёрты; null — больше 100 000. */
+  people: number | null;
+};
+
+export type SetupAuthor = { id: number; name: string; agent: boolean };
+
+export type SetupLogEntry = {
+  id: number;
+  at: string;
+  author: SetupAuthor | null;
+  /**
+   * `label` — метка реестра, ключ `отправитель/метка`; `rate` — курс `база/валюта/день`; `spend` — номер строки
+   * расхода; `check` — поправка встроенной или своя проверка; `resolution` — снятие вручную, ключ
+   * `проверка/отправитель/сутки` (у проверки сайта — без отправителя, у тестовой — ещё `/test`); `statement` —
+   * выписка, ключ `месяц/валюта`.
+   */
+  item:
+    | SetupGroup
+    | 'check'
+    | 'set'
+    | 'settings'
+    | 'key'
+    | 'label'
+    | 'rate'
+    | 'spend'
+    | 'resolution'
+    | 'statement';
+  key: string;
+  action:
+    | 'created'
+    | 'changed'
+    | 'archived'
+    | 'restored'
+    | 'removed'
+    | 'applied';
+  before: unknown;
+  after: unknown;
+};
+
+export type ErasureEntry = {
+  id: number;
+  at: string;
+  before: string;
+  origin: 'event' | 'manager' | 'retention';
+  sender: string | null;
+  userName: string | null;
+  events: number;
+  people: number;
+  marked: boolean;
+};
+
+export type LogPage<T> = {
+  kind: 'setup' | 'erasures';
+  entries: T[];
+  next: number | null;
+};
+
+/** DELETE /analytics/people/:subject: сколько людей и событий стёрто. */
+export type PeopleErased = { people: number; events: number };
+
+// Деньги аналитики (ADR 0072, этап 3): /manager/api/analytics/rates и /analytics/spend.
+
+/** Сумма в базовой валюте: минимальные единицы; суммы без курса — по валютам, в value не вошли. */
+export type BaseSum = {
+  value: number;
+  unpriced: Record<string, number>;
+  /** Хоть одна запись переведена по курсу более раннего месяца. */
+  staleRate: boolean;
+};
+
+/** Курс: с дня `day` одна единица `currency` стоит `rate` единиц `base` — до следующей записи. */
+export type ExchangeRate = {
+  base: string;
+  currency: string;
+  day: string;
+  rate: string;
+  author: { name: string; agent: boolean } | null;
+  updatedAt: string;
+};
+
+export type RatesReport = {
+  baseCurrency: string | null;
+  currencies: {
+    currency: string;
+    rates: ExchangeRate[];
+    /** Месяцы с суммами в этой валюте и чем они переводятся; `day` null — курса нет. */
+    months: {
+      month: string;
+      day: string | null;
+      rate: string | null;
+      stale: boolean;
+    }[];
+  }[];
+  /** Курсы к другим базовым валютам — остались после смены базы. */
+  other: { base: string; count: number }[];
+};
+
+export type RatesSaved = {
+  rates: ExchangeRate[];
+  created: number;
+  changed: number;
+};
+
+/** Строка расхода: месяц, части метки ({} — общий расход), валюта и сумма в минимальных единицах. */
+export type SpendRow = {
+  id: number;
+  month: string;
+  parts: Record<string, string>;
+  currency: string;
+  amount: number;
+  note: string;
+  author: { name: string; agent: boolean } | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Ввод строки расхода: без номера — запись по ключу «месяц, части, валюта», с номером — правка строки. */
+export type SpendInput = {
+  id?: number;
+  month: string;
+  parts: Record<string, string>;
+  currency: string;
+  amount: string | number;
+  note?: string;
+};
+
+export type SpendView = SpendRow & {
+  /** Вся строка в базовой валюте; null — нет базы или курса. */
+  base: number | null;
+  staleRate: boolean;
+  states: Record<string, 'known' | 'archived' | 'unknown'>;
+};
+
+export type SpendHint = {
+  month: string;
+  part: string;
+  value: string;
+  name: string;
+  people: number;
+};
+
+export type SpendReport = {
+  baseCurrency: string | null;
+  from: string;
+  to: string;
+  months: { month: string; total: BaseSum | null; rows: SpendView[] }[];
+  hints: SpendHint[];
+};
+
+export type SpendSaved = {
+  rows: SpendView[];
+  created: number;
+  changed: number;
 };

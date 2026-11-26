@@ -69,6 +69,12 @@ export var api = {
       },
       body,
     }).then(_parse),
+  /** Файл ответом сервера, как он есть; отказ — ошибкой, как у остальных запросов. */
+  file: (path: string): Promise<Response> =>
+    fetch(`${_base()}${path}`, { headers: _language() }).then(
+      (response): Promise<Response> =>
+        response.ok ? Promise.resolve(response) : _parse(response)
+    ),
   previewUrl: (id: number): string => `${_base()}/pages/${id}/preview`,
   /** Адрес API для ссылок: скачать копию сайта. */
   url: (path: string): string => `${_base()}${path}`,

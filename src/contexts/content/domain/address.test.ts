@@ -85,14 +85,14 @@ describe('адреса ветки', () => {
     expect(
       branchAddresses(
         cities,
-        [node(3, 2, 'baran', { folder: true }), node(4, 3, 'ofis')],
+        [node(3, 2, 'riga', { folder: true }), node(4, 3, 'ofis')],
         '',
         EVO
       )
     ).toEqual([
       { id: 2, key: '/cities', url: '/cities.html' },
-      { id: 3, key: '/baran', url: '/baran/' },
-      { id: 4, key: '/baran/ofis', url: '/baran/ofis.html' },
+      { id: 3, key: '/riga', url: '/riga/' },
+      { id: 4, key: '/riga/ofis', url: '/riga/ofis.html' },
     ]);
   });
 
@@ -107,17 +107,17 @@ describe('адреса ветки', () => {
   });
 
   it('совпадение ключа или адреса — столкновение, своя же страница — нет', () => {
-    const mine = [{ id: 5, key: '/baran', url: '/baran/' }];
+    const mine = [{ id: 5, key: '/riga', url: '/riga/' }];
     expect(
-      addressClash(mine, [{ id: 9, key: '/baran', url: '/baran.html' }])
-    ).toEqual({ page: 5, url: '/baran/', other: 9 });
+      addressClash(mine, [{ id: 9, key: '/riga', url: '/riga.html' }])
+    ).toEqual({ page: 5, url: '/riga/', other: 9 });
     expect(
       addressClash(
         [{ id: 5, key: '/o-nas', url: '/o-nas.html' }],
         [{ id: 7, key: '/o-nas.html', url: '/o-nas.html' }]
       )
     ).toEqual({ page: 5, url: '/o-nas.html', other: 7 });
-    expect(addressClash(mine, [{ id: 5, key: '/baran', url: '/baran/' }])).toBe(
+    expect(addressClash(mine, [{ id: 5, key: '/riga', url: '/riga/' }])).toBe(
       null
     );
     expect(

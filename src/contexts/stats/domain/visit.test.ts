@@ -3,6 +3,7 @@ import {
   addDays,
   browserLanguageOf,
   countableBeacon,
+  countableGo,
   countableView,
   dayOf,
   daysBetween,
@@ -10,7 +11,12 @@ import {
   isBot,
   isDay,
   networkOf,
+  originOf,
+  refererKindOf,
   referrerHost,
+  requestSourceOf,
+  sourceOfOrigin,
+  sourceOfVisit,
   utmOf,
   visitOf,
 } from './visit.ts';
@@ -98,6 +104,98 @@ describe('что считается просмотром', () => {
   });
 });
 
+describe('переход аналитики', () => {
+  it('цель — только GET и переход браузера: HEAD, бот и предзагрузка — нет', () => {
+    expect(countableGo('GET', browser())).toBe(true);
+    expect(countableGo('HEAD', browser())).toBe(false);
+    expect(countableGo('GET', browser({ 'user-agent': 'curl/8.9.1' }))).toBe(
+      false
+    );
+    expect(countableGo('GET', browser({ 'sec-purpose': 'prefetch' }))).toBe(
+      false
+    );
+    expect(countableGo('GET', browser({ 'sec-fetch-mode': 'cors' }))).toBe(
+      false
+    );
+  });
+
+  it('откуда пришёл запрос: без Referer — none, свой сайт — own, чужой — foreign', () => {
+    const own = ['site.test', 'www.muehlenhof.example'];
+    expect(refererKindOf(null, own)).toBe('none');
+    expect(refererKindOf('', own)).toBe('none');
+    expect(refererKindOf('not a url', own)).toBe('none');
+    expect(refererKindOf('https://site.test/kontakt', own)).toBe('own');
+    expect(refererKindOf('https://www.site.test/', own)).toBe('own');
+    expect(refererKindOf('https://muehlenhof.example/', own)).toBe('own');
+    expect(refererKindOf('https://l.instagram.com/', own)).toBe('foreign');
+    expect(refererKindOf('android-app://org.telegram.messenger/', own)).toBe(
+      'foreign'
+    );
+  });
+
+  it('источник запроса: все пять UTM адреса перехода и хост реферера', () => {
+    expect(
+      requestSourceOf(
+        browser({ referer: 'https://www.Google.de/search' }),
+        new URLSearchParams(
+          'utm_source=QR&utm_medium=Print&utm_campaign=Herbst&utm_content=Flyer%20A&utm_term=k%C3%BCche'
+        ),
+        ['site.test']
+      )
+    ).toEqual({
+      utmSource: 'qr',
+      utmMedium: 'print',
+      utmCampaign: 'Herbst',
+      utmContent: 'Flyer A',
+      utmTerm: 'küche',
+      referrer: 'google.de',
+      referer: 'foreign',
+    });
+    expect(
+      requestSourceOf(
+        browser({ referer: 'https://site.test/' }),
+        new URLSearchParams(),
+        ['site.test']
+      )
+    ).toMatchObject({ referrer: '', referer: 'own' });
+  });
+
+  it('origin: источник посещения туда и обратно; чужое значение — пустой источник', () => {
+    const visit = visitOf(
+      browser({ referer: 'https://l.instagram.com/' }),
+      new URLSearchParams('utm_campaign=Herbst&utm_content=ad-1'),
+      '/',
+      []
+    );
+    const source = sourceOfVisit(visit);
+    expect(source).toEqual({
+      utmSource: '',
+      utmMedium: '',
+      utmCampaign: 'Herbst',
+      utmContent: 'ad-1',
+      utmTerm: '',
+      referrer: 'l.instagram.com',
+    });
+    expect(originOf(source)).toBe(
+      '["","","Herbst","ad-1","","l.instagram.com"]'
+    );
+    expect(sourceOfOrigin(originOf(source))).toEqual(source);
+    // В строке посещения нет ни страницы входа, ни устройства.
+    expect(originOf(visit)).toBe(originOf(source));
+    const empty = {
+      utmSource: '',
+      utmMedium: '',
+      utmCampaign: '',
+      utmContent: '',
+      utmTerm: '',
+      referrer: '',
+    };
+    expect(sourceOfOrigin('{"x":1}')).toEqual(empty);
+    expect(sourceOfOrigin('не json')).toEqual(empty);
+    expect(sourceOfOrigin('[1,"a"]')).toEqual({ ...empty, utmMedium: 'a' });
+  });
+});
+
 describe('посещение', () => {
   it('устройство по User-Agent и подсказке Chromium', () => {
     expect(deviceOf(_CHROME, null)).toBe('desktop');
@@ -124,18 +222,23 @@ describe('посещение', () => {
     expect(referrerHost(null, [])).toBe('');
   });
 
-  it('UTM: source и medium строчными, campaign как есть, без управляющих символов', () => {
+  it('UTM: source и medium строчными, campaign, content и term как есть, без управляющих символов', () => {
     expect(
       utmOf(
         new URLSearchParams(
-          'utm_source=Newsletter&utm_medium=E-Mail&utm_campaign=Herbst%202026%0A&x=1'
+          'utm_source=Newsletter&utm_medium=E-Mail&utm_campaign=Herbst%202026%0A&utm_content=Banner%0D%0AOben&utm_term=K%C3%BCche%20Eiche&x=1'
         )
       )
     ).toEqual({
       source: 'newsletter',
       medium: 'e-mail',
       campaign: 'Herbst 2026',
+      content: 'BannerOben',
+      term: 'Küche Eiche',
     });
+    expect(
+      utmOf(new URLSearchParams(`utm_term=${'b'.repeat(300)}`)).term
+    ).toHaveLength(100);
     expect(
       utmOf(new URLSearchParams(`utm_source=${'a'.repeat(300)}`)).source
     ).toHaveLength(100);
@@ -192,6 +295,8 @@ describe('посещение', () => {
       utmSource: '',
       utmMedium: '',
       utmCampaign: '',
+      utmContent: '',
+      utmTerm: '',
       device: 'desktop',
       browserLanguage: 'de',
     });

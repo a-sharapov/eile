@@ -26,7 +26,7 @@ concurrency:
 
 env:
   TAG: ${{ github.event.inputs.tag || github.ref_name }}
-  BUN_VERSION: 1.4.4
+  BUN_VERSION: 1.4.5
 
 jobs:
   check:

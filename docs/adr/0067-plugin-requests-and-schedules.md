@@ -5,18 +5,18 @@
 
 ## Контекст
 
-На сайте Evo gabriel.by часть работы жила в плагинах на `OnPageNotFound`, которые отвечали сами и делали
+На большом сайте Evo часть работы жила в плагинах на `OnPageNotFound`, которые отвечали сами и делали
 `exit`:
 
-- `GET /api/v1/landing?type=detail&item=<slug>` — JSON изделия для отдельного лендинга granitmemorial.by,
+- `GET /api/v1/landing?type=detail&item=<slug>` — JSON изделия для отдельного лендинга `landing.example`,
   `type=examples&item=<key>` — JSON-список;
-- `POST /api/v1/landing?token=…&type=process` — заявка JSON-ом с granitmemorial.by и со статического сайта
-  `/razbor/`, дальше письмом;
+- `POST /api/v1/landing?token=…&type=process` — заявка JSON-ом с `landing.example` и со статического сайта
+  `/guide/`, дальше письмом;
 - `GET /api/v1/landing/payment?payload=a::key` — `{ result, signature: sha1(payload + secret) }` для WebPay;
 - `GET /api/v1/health` — `{"status":"alive"}`, `GET /api/v1/cy` — `{"course":"<курс USD>"}`.
 
 Все отвечают с `Access-Control-Allow-Origin: *` и на `OPTIONS`. У них внешние потребители: их адреса и ответы
-должны пережить переезд. Ещё одна часть — задание priceParser: раз в 12 часов курс USD→BYN с floatrates.com в
+должны пережить переезд. Ещё одна часть — задание ratesSync: раз в 12 часов курс валют с внешнего сервиса в
 системную настройку, от которой считается каждая цена на сайте.
 
 Плагин Eile умел три вещи: `render` (последнее слово о HTML), `notFound` (адрес редиректа вместо 404) и `on`
@@ -103,7 +103,7 @@ export default {
   - уведомление в каналы формы, письмо отправителю, вебхук ([ADR 0037](0037-form-webhooks.md)), цель статистики
     и событие `forms.submission_received` — как обычно;
   - `options.page` — id страницы сайта (скрытые поля страницы, адрес заявки); `options.origin` — адрес вне
-    сайта, откуда заявка (`https://granitmemorial.by/`): в заявке подписью — хост, адресом — он сам; не
+    сайта, откуда заявка (`https://landing.example/`): в заявке подписью — хост, адресом — он сам; не
     `http(s)://` — не записывается, туда часто кладут заголовок `Origin` посетителя; `referrer`; `ip` и
     `userAgent` — хранятся по настройке формы `storeClientInfo` и нужны цели статистики;
   - формы нет — исключение `forms.form_not_found`.
@@ -134,7 +134,7 @@ export default {
 Бинарник `dist/cms` этой ветки вне репозитория, сайт из `cms new blog`, плагин `plugins/Test.ts` через
 `cms elements push`: `GET /api/v1/health` — 200 `{"status":"alive"}` с CORS; `OPTIONS` с
 `Access-Control-Request-Method` — 204 с CORS; `POST /api/v1/echo` JSON-ом в форму `feedback` через `submit` —
-`{"ok":true,"id":1,"spam":false}`, лишнее поле не записано, у заявки `pageTitle: granitmemorial.by`; без
+`{"ok":true,"id":1,"spam":false}`, лишнее поле не записано, у заявки `pageTitle: landing.example`; без
 обязательных полей — `{"ok":false,"errors":{…}}`; 70 КБ — 413; `POST /nowhere` — 405, `GET /nowhere` — 404.
 Расписание `every: '2s'` с `setCustom('tick', …)` — запуски каждые 2 секунды с первого; правка плагина
 (`'3s'`) другим процессом — прежнее задание снято, новое пошло через 3 секунды.
@@ -153,7 +153,7 @@ export default {
   шлёт с сервера). Решает плагин: токен, подпись, свой счётчик.
 - **Почему расписание в плагине, а не cron.** Курс валют — часть сайта: переезжает с ним в копии и правится
   в менеджере. `Bun.cron` с выражением был бы гибче, но период «раз в 12 часов от запуска» — то, что делал
-  priceParser, и в нём не ошибиться.
+  ratesSync, и в нём не ошибиться.
 
 ## Последствия
 

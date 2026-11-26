@@ -25,7 +25,7 @@ export type PluginSubmitOptions = {
   /** Страница сайта, с которой будто бы отправили форму: id. */
   readonly page?: number;
   readonly referrer?: string;
-  /** Откуда пришла заявка, если не со страницы сайта: `https://granitmemorial.by/` — в адрес заявки. */
+  /** Откуда пришла заявка, если не со страницы сайта: `https://landing.example/` — в адрес заявки. */
   readonly origin?: string;
   /** Адрес и браузер посетителя, если плагин их знает: заявка хранит их по настройке формы. */
   readonly ip?: string;

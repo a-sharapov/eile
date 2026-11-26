@@ -68,7 +68,7 @@ describe('плагин отвечает на запрос (handle)', () => {
     const preflight = await request('/api/v1/landing?type=process', {
       method: 'OPTIONS',
       headers: {
-        origin: 'https://granitmemorial.by',
+        origin: 'https://landing.example',
         'access-control-request-method': 'POST',
       },
     });
@@ -301,13 +301,13 @@ describe('контекст плагина', () => {
             })))
           : null };`
     );
-    const post = (body: unknown, origin = 'https://granitmemorial.by') =>
+    const post = (body: unknown, origin = 'https://landing.example') =>
       request('/api/v1/landing?token=t&type=process', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           origin,
-          referer: 'https://granitmemorial.by/razbor/',
+          referer: 'https://landing.example/guide/',
         },
         body: JSON.stringify(body),
       }).then(
@@ -334,9 +334,9 @@ describe('контекст плагина', () => {
     expect(stored.status).toBe('new');
     expect(stored.context).toMatchObject({
       pageId: null,
-      pageTitle: 'granitmemorial.by',
-      url: 'https://granitmemorial.by/',
-      referrer: 'https://granitmemorial.by/razbor/',
+      pageTitle: 'landing.example',
+      url: 'https://landing.example/',
+      referrer: 'https://landing.example/guide/',
     });
     expect(app.notify.outbox.bySource(`submission:${done.id}`)).toHaveLength(1);
     expect(app.forms.webhooks.of(done.id!)).toMatchObject({

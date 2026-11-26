@@ -367,7 +367,7 @@ const copyTag = (name: string) =>
                     {#if !row.read}<span class="dot" aria-label={t('inbox.new')}></span>{/if}
                     <strong>{row.preview || row.formTitle}</strong>
                   </span>
-                  <span class="muted meta">{row.formTitle} · {ago(row.createdAt)}{#if row.status !== 'new'} · {t(_STATUS_LABEL[row.status])}{/if}</span>
+                  <span class="muted meta">{row.formTitle} · {ago(row.createdAt)}{#if row.status !== 'new'}{' · '}{t(_STATUS_LABEL[row.status])}{/if}</span>
                 </button>
               </li>
             {/each}

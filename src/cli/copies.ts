@@ -53,6 +53,7 @@ const _SAY = {
         id ? `хранилище копий (ключ ${id})` : 'хранилище копий',
       assistant: 'подключение ИИ',
       tokens: (n: number) => `ключи API (${n})`,
+      senderKeys: (n: number) => `ключи отправителей событий (${n})`,
     },
     keepSafe:
       'Храните файл как пароль: в нём пароль или ключ API почты, ключ ИИ и ключ копий. Без пароля файла его не открыть.',
@@ -73,6 +74,10 @@ const _SAY = {
       `ключи API: добавлено ${added}, уже были ${present}`,
     skipped: (emails: string) =>
       `ключи API пропущены — нет пользователей с почтой ${emails}`,
+    senderKeys: (added: number, present: number) =>
+      `ключи отправителей событий: добавлено ${added}, уже были ${present}`,
+    skippedSenders: (codes: string) =>
+      `ключи отправителей пропущены — на сайте нет отправителей ${codes}`,
     following:
       'Сервер на этой базе подхватит настройки сам, на ближайшем запросе. Служба: cms service restart — сразу.',
     offsiteOff:
@@ -124,6 +129,7 @@ const _SAY = {
         id ? `backup storage (key ${id})` : 'backup storage',
       assistant: 'AI connection',
       tokens: (n: number) => `API tokens (${n})`,
+      senderKeys: (n: number) => `event sender keys (${n})`,
     },
     keepSafe:
       'Keep the file like a password: it holds the mail password or API key, the AI key and the backup key. Without its passphrase it cannot be opened.',
@@ -144,6 +150,10 @@ const _SAY = {
       `API tokens: ${added} added, ${present} already there`,
     skipped: (emails: string) =>
       `API tokens skipped: no users with the email ${emails}`,
+    senderKeys: (added: number, present: number) =>
+      `event sender keys: ${added} added, ${present} already there`,
+    skippedSenders: (codes: string) =>
+      `event sender keys skipped: the site has no senders ${codes}`,
     following:
       'A server on this database picks the settings up by itself on its next request. For a service, cms service restart does it at once.',
     offsiteOff:
@@ -250,6 +260,9 @@ const _contents = (settings: ServerSettings, say: _Say): string[] =>
     settings.tokens.length > 0
       ? say.parts.tokens(settings.tokens.length)
       : null,
+    (settings.senderKeys ?? []).length > 0
+      ? say.parts.senderKeys((settings.senderKeys ?? []).length)
+      : null,
   ].filter((_) => _ !== null);
 
 /** `cms backup --server [<файл>]`: настройки этого сервера в файл, запечатанный паролем. */
@@ -304,6 +317,12 @@ const _applied = (report: ServerSettingsReport, say: _Say): string[] =>
       : null,
     report.tokens.skipped.length > 0
       ? say.skipped(report.tokens.skipped.join(', '))
+      : null,
+    report.senderKeys.added + report.senderKeys.present > 0
+      ? say.senderKeys(report.senderKeys.added, report.senderKeys.present)
+      : null,
+    report.senderKeys.skipped.length > 0
+      ? say.skippedSenders(report.senderKeys.skipped.join(', '))
       : null,
   ].filter((_) => _ !== null);
 

@@ -14,7 +14,7 @@ describe('имя файла связанной папки', () => {
     ['4a_(5).jpg', '4a-5.jpg'],
     ['4a_-(10).jpg', '4a-10.jpg'],
     ['Screenshot_19.jpg', 'screenshot_19.jpg'],
-    ['Притыцкого 89.jpg', 'pritytskogo-89.jpg'],
+    ['Садовая 12.jpg', 'sadovaya-12.jpg'],
     ['балтийский 2.JPG', 'baltiyskiy-2.jpg'],
     ['ЛС_010.jpg', 'ls_010.jpg'],
     ['2 (1).png', '2-1.png'],
@@ -22,7 +22,7 @@ describe('имя файла связанной папки', () => {
     ['Café Menü.webp', 'cafe-menu.webp'],
     ['Мінск_ўезд.jpg', 'minsk_uezd.jpg'],
     ['  --file--.pdf', 'file.pdf'],
-    ['proudcts', 'proudcts'],
+    ['products', 'products'],
   ])('%p → %p', (raw, name) => {
     expect(linkedSegment(raw)).toBe(name);
   });
@@ -34,8 +34,8 @@ describe('имя файла связанной папки', () => {
   });
 
   it('путь медиатеки — приставка и части по правилу, и он проходит правила медиатеки', () => {
-    const path = linkedPath('assets', 'images/Фото/Притыцкого 89.JPG');
-    expect(path).toBe('assets/images/foto/pritytskogo-89.jpg');
+    const path = linkedPath('assets', 'images/Фото/Садовая 12.JPG');
+    expect(path).toBe('assets/images/foto/sadovaya-12.jpg');
     expect(parseMediaPath(path)).toBe(path as MediaPath);
   });
 

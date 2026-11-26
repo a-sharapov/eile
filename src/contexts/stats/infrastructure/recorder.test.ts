@@ -15,6 +15,8 @@ const _VISIT: Visit = {
   utmSource: '',
   utmMedium: '',
   utmCampaign: '',
+  utmContent: '',
+  utmTerm: '',
   device: 'desktop',
   browserLanguage: 'de',
 };
@@ -154,6 +156,62 @@ describe('счётчик процесса', () => {
       visitors: 1,
       events: 1,
     });
+  });
+
+  it('посещение дня для перехода: без просмотра и записи; с целями — цели в буфер, хэш — один', () => {
+    const { recorder, memory } = setup();
+    expect(recorder.visit('203.0.113.7', 'Firefox', ['go:a', 'go:'])).toBe(
+      null
+    );
+    recorder.view(
+      '203.0.113.7',
+      'Firefox',
+      () => ({ ..._VISIT, utmSource: 'ig', utmContent: 'ad-1' }),
+      page
+    );
+    recorder.flush();
+    const writes = memory.writes.length;
+    // Без целей ничего не пишется: ни прибавок, ни посетителя.
+    expect(recorder.visit('203.0.113.7', 'Firefox', [])).toMatchObject({
+      utmSource: 'ig',
+      utmContent: 'ad-1',
+    });
+    recorder.flush();
+    expect(memory.writes).toHaveLength(writes);
+    expect(
+      recorder.visit('203.0.113.7', 'Firefox', ['go:a', 'go:'])
+    ).toMatchObject({ utmSource: 'ig' });
+    recorder.flush();
+    const goals = memory.writes.at(-1)!.goals;
+    expect(
+      goals.filter((_) => _.dimension === 'total').map((_) => _.goal)
+    ).toEqual(['go:a', 'go:']);
+    expect(goals.find((_) => _.dimension === 'origin')).toMatchObject({
+      value: '["ig","","","ad-1","",""]',
+      visitors: 1,
+    });
+    expect(memory.visitors.values().next().value?.goals).toEqual({
+      'go:a': 1,
+      'go:': 1,
+    });
+    // Другой браузер того же адреса — другой посетитель: его сегодня не было.
+    expect(recorder.visit('203.0.113.7', 'Chrome', ['go:a'])).toBe(null);
+  });
+
+  it('повторы перехода — не больше двадцати за день, посещение отдаётся и после', () => {
+    const { recorder, memory } = setup();
+    recorder.view('203.0.113.7', 'Firefox', () => _VISIT, page);
+    Array.from({ length: 25 }, () =>
+      recorder.visit('203.0.113.7', 'Firefox', ['go:a'])
+    );
+    expect(recorder.visit('203.0.113.7', 'Firefox', ['go:a'])).not.toBe(null);
+    recorder.flush();
+    const total = memory.writes
+      .flatMap((_) => _.goals)
+      .filter((_) => _.dimension === 'total');
+    expect(total).toEqual([
+      { goal: 'go:a', dimension: 'total', value: '', visitors: 1, events: 20 },
+    ]);
   });
 
   it('полный буфер уходит в базу вскоре, не дожидаясь таймера', () => {

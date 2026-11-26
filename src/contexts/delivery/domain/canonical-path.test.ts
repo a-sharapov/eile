@@ -48,7 +48,7 @@ describe('cleanPath', () => {
 
 it('окончание — то, что идёт после алиаса', () => {
   expect(endingOf({ path: '/katalog/', alias: 'katalog' })).toBe('/');
-  expect(endingOf({ path: '/baran/ofis.html', alias: 'ofis' })).toBe('.html');
+  expect(endingOf({ path: '/riga/ofis.html', alias: 'ofis' })).toBe('.html');
   expect(endingOf({ path: '/sitemap.xml', alias: 'sitemap.xml' })).toBe('');
   expect(endingOf({ path: '/blog', alias: 'blog' })).toBe('');
 });

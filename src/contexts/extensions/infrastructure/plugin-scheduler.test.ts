@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, jest } from 'bun:test';
 import type { PluginScheduler, ScheduledJob } from '../domain/ports.ts';
 import { definePluginScheduler } from './plugin-scheduler.ts';
 
@@ -20,18 +20,32 @@ const job = (
 
 describe('таймеры расписаний плагинов', () => {
   it('первый запуск — через delay, дальше — каждый период', async () => {
-    const runs: number[] = [];
-    const started = performance.now();
-    scheduler = definePluginScheduler({ delay: 20 });
-    scheduler.sync([
-      job('Rate', 'v1', 40, () =>
-        Promise.resolve(void runs.push(performance.now() - started))
-      ),
-    ]);
-    await until(() => runs.length >= 3);
-    expect(runs.length).toBeGreaterThanOrEqual(3);
-    expect(runs[0]!).toBeGreaterThanOrEqual(15);
-    expect(runs[0]!).toBeLessThan(40);
+    // Поддельные таймеры: на загруженной машине настоящие срабатывают с опозданием, а здесь важен порядок сроков —
+    // первый запуск через delay (20), а не через период (40), следующие — через период.
+    jest.useFakeTimers();
+    try {
+      let runs = 0;
+      scheduler = definePluginScheduler({ delay: 20 });
+      scheduler.sync([
+        job('Rate', 'v1', 40, () => Promise.resolve(void (runs += 1))),
+      ]);
+      // Конец запуска снимает отметку «идёт» в обещании: даём ему выполниться перед следующим сроком.
+      const advance = async (ms: number): Promise<number> => {
+        jest.advanceTimersByTime(ms);
+        for (let n = 0; n < 10; n++) await Promise.resolve();
+        return runs;
+      };
+      expect(await advance(19)).toBe(0);
+      expect(await advance(1)).toBe(1);
+      expect(await advance(39)).toBe(1);
+      expect(await advance(1)).toBe(2);
+      expect(await advance(39)).toBe(2);
+      expect(await advance(1)).toBe(3);
+      scheduler.stop();
+      scheduler = null;
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('та же версия сохраняет ход и получает новый run; другая — заменяет задание', async () => {

@@ -1,8 +1,9 @@
-import type { Visit } from './visit.ts';
+import { originOf, type Visit } from './visit.ts';
 
 /**
  * Разрез сводки за день. Разрезы посещения (источник, вход, устройство…) считают посетителей и их просмотры;
  * разрезы страницы (адрес, язык страницы) — только просмотры: уникальных по странице статистика не помнит.
+ * `origin` — сочетание UTM и реферера посещения для аналитики (ADR 0072); в отчёт статистики не выходит.
  */
 export type Dimension =
   | 'total'
@@ -13,6 +14,9 @@ export type Dimension =
   | 'utm_source'
   | 'utm_medium'
   | 'utm_campaign'
+  | 'utm_content'
+  | 'utm_term'
+  | 'origin'
   | 'entry'
   | 'device'
   | 'browser_language';
@@ -25,8 +29,8 @@ export type Increment = {
   readonly views: number;
 };
 
-/** Разрез целей: всего, по источнику и по странице входа посетителя. */
-export type GoalDimension = 'total' | 'source' | 'entry';
+/** Разрез целей: всего, по источнику, по странице входа и по сочетанию UTM и реферера посетителя. */
+export type GoalDimension = 'total' | 'source' | 'entry' | 'origin';
 
 export type GoalIncrement = {
   readonly goal: string;
@@ -49,6 +53,9 @@ const _VISIT: readonly (readonly [Dimension, (visit: Visit) => string])[] = [
   ['utm_source', (_) => _.utmSource],
   ['utm_medium', (_) => _.utmMedium],
   ['utm_campaign', (_) => _.utmCampaign],
+  ['utm_content', (_) => _.utmContent],
+  ['utm_term', (_) => _.utmTerm],
+  ['origin', originOf],
   ['entry', (_) => _.entry],
   ['device', (_) => _.device],
   ['browser_language', (_) => _.browserLanguage],
@@ -93,8 +100,8 @@ export var viewTally = (
 const _EVENTS_PER_DAY = 20;
 
 /**
- * Посетитель достиг цели: прибавки ко всем разрезам с его источником и входом дня; null — повторов за день
- * уже слишком много.
+ * Посетитель достиг цели: прибавки ко всем разрезам с его источником, входом и `origin` дня; null — повторов за
+ * день уже слишком много.
  */
 export var goalTally = (
   visitor: Visitor,
@@ -113,6 +120,7 @@ export var goalTally = (
               ['total', ''],
               ['source', visitor.source],
               ['entry', visitor.entry],
+              ['origin', originOf(visitor)],
             ] as const
           ).map(({ 0: dimension, 1: value }) => ({
             goal,
@@ -122,3 +130,26 @@ export var goalTally = (
             events: 1,
           })),
         })(visitor.goals[goal] ?? 0);
+
+/**
+ * Посетитель достиг нескольких целей разом (переход — `go:<код>` и `go:`): прибавки всех, кроме исчерпавших
+ * повторы за день. Целей не прибавилось — тот же посетитель, без прибавок.
+ */
+export var goalsTally = (
+  visitor: Visitor,
+  goals: readonly string[]
+): { readonly visitor: Visitor; readonly increments: GoalIncrement[] } =>
+  goals.reduce<{
+    readonly visitor: Visitor;
+    readonly increments: GoalIncrement[];
+  }>(
+    (sum, goal) =>
+      ((next) =>
+        next === null
+          ? sum
+          : {
+              visitor: next.visitor,
+              increments: [...sum.increments, ...next.increments],
+            })(goalTally(sum.visitor, goal)),
+    { visitor, increments: [] }
+  );

@@ -7,7 +7,7 @@ import {
   t,
 } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
-import { session } from '#lib/session.svelte.ts';
+import { can, session } from '#lib/session.svelte.ts';
 import PageHeader from '#lib/ui/PageHeader.svelte';
 import './help.css';
 import HelpDe from './HelpDe.svelte';
@@ -19,6 +19,8 @@ type Chapter = {
   readonly id: string;
   readonly title: MessageKey;
   readonly admin?: boolean;
+  /** Глава аналитики — тем, кому видны люди и выручка. */
+  readonly analytics?: boolean;
 };
 
 // Главы — по задачам, а не по экранам: «как сделать», а не «что где лежит».
@@ -29,6 +31,7 @@ const _CHAPTERS: readonly Chapter[] = [
   { id: 'media', title: 'help.chapterMedia' },
   { id: 'forms', title: 'help.chapterForms' },
   { id: 'stats', title: 'help.chapterStats' },
+  { id: 'analytics', title: 'help.chapterAnalytics', analytics: true },
   { id: 'speed', title: 'help.chapterSpeed' },
   { id: 'keys', title: 'help.chapterKeys' },
   { id: 'account', title: 'help.chapterAccount' },
@@ -45,7 +48,10 @@ const _TEXT: Readonly<Record<Language, Component<HelpProps>>> = {
 const Text = _TEXT[currentLanguage()];
 
 const admin = $derived(session.user?.role === 'admin');
-const chapters = $derived(_CHAPTERS.filter((_) => admin || !_.admin));
+const analytics = $derived(can('analytics.read'));
+const chapters = $derived(
+  _CHAPTERS.filter((_) => (admin || !_.admin) && (analytics || !_.analytics))
+);
 const mac = /Mac|iPhone|iPad/.test(navigator.platform);
 const mod = mac ? '⌘' : t('common.ctrl');
 
@@ -79,8 +85,10 @@ const chapterShown = (chapter: string): boolean =>
     ([id, text]) => id.startsWith(`${chapter}-`) && text.includes(needle)
   );
 
-// Оглавление подсвечивает главу, которую сейчас читают.
-let active = $state('start');
+// Оглавление подсвечивает главу, которую сейчас читают; пришли ссылкой на раздел — его главу.
+let active = $state(
+  _CHAPTERS.find((_) => location.hash.startsWith(`#${_.id}`))?.id ?? 'start'
+);
 
 $effect(() => {
   const observer = new IntersectionObserver(
@@ -120,7 +128,7 @@ $effect(() => {
   </aside>
 
   <article class="help-text" bind:this={article}>
-    <Text {shown} {chapterShown} {mod} {admin} />
+    <Text {shown} {chapterShown} {mod} {admin} {analytics} />
     {#if !anyShown}
       <p class="nothing">{t('help.nothing')}</p>
     {/if}

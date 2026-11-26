@@ -150,6 +150,11 @@ const _TAGS: Readonly<
   'forms.submission_removed': () => [],
   // Маячок целей стоит в каждой странице: сменились настройки статистики — собрать все заново.
   'stats.settings_changed': () => null,
+  // Аналитика клиентского пути страниц не меняет: ни её справочники и выключатель, ни ключи, ни удаления.
+  'analytics.settings_changed': () => [],
+  'analytics.setup_changed': () => [],
+  'analytics.sender_key_issued': () => [],
+  'analytics.person_erased': () => [],
   _: () => null,
 };
 

@@ -74,7 +74,7 @@ describe('расписание плагина', () => {
     app = serve();
     app.extensions.plugins.save(
       'Broken',
-      "export default { schedule: { every: '1h', run: () => { throw new Error('floatrates is down'); } } };"
+      "export default { schedule: { every: '1h', run: () => { throw new Error('rates service is down'); } } };"
     );
     app.extensions.plugins.save(
       'Often',

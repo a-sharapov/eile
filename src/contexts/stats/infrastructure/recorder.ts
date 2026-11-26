@@ -6,6 +6,7 @@ import {
 } from '../domain/settings.ts';
 import {
   type GoalIncrement,
+  goalsTally,
   goalTally,
   type Increment,
   type Visitor,
@@ -184,6 +185,25 @@ export var defineRecorder = ({
               idOf(client, userAgent)
             ))(roll()),
         (error) => (_log(error), false)
+      ),
+    visit: (client, userAgent, wanted) =>
+      attempt(
+        () =>
+          ((now) =>
+            ((id) =>
+              ((found) =>
+                found === null
+                  ? null
+                  : ((reached) => (
+                      reached.increments.length > 0 &&
+                        (visitors.set(id, reached.visitor),
+                        reached.increments.forEach(addGoal),
+                        bound()),
+                      found
+                    ))(goalsTally(found, wanted)))(known(now, id)))(
+              idOf(client, userAgent)
+            ))(roll()),
+        (error) => (_log(error), null)
       ),
     flush,
     today,

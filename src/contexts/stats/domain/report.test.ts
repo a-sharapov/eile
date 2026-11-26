@@ -2,10 +2,12 @@ import { describe, expect, it } from 'bun:test';
 import { attempt, isDomainError } from '../../../shared/kernel/errors.ts';
 import {
   dailyOf,
+  goalKindOf,
   goalsOf,
   limitOf,
   periodOf,
   previousOf,
+  REPORT_DIMENSIONS,
   topOf,
 } from './report.ts';
 
@@ -143,5 +145,40 @@ describe('сборка отчёта', () => {
       label: 'Bestellung',
       rate: 0.025,
     });
+  });
+
+  it('разрезы отчёта: utm_content и utm_term есть, origin — нет', () => {
+    expect(REPORT_DIMENSIONS.utmContents).toBe('utm_content');
+    expect(REPORT_DIMENSIONS.utmTerms).toBe('utm_term');
+    expect(Object.values(REPORT_DIMENSIONS)).not.toContain('origin');
+  });
+
+  it('цель перехода — вида go: go:<код> с названием, go: — любой переход без подписи', () => {
+    expect(goalKindOf('go:trial')).toBe('go');
+    expect(goalKindOf('go:')).toBe('go');
+    expect(goalKindOf('form:kontakt')).toBe('form');
+    expect(goalKindOf('link:https://app.example.com/new')).toBe('link');
+    const row = (goal: string, visitors: number) => ({
+      goal,
+      dimension: 'total' as const,
+      value: '',
+      visitors,
+      events: visitors,
+    });
+    const goals = goalsOf(
+      [row('go:trial', 2), row('go:shop', 1), row('go:', 2)],
+      10,
+      { source: new Map(), entry: new Map() },
+      (goal) =>
+        ({ 'go:trial': 'Probetraining', 'go:shop': 'Shop' })[goal] ?? '',
+      20
+    );
+    expect(
+      goals.map((_) => [_.goal, _.kind, _.name, _.label, _.visitors])
+    ).toEqual([
+      ['go:', 'go', '', '', 2],
+      ['go:trial', 'go', 'trial', 'Probetraining', 2],
+      ['go:shop', 'go', 'shop', 'Shop', 1],
+    ]);
   });
 });
