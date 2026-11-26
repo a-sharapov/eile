@@ -10,6 +10,7 @@ import { icons, logo } from '#lib/icons.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
 import { failed } from '#lib/notices.svelte.ts';
 import { openPalette, palette, rememberPage } from '#lib/palette.svelte.ts';
+import { quality, refreshQuality } from '#lib/quality-status.svelte.ts';
 import { loadSession, session, signOut } from '#lib/session.svelte.ts';
 import type { Role } from '#lib/types.ts';
 import AgentPanel from '#lib/ui/AgentPanel.svelte';
@@ -144,6 +145,19 @@ $effect(() => {
   void proposals;
   refreshProposals();
 });
+
+// Отметка у «Статистики» — нерешённый сбой проверки данных в последние наступившие сутки (ADR 0072, этап 4);
+// замечания отметки не дают. Без права analytics.read запроса нет.
+$effect(() => {
+  void session.user;
+  refreshQuality();
+});
+const flagged = (section: Section): boolean =>
+  section.href === '/(app)/stats' && quality.failures > 0;
+const navLabel = (section: Section): string =>
+  flagged(section)
+    ? t('nav.statsFailure', { label: t(section.label) })
+    : t(section.label);
 
 // Подписи разделов — пока помещаются с запасом в 1rem. Их ширина меряется, когда они видны, и хранится в rem:
 // шрифт растёт с окном, а сами разделы — нет. Другой набор разделов — ширина меряется заново.
@@ -395,6 +409,7 @@ const drawerKey = (event: KeyboardEvent) =>
 afterNavigate(
   () => (
     refreshProposals(),
+    refreshQuality(),
     void (drawer && openDrawer(false),
     Number(page.params.id) > 0 &&
       page.route.id === '/(app)/pages/[id]' &&
@@ -500,21 +515,21 @@ const closeAccount = (event: Event) =>
         <ul bind:this={navList}>
           {#each visibleNav as item (item.href)}
             <li class="nav-item">
-              <a href={resolve(item.href)} aria-current={current?.href === item.href ? 'page' : undefined} title={t(item.label)}>
-                {@html icons[item.icon]}<span class="label">{t(item.label)}</span>
+              <a href={resolve(item.href)} aria-current={current?.href === item.href ? 'page' : undefined} title={navLabel(item)} aria-label={flagged(item) ? navLabel(item) : undefined}>
+                {@html icons[item.icon]}<span class="label">{t(item.label)}</span>{#if flagged(item)}<span class="flag" aria-hidden="true"></span>{/if}
               </a>
             </li>
           {/each}
           {#if overflowCount > 0}
             <li class="nav-more">
               <button type="button" class="more-button" class:current={overflowNav.some((_) => _.href === current?.href)} bind:this={moreButton} aria-haspopup="menu" aria-expanded={moreOpen} title={t('nav.more')} onclick={() => (moreOpen = !moreOpen)}>
-                {@html icons.more}<span class="label">{t('nav.more')}</span>
+                {@html icons.more}<span class="label">{t('nav.more')}</span>{#if overflowNav.some(flagged)}<span class="flag" aria-hidden="true"></span>{/if}
               </button>
               {#if moreOpen}
                 <div class="more-menu" role="menu" aria-label={t('nav.more')} bind:this={moreMenu}>
                   {#each overflowNav as item (item.href)}
-                    <a role="menuitem" href={resolve(item.href)} aria-current={current?.href === item.href ? 'page' : undefined} onclick={() => (moreOpen = false)}>
-                      {@html icons[item.icon]}<span>{t(item.label)}</span>
+                    <a role="menuitem" href={resolve(item.href)} aria-current={current?.href === item.href ? 'page' : undefined} aria-label={flagged(item) ? navLabel(item) : undefined} onclick={() => (moreOpen = false)}>
+                      {@html icons[item.icon]}<span>{t(item.label)}</span>{#if flagged(item)}<span class="flag" aria-hidden="true"></span>{/if}
                     </a>
                   {/each}
                 </div>
@@ -978,6 +993,17 @@ const closeAccount = (event: Event) =>
 
   .account-menu :global(svg) {
     color: var(--muted);
+  }
+
+  /* Сбой проверки данных — точка у раздела «Статистика» (и у «Ещё», если раздел ушёл туда). */
+  .flag {
+    flex: none;
+    width: 0.5rem;
+    height: 0.5rem;
+    margin-inline-start: -0.2rem;
+    border-radius: 50%;
+    background: var(--danger);
+    box-shadow: 0 0 0 0.125rem var(--bg);
   }
 
   /* Новая версия: точка акцентом на аватаре — тихо, но видно с любой страницы. */

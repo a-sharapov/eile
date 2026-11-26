@@ -121,6 +121,9 @@
   --ok-soft: light-dark(oklch(95% 0.04 150), oklch(28% 0.05 150));
   --warn: light-dark(oklch(53% 0.13 70), oklch(80% 0.13 78));
   --warn-soft: light-dark(oklch(95.5% 0.05 85), oklch(29% 0.05 80));
+  /* Текст предупреждения: тон --warn, притемнённый к тексту, — контраст не ниже 4.5:1 и на --warn-soft. Смесь — в
+     oklab: в oklch оттенок шёл бы по кругу через зелёный, и в тёмной теме янтарь становился жёлто-зелёным. */
+  --warn-text: color-mix(in oklab, var(--warn) 70%, var(--text));
   --danger: light-dark(oklch(52% 0.19 27), oklch(72% 0.15 27));
   --danger-soft: light-dark(
     oklch(52% 0.19 27 / 0.08),

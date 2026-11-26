@@ -5,7 +5,7 @@
 
 ## Контекст
 
-Рядом с Evo на gabriel.by лежала папка `/razbor/` — статический сайт: сборка Astro (`base: '/razbor'`,
+Рядом с Evo на большом сайте лежала папка `/guide/` — статический сайт: сборка Astro (`base: '/guide'`,
 `trailingSlash: 'always'`), HTML, CSS, JS, шрифты, картинки, ролик и HDR-карта для сцены Three.js, 14 МБ.
 Apache отдавал её как есть, раньше `index.php`. Сайт шлёт заявки в API плагина ([ADR 0067](0067-plugin-requests-and-schedules.md)).
 
@@ -36,12 +36,12 @@ cms media unlink <приставка>
 
 **Отдача — `/<приставка>/…`, только GET и HEAD.**
 
-- `/<приставка>` — 301 на `/<приставка>/` (query сохраняется); адрес каталога (`/razbor/`, `/razbor/about/`) —
+- `/<приставка>` — 301 на `/<приставка>/` (query сохраняется); адрес каталога (`/guide/`, `/guide/about/`) —
   его `index.html`; каталог без `/` в конце — 301 на адрес со слэшем. Так ведёт себя сборка с
   `trailingSlash: 'always'` на любом статическом хостинге.
 - **Нет файла** — `404.html` из корня папки со статусом 404; без неё — страница 404 сайта. Адреса под
   приставкой принадлежат папке: страницы, правила переадресации и плагины их не получают (иначе
-  `/razbor/missing/` у сайта без адресов на `/` ушёл бы 301 на `/razbor/missing`).
+  `/guide/missing/` у сайта без адресов на `/` ушёл бы 301 на `/guide/missing`).
 - **Типы** — по расширению, только то, из чего состоит статический сайт: `html`, `htm`, `css`, `js`, `mjs`,
   `json`, `map`, `webmanifest`, `xml`, `txt`, `svg`, картинки (`png`, `jpg`, `gif`, `webp`, `avif`, `ico`),
   шрифты (`woff2`, `woff`, `ttf`, `otf`), `mp4`, `webm`, `mp3`, `ogg`, `wav`, `pdf`, `glb`, `gltf`, `hdr`, `wasm`.
@@ -76,18 +76,18 @@ cms media unlink <приставка>
   серверу и базе (`cms media link`), а не менеджер, и в неё не кладут чужие файлы: загрузки посетителей, FTP
   подрядчика.
 
-**CLI и копии.** `cms media link` пишет «Папка … — сайт по адресу /razbor/», число и размер отдаваемых файлов
+**CLI и копии.** `cms media link` пишет «Папка … — сайт по адресу /guide/», число и размер отдаваемых файлов
 и пропущенные по типу. `cms info` — строка папки с пометкой «сайт», `cms backup` и экран копий в менеджере
 перечисляют её среди связанных папок: в копию базы она не входит. Диагностика: папки нет на диске —
 `media.linked_missing`; ссылка в тексте страницы на файл или каталог папки-сайта — не битая.
 
 ## Проверка
 
-Бинарник `dist/cms` этой ветки вне репозитория, сайт из `cms new blog`, сборка `gabriel-razbor/dist` (Astro 4.15)
-под `--into razbor --static`: «файлов 63 · 13,6 МБ», ничего не пропущено. `/razbor/` — 200, `text/html`, `no-cache`,
-ETag, 24 485 байт; `/razbor/guided-tour` — 301 на `/razbor/guided-tour/`, там 200; `/razbor/_astro/index.Btfplvvf.css`
-с `Accept-Encoding: gzip` — `immutable` и gzip; `/razbor/covers/working.mp4` с Range — 206,
-`bytes 0-999/7728512`; `/razbor/hdr/*.hdr` — `image/vnd.radiance`; повтор с `If-None-Match` — 304. Страницы блога
+Бинарник `dist/cms` этой ветки вне репозитория, сайт из `cms new blog`, сборка `guide/dist` (Astro 4.15)
+под `--into guide --static`: «файлов 63 · 13,6 МБ», ничего не пропущено. `/guide/` — 200, `text/html`, `no-cache`,
+ETag, 24 485 байт; `/guide/guided-tour` — 301 на `/guide/guided-tour/`, там 200; `/guide/_astro/index.Btfplvvf.css`
+с `Accept-Encoding: gzip` — `immutable` и gzip; `/guide/covers/working.mp4` с Range — 206,
+`bytes 0-999/7728512`; `/guide/hdr/*.hdr` — `image/vnd.radiance`; повтор с `If-None-Match` — 304. Страницы блога
 рядом — как были (`x-cache: hit`).
 
 ## Что не сделано и почему

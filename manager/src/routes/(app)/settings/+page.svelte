@@ -8,7 +8,7 @@ import { quoted, t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
 import { describe, failed, notify } from '#lib/notices.svelte.ts';
-import { session } from '#lib/session.svelte.ts';
+import { can, session } from '#lib/session.svelte.ts';
 import { branchOrder, loadTree } from '#lib/tree.svelte.ts';
 import type { CustomSetting, Settings, Translation } from '#lib/types.ts';
 import LoadState from '#lib/ui/LoadState.svelte';
@@ -18,6 +18,7 @@ import PasswordInput from '#lib/ui/PasswordInput.svelte';
 import Tabs from '#lib/ui/Tabs.svelte';
 import { firstInvalid, freshForm } from '#lib/validity.ts';
 import { page } from '$app/state';
+import AnalyticsSettings from './AnalyticsSettings.svelte';
 import HttpsSettings from './HttpsSettings.svelte';
 import NotifySettings from './NotifySettings.svelte';
 import PageCacheSettings from './PageCacheSettings.svelte';
@@ -488,6 +489,7 @@ const _SOCIAL_SIZE = { width: 1200, height: 630 } as const;
 
 {#snippet statsTab()}
   <StatsSettings />
+  {#if can('analytics.read')}<AnalyticsSettings />{/if}
 {/snippet}
 
 {#snippet aiTab()}

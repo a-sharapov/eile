@@ -1,5 +1,6 @@
 import { api } from './api.ts';
 import { adoptLanguage, applyAppearance } from './appearance.svelte.ts';
+import { allows, type Permission } from './permissions.ts';
 import type { Session } from './types.ts';
 
 export var session = $state<Session & { loaded: boolean }>({
@@ -24,6 +25,10 @@ export var loadSession = (): Promise<Session> =>
         : Promise.resolve()
       ).then(() => (Object.assign(session, _, { loaded: true }), _))
     );
+
+/** Есть ли у вошедшего право: экран прячет то, чего сервер всё равно не разрешит. */
+export var can = (permission: Permission): boolean =>
+  allows(session.user?.role, permission);
 
 export var signOut = (): Promise<void> =>
   api.send('DELETE', '/session').then(() => void (session.user = null));

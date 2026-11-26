@@ -1,23 +1,35 @@
 <script lang="ts">
 import { untrack } from 'svelte';
 import { api } from '#lib/api.ts';
-import { currentLanguage, type MessageKey, number, t } from '#lib/i18n.ts';
+import { currentLanguage, type MessageKey, number, t, tn } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { defineLoad } from '#lib/loading.svelte.ts';
-import { session } from '#lib/session.svelte.ts';
-import type { GoalSlice, StatsReport } from '#lib/types.ts';
+import { can, session } from '#lib/session.svelte.ts';
+import type {
+  GoalSlice,
+  StatsGoal,
+  StatsReport,
+  VersionMark,
+} from '#lib/types.ts';
 import EdgeState from '#lib/ui/EdgeState.svelte';
 import LoadState from '#lib/ui/LoadState.svelte';
 import PageHeader from '#lib/ui/PageHeader.svelte';
 import { resolve } from '$app/paths';
 import { page } from '$app/state';
-import DailyChart from './DailyChart.svelte';
+import DailyChart, { type ChartSeries } from './DailyChart.svelte';
+import OverviewTiles from './OverviewTiles.svelte';
+import {
+  type OverviewPeriod,
+  overviewSearch,
+  versionMarks,
+} from './overview.ts';
 import RankedList from './RankedList.svelte';
+import StatsTabs from './StatsTabs.svelte';
 
-// Период — 7, 30 или 90 дней до сегодня или свои даты; ссылкой можно открыть любой: ?days=7, ?from=…&to=….
-type Period =
-  | { readonly days: number }
-  | { readonly from: string; readonly to: string };
+// «Обзор» (ADR 0072): с правом analytics.read и событиями аналитики над посещениями — ряд итогов аналитики за тот
+// же период; без них — посещения, как прежде. Период — 7, 30 или 90 дней до сегодня или свои даты; ссылкой можно
+// открыть любой: ?days=7, ?from=…&to=….
+type Period = OverviewPeriod;
 
 const _PRESETS: readonly { days: number; label: MessageKey }[] = [
   { days: 7, label: 'stats.days7' },
@@ -40,10 +52,11 @@ let range = $state({
 let report = $state<StatsReport | null>(null);
 let busy = $state(false);
 
-const queryOf = (_: Period): string =>
-  'days' in _
-    ? `?days=${_.days}`
-    : `?from=${encodeURIComponent(_.from)}&to=${encodeURIComponent(_.to)}`;
+const queryOf = (_: Period): string => overviewSearch(_);
+// Ряд итогов аналитики показан: над посещениями — их заголовок; смены версий отправителей — отметки на графике.
+let overview = $state(false);
+let versions = $state<readonly VersionMark[]>([]);
+const marks = $derived(versionMarks(versions));
 
 const loading = defineLoad(
   () => (
@@ -133,13 +146,31 @@ const sourceLabel = (value: string): string => value || t('stats.direct');
 const deviceLabel = (value: string): string =>
   _DEVICES[value] ? t(_DEVICES[value]!) : value;
 
-type SourceTab = 'sources' | 'referrers' | 'utmMediums' | 'utmCampaigns';
+type SourceTab =
+  | 'sources'
+  | 'referrers'
+  | 'utmMediums'
+  | 'utmCampaigns'
+  | 'utmContents'
+  | 'utmTerms';
 const _SOURCE_TABS: readonly { id: SourceTab; label: MessageKey }[] = [
   { id: 'sources', label: 'stats.allSources' },
   { id: 'referrers', label: 'stats.referrers' },
   { id: 'utmMediums', label: 'stats.mediums' },
   { id: 'utmCampaigns', label: 'stats.campaigns' },
+  { id: 'utmContents', label: 'stats.contents' },
+  { id: 'utmTerms', label: 'stats.terms' },
 ];
+
+// Вид цели — подписью; переход называется своим названием, `go:` — «Все переходы».
+const _GOAL_KINDS: Readonly<Record<StatsGoal['kind'], MessageKey>> = {
+  form: 'stats.goalForm',
+  link: 'stats.goalLink',
+  go: 'stats.goalGo',
+};
+
+const goalTitle = (goal: StatsGoal): string =>
+  goal.kind === 'go' && goal.name === '' ? t('stats.goalAllLinks') : goal.label;
 let sourceTab = $state<SourceTab>('sources');
 
 type LanguageTab = 'languages' | 'browserLanguages';
@@ -148,6 +179,18 @@ const _LANGUAGE_TABS: readonly { id: LanguageTab; label: MessageKey }[] = [
   { id: 'browserLanguages', label: 'stats.browserLanguages' },
 ];
 let languageTab = $state<LanguageTab>('languages');
+
+// Посетители — линией, просмотры — столбиками за ней.
+const visitSeries: ChartSeries = {
+  get line() {
+    return t('stats.visitors');
+  },
+  get bar() {
+    return t('stats.views');
+  },
+  text: (_) =>
+    `${tn('stats.visitorsCount', _.line)}, ${tn('stats.viewsCount', _.bar ?? 0)}`,
+};
 
 const empty = $derived(report !== null && report.since === null);
 const firstDay = $derived(
@@ -201,6 +244,7 @@ const partial = $derived(
 {/snippet}
 
 <PageHeader title={t('stats.title')} crumbs={[]} {actions} />
+<StatsTabs />
 
 <div class="page">
   <!-- Период — одной строкой над всем, что от него зависит. -->
@@ -220,9 +264,12 @@ const partial = $derived(
     {/if}
   </div>
 
+  {#if can('analytics.read')}<OverviewTiles search={queryOf(period)} bind:shown={overview} bind:versions />{/if}
+
   <LoadState load={loading}>
     {#if report}
       <div class="report" class:busy>
+        {#if overview}<h2 class="visits-title">{t('analyticsOverview.visits')}</h2>{/if}
         {#if empty}
           {#snippet offActions()}
             {#if admin}<a class="button primary" href={settingsHref}>{t('stats.settings')}</a>{/if}
@@ -248,15 +295,15 @@ const partial = $derived(
 
           <section class="card" aria-labelledby="stats-daily">
             <h2 id="stats-daily">{t('stats.chartTitle')}</h2>
-            <DailyChart days={report.daily} label={t('stats.chartLabel', { from: _date(report.from), to: _date(report.to) })} />
+            <DailyChart days={report.daily.map((_) => ({ day: _.day, line: _.visitors, bar: _.views }))} label={t('stats.chartLabel', { from: _date(report.from), to: _date(report.to) })} series={visitSeries} {marks} />
             <details class="table-view">
               <summary>{t('stats.table')}</summary>
               <div class="scroll">
                 <table>
-                  <thead><tr><th>{t('stats.day')}</th><th class="count">{t('stats.visitors')}</th><th class="count">{t('stats.views')}</th></tr></thead>
+                  <thead><tr><th>{t('stats.day')}</th><th class="count">{t('stats.visitors')}</th><th class="count">{t('stats.views')}</th>{#if marks.length > 0}<th>{t('analyticsOverview.marks')}</th>{/if}</tr></thead>
                   <tbody>
                     {#each report.daily.toReversed() as day (day.day)}
-                      <tr><td>{_date(day.day)}</td><td class="count">{number(day.visitors)}</td><td class="count">{number(day.views)}</td></tr>
+                      <tr><td>{_date(day.day)}</td><td class="count">{number(day.visitors)}</td><td class="count">{number(day.views)}</td>{#if marks.length > 0}<td class="marks">{marks.filter((_) => _.day === day.day).map((_) => _.label).join('; ')}</td>{/if}</tr>
                     {/each}
                   </tbody>
                 </table>
@@ -298,8 +345,8 @@ const partial = $derived(
               {#each report.goals as goal (goal.goal)}
                 <article class="goal">
                   <header>
-                    <span class="kind">{t(goal.kind === 'form' ? 'stats.goalForm' : 'stats.goalLink')}</span>
-                    <h3 class:code={goal.kind === 'link'}>{goal.label}</h3>
+                    <span class="kind">{t(_GOAL_KINDS[goal.kind])}</span>
+                    <h3 class:code={goal.kind === 'link'}>{goalTitle(goal)}</h3>
                   </header>
                   <dl class="goal-facts">
                     <div><dt>{t('stats.conversions')}</dt><dd>{number(goal.visitors)}</dd></div>
@@ -388,6 +435,11 @@ const partial = $derived(
   /* Новый период грузится — прежний отчёт на месте, приглушён: без скачков и пустого экрана. */
   .report.busy {
     opacity: 0.6;
+  }
+
+  .visits-title {
+    margin: 0.5rem 0 -0.5rem;
+    font-size: 1rem;
   }
 
   .notice {
@@ -519,6 +571,12 @@ const partial = $derived(
     text-align: right;
   }
 
+  .marks {
+    min-width: 12rem;
+    font-size: 0.8125rem;
+    overflow-wrap: anywhere;
+  }
+
   .none {
     margin: 0;
     font-size: 0.875rem;
@@ -600,7 +658,7 @@ const partial = $derived(
   }
 
   .slices .count {
-    width: 5.5rem;
+    width: 6.25rem;
   }
 
   .name {

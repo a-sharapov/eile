@@ -3,9 +3,9 @@ import { t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { openPalette } from '#lib/palette.svelte.ts';
 import { resolve } from '$app/paths';
-import type { HelpProps } from './help.ts';
+import { EVENT_EXAMPLE, type HelpProps, SUMMARY_EXAMPLE } from './help.ts';
 
-let { shown, chapterShown, mod, admin }: HelpProps = $props();
+let { shown, chapterShown, mod, admin, analytics }: HelpProps = $props();
 </script>
 
   <!-- Благодарность — первой: идеи менеджера пришли отсюда. -->
@@ -361,6 +361,327 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
       </p>
     {/if}
   </section>
+
+  <!-- Аналитика -->
+  {#if analytics}
+  <h2 id="analytics" hidden={!chapterShown('analytics')}>Kundenanalyse</h2>
+  <section id="analytics-what" data-topic hidden={!shown('analytics-what')}>
+    <h3>Wozu sie dient</h3>
+    <p>
+      Die Kundenanalyse beantwortet die Fragen von Website-Betreibern: Woher kommen die Kunden, wer von ihnen zahlt, wie viel
+      bringt jede Quelle, und lohnt sich die Werbung? Die Daten kommen nicht aus dem Browser der Besucher, sondern von Ihrem Bot,
+      Shop oder Ihrer App — dem <strong>Absender</strong>. Für jeden Schritt einer Person (kommt über einen Link, startet eine
+      Testphase, zahlt, bekommt Geld zurück) schickt er ein Ereignis an die Website. Die Website baut daraus selbst Personen
+      und zeigt die Berichte in den Bereichen der <a href={resolve('/(app)/stats')}>„Statistik“</a>: „Übersicht“, „Quellen“,
+      „Trichter“, „Kohorten“, „Personen“, „Labels“, „Ausgaben“, „Qualität“ und „Einrichtung“.
+    </p>
+    <p>
+      Eine Person ist hier ein Pseudonym wie <code>u_7f3a9c2b</code>, ohne Namen, E-Mail und Telefonnummer; das Pseudonym legt
+      der Absender fest. Mit Besuchen der Website werden Personen nie verknüpft, und die Website setzt dafür kein Cookie. Die
+      Besucherstatistik zählt Besucher eines Tages, die Kundenanalyse Personen aus Ereignissen. Eine einzige Brücke gibt es: Ein
+      Weiterleitungsbutton der Website nimmt die Quelle des Besuchs als Label zum Absender mit (siehe „Labels und
+      Weiterleitungen“).
+    </p>
+  </section>
+  <section id="analytics-start" data-topic hidden={!shown('analytics-start')}>
+    <h3>Der Einstieg</h3>
+    {#if admin}
+      <ol>
+        <li>
+          Öffnen Sie <a href={resolve('/(app)/stats/setup')}>„Statistik → Einrichtung“</a>. Auf einer leeren Website stehen dort
+          die Vorlagen „Abonnement“ und „Onlineshop“, „Paket aus Datei importieren“ und „Von vorn beginnen“ zur Wahl. Eine
+          Vorlage legt einen Absender, Ereignistypen, Verzeichnisse, ein Kennungsschema, einen Meilenstein und einen Trichter
+          an; „Ansehen, was angelegt wird“ zeigt alles, bevor etwas gespeichert wird, „Anlegen“ speichert es.
+        </li>
+        <li>
+          Geben Sie dem Absender im Bereich „Absender“ einen eigenen Namen und stellen Sie mit „Neuer Schlüssel“ einen Schlüssel
+          aus. Er erscheint nur einmal: Kopieren Sie ihn und geben Sie ihn zusammen mit der Anleitung unten an die Entwicklung
+          des Absenders weiter.
+        </li>
+        <li>
+          Schalten Sie unter <a href={`${resolve('/(app)/settings')}?tab=stats`}>„Einstellungen → Statistik“</a>, Block
+          „Ereignisempfang“, „Ereignisse annehmen“ ein, wählen Sie, wie lange der Verlauf aufbewahrt wird, und veröffentlichen Sie
+          den Absatz für die Datenschutzerklärung — ein Muster steht gleich daneben. Solange der Empfang aus ist, antwortet die
+          Website dem Absender mit 503 und speichert nichts.
+        </li>
+        <li>Dort legen Sie auch eine Basiswährung fest, wenn Sie den Umsatz als eine Zahl, LTV und CAC sehen möchten (siehe „Geld“).</li>
+      </ol>
+    {:else}
+      <p>Absender, Schlüssel und Ereignisempfang richtet die Administration der Website ein.</p>
+    {/if}
+  </section>
+  <section id="analytics-sender" data-topic hidden={!shown('analytics-sender')}>
+    <h3>Anleitung für die Entwicklung des Absenders</h3>
+    <p>
+      Ein Ereignis ist ein <code>POST</code> an <code>https://ihre-website/_cms/events</code> mit JSON im Body und dem
+      Schlüssel im Header <code>Authorization: Bearer</code>. Der Schlüssel kann nur eines: Ereignisse seines Absenders senden.
+      Er gehört auf einen Server, nicht in einen Browser oder eine App auf dem Handy.
+    </p>
+    <pre>{EVENT_EXAMPLE}</pre>
+    <dl>
+      <dt><code>id</code></dt>
+      <dd>Die eigene Nummer des Ereignisses beim Absender. Eine Wiederholung mit derselben <code>id</code> erkennt die Website und zählt sie nicht doppelt: Nach einem Netzfehler senden Sie das Ereignis einfach erneut.</dd>
+      <dt><code>type</code></dt>
+      <dd>Ein Typcode aus „Einrichtung → Ereignistypen“. Ein unbekannter Typ wird angenommen und wartet unter „Unbekannte“.</dd>
+      <dt><code>at</code></dt>
+      <dd>Wann es geschah, mit Zeitzone: <code>Z</code> oder <code>+02:00</code>.</dd>
+      <dt><code>subject</code></dt>
+      <dd>Das Pseudonym der Person: 6 bis 128 Zeichen <code>A-Z a-z 0-9 . _ : -</code>, nicht nur Ziffern. E-Mail-Adressen, Telefonnummern und Messenger-IDs werden absichtlich abgelehnt.</dd>
+      <dt><code>data</code></dt>
+      <dd>Die Felder der Rolle des Typs (eine Zahlung hat <code>amount</code>, <code>currency</code>, <code>payment_id</code>) und die Eigenschaften des Typs.</dd>
+      <dt><code>traits</code>, <code>test</code></dt>
+      <dd>Merkmale der Person, etwa die Sprache; <code>"test": true</code> kennzeichnet ein Testereignis: Im „Ereignisprotokoll“ steht es als Test, zu den Personen zählt es nicht.</dd>
+    </dl>
+    <p>So antwortet die Website:</p>
+    <dl>
+      <dt>200</dt>
+      <dd>Angenommen. <code>warnings</code> nennt, was die Website nicht kannte; <code>duplicate</code> heißt: eine Wiederholung, das Ereignis ist schon da.</dd>
+      <dt>400</dt>
+      <dd>Am Ereignis stimmt etwas nicht, <code>errors</code> nennt es nach Feldern. Dasselbe noch einmal zu senden hilft nicht: Es muss korrigiert werden.</dd>
+      <dt>401</dt>
+      <dd>Der Schlüssel ist falsch oder widerrufen, oder der Absender ist ausgeschaltet oder archiviert.</dd>
+      <dt>429</dt>
+      <dd>Von dieser Adresse kamen fünf falsche Schlüssel in 15 Minuten: Warten Sie so lange, wie <code>Retry-After</code> angibt.</dd>
+      <dt>503</dt>
+      <dd>Der Empfang ist auf der Website aus: später erneut senden. Wiederholt der Absender, geht kein Ereignis verloren.</dd>
+      <dt>500</dt>
+      <dd>Ein Serverfehler: mit derselben <code>id</code> wiederholen.</dd>
+    </dl>
+    <p>
+      <strong>Tagesübersicht.</strong> Einmal am Tag, wenn die Ereignisse des Tages zugestellt sind, sendet der Absender ein
+      Ereignis mit der Rolle „Tagesübersicht“ für den vergangenen UTC-Tag, ohne <code>subject</code>. Die Website gleicht es mit
+      ihrer eigenen Zählung ab (siehe „Datenqualität“):
+    </p>
+    <pre>{SUMMARY_EXAMPLE}</pre>
+    <p>
+      <code>counts</code> ist, wie viele Ereignisse jedes Typs der Absender an diesem Tag gezählt hat, <code>revenue</code> sind
+      Zahlungen abzüglich Erstattungen vor Gebühren je Währung, <code>failed</code> ist, wie viele Ereignisse er nach allen
+      Wiederholungen aufgegeben hat, und <code>version</code> seine Version. Die Uhrzeit der Zusammenfassung gehört zum Absender:
+      „Zusammenfassung erwarten bis … UTC“, standardmäßig 06:00. Sie ist eine Frist, nicht der Sendezeitpunkt — lassen Sie Zeit
+      für Wiederholungen. Für einen Absender ohne Zusammenfassungen setzen Sie „Der Absender sendet keine Zusammenfassungen“.
+    </p>
+    <p>
+      <strong>Fehlende Ereignisse nachliefern.</strong> Sind Ereignisse verloren gegangen, exportieren Sie sie beim Absender als
+      Datei im Format JSON Lines — ein Ereignis pro Zeile, wie sie übers Netz gehen — und laden Sie sie unter
+      <a href={resolve('/(app)/stats/people')}>„Statistik → Personen“</a> mit „Datei hochladen“ hoch (bis 16 MiB) oder auf dem
+      Server mit <code>cms events import history.jsonl --db site.db</code>. Wiederholungen werden nicht doppelt gezählt, Sie
+      können also alle Ereignisse des Tages erneut senden.
+    </p>
+  </section>
+  <section id="analytics-setup" data-topic hidden={!shown('analytics-setup')}>
+    <h3>Einrichtung: Typen, Eigenschaften, Verzeichnisse</h3>
+    <p>
+      Ein <strong>Ereignistyp</strong> ist der Code, den der Absender sendet, und eine Rolle, die den Berichten sagt, was das
+      Ereignis bedeutet. Es gibt zehn Rollen: Kontakt (die Person kam über ein Label), Umfrage, Testphase, Zahlung, Erstattung,
+      Zahlungskorrektur (die Gebühr wurde später bekannt), Zugang beendet, Aktion (alles andere, was für Meilensteine zählt),
+      Tagesübersicht und Löschung (die Person vergessen). <strong>Eigenschaften und Merkmale</strong> sind zusätzliche Felder
+      von Ereignissen (ein Tarif, eine Stückzahl) und von Personen (eine Sprache); eine Eigenschaft mit „Dimension“ wird in den
+      Berichten zur Gruppierung. <strong>Verzeichnisse</strong> enthalten Codes von Werten mit Namen: Tarife, Antworten auf eine
+      Umfragefrage, Teile der Kennung.
+    </p>
+    <p>
+      Ein <strong>Meilenstein</strong> heißt „hat das N-mal in so vielen Tagen getan“, etwa eine erste Aktion in drei Tagen
+      nach der Ankunft. Ein <strong>Trichter</strong> führt von Besuchen und Zielen der Website über Ankunft, Testphase und
+      Meilensteine zu Zahlungen. <strong>„Unbekannte“</strong> zeigt, was der Absender sendet, die Einrichtung aber noch nicht
+      kennt — einen Typ, einen Wert, eine Antwort —, und legt das Element direkt aus der Zeile an.
+    </p>
+    <p>
+      Codes ändern sich nie. Was Sie nicht mehr brauchen, archivieren Sie: In den Formularen fehlt es dann, vergangene
+      Ereignisse gelten weiter. Löschen lässt sich nur, worauf nichts verweist. Jede Änderung berechnet die Personen im
+      Hintergrund neu; solange das läuft, melden die Berichte, dass Personen neu berechnet werden. Wer was geändert hat, steht im
+      „Protokoll“.
+    </p>
+  </section>
+  <section id="analytics-labels" data-topic hidden={!shown('analytics-labels')}>
+    <h3>Labels und Weiterleitungen</h3>
+    <p>
+      Ein <strong>Label</strong> ist eine Zeichenkette, an der man sieht, woher eine Person kam, zum Beispiel
+      <code>google__search__autumn</code>. Wie es gelesen wird, legt das „Kennungsschema“ des Absenders fest: das Trennzeichen
+      (<code>__</code>, <code>--</code>, ein Punkt oder <code>~</code>), die Länge und die Teile in ihrer Reihenfolge — Quelle,
+      Kanal, Kampagne. Die Werte der Teile sind Verzeichnisse mit dem Zweck „Teil der Kennung“. Der Absender schreibt das Label
+      in ein Kontakt-Ereignis, etwa aus dem Startparameter des Bots oder aus der Adresse des Shops.
+    </p>
+    <p>
+      Eine <strong>Weiterleitung</strong> ist ein Button der Website, der zum Absender führt. Die Adresse
+      <code>/_cms/go/code</code> leitet Besucher zum Ziel weiter und baut das Label aus den vorgegebenen Teilen der Weiterleitung
+      und der Quelle des heutigen Besuchs: seinen UTM-Tags oder der Website, von der er kam. Auf dem Gerät der Besucher wird
+      nichts gespeichert. <strong>Verweisregeln</strong> bestimmen, welche Teile ein Besuch ohne UTM bekommt: aus einer
+      Suchmaschine, einem sozialen Netzwerk, von einer anderen Website oder direkt.
+    </p>
+    <p>
+      Im Bereich <a href={resolve('/(app)/stats/labels')}>„Labels“</a> baut der „Generator“ ein Label für eine Kampagne und
+      speichert es mit einem Namen im „Register“ — die Berichtszeilen zeigen dann diesen Namen; „Prüfung“ zeigt, wie ein Label
+      oder eine Adresse gelesen wird; „Unbekannte Labels“ nennt Labels erster Kontakte, die nicht im Register stehen.
+    </p>
+  </section>
+  <section id="analytics-reports" data-topic hidden={!shown('analytics-reports')}>
+    <h3>Die Berichte lesen</h3>
+    <ul>
+      <li>
+        <strong>„Übersicht“</strong> stellt die Summen eines Zeitraums neben den gleich langen Vorzeitraum: neue Personen und
+        Kunden, Umsatz, Ausgaben, CAC; darunter die Besuche der Website. Ein Dreieck über einem Tag heißt: Der Absender hat eine
+        neue Version gemeldet, mit dem Hinweis, ob die Zählung stimmte.
+      </li>
+      <li>
+        <strong>„Quellen“</strong> ist eine Tabelle nach den Teilen des Labels: neue Personen, Meilensteine, Testphase, Zahlung
+        im Fenster, neue Kunden, Umsatz, Zahlungen je Kunde, Verlängerung und mit Basiswährung LTV, Ausgaben, CAC und
+        Amortisation. Eine Zeile lässt sich bis zum nächsten Teil aufklappen. „Gewinnungsquelle“ ist der erste Kontakt einer
+        Person, „Rückkehrquelle“ der Kontakt vor einer Zahlung nach Ende des Zugangs.
+      </li>
+      <li>
+        Anteile stehen mit ihren Zahlen: „4 von 9“. Personen, deren Fenster noch läuft, sind „noch im Fenster“ und zählen nicht
+        zur Basis. Die Zeilen „nicht angegeben“, „nicht im Verzeichnis“ und „übrige“ sammeln leere und unbekannte Werte und was
+        nicht in die Liste passte.
+      </li>
+      <li>
+        <strong>„wenig Daten“</strong> kennzeichnet eine Zeile mit weniger als 30 neuen Personen oder weniger als 10 Kunden:
+        Schlüsse daraus besser nicht ziehen. Die Schwellen stellen Sie unter „Qualität → Prüfungen“, „Schwellen für ‚wenig
+        Daten‘“, ein; sie gelten sofort.
+      </li>
+      <li><strong>„Trichter“</strong> führen von Besuchen und Zielen der Website zu Personen: Ankunft, Testphase, Meilensteine, Zahlungen.</li>
+      <li>
+        <strong>„Kohorten“</strong>: „Nach erster Zahlung“ zeigt die Kunden des Monats ihrer ersten Zahlung und den Umsatz je
+        Kunde nach Lebensmonaten, „Nach Ankunft“ die neuen Personen des Monats ihrer Ankunft. Eine unvollständige Zelle ist mit
+        ◌ markiert und zählt nicht zum Durchschnitt, ebenso die Kohorte des laufenden Monats.
+      </li>
+      <li>
+        <strong>„Personen“</strong> listet Personen und öffnet jede einzeln: Kontakte, Zahlungen, Meilensteine und Ereignisse.
+        Dort finden Sie auch den „Meilensteinvergleich“ (welcher Meilenstein eine Zahlung am besten vorhersagt) und das
+        „Ereignisprotokoll“ mit allem, was angenommen wurde.
+      </li>
+    </ul>
+  </section>
+  <section id="analytics-money" data-topic hidden={!shown('analytics-money')}>
+    <h3>Geld: Währung, Kurse, Ausgaben, LTV und CAC</h3>
+    <p>
+      Beträge kommen in der Währung der Zahlung an. Ohne Basiswährung zeigen die Berichte jede Währung für sich. Die
+      Basiswährung legen Sie unter <a href={`${resolve('/(app)/settings')}?tab=stats`}>„Einstellungen → Statistik“</a> fest,
+      und das kann nur eine im Manager angemeldete Person. Dann fasst „Quellen“ den Umsatz zu einer Zahl zusammen und
+      berechnet LTV, Ausgaben, CAC und Amortisation.
+    </p>
+    <p>
+      <a href={resolve('/(app)/stats/spend')}>„Ausgaben“</a> ist, was Sie in einem Monat für eine Quelle ausgegeben haben: Werte
+      von Teilen des Labels (etwa „Instagram, bezahlt“) oder die ganze Website. Zeilen sind nicht verschachtelt: Ein Betrag für
+      „Instagram“ sind Ausgaben ohne Aufteilung nach Kanal, nicht die Summe anderer Zeilen. „Kurse“ sind die Kurse anderer
+      Währungen zur Basiswährung, je Monat. Ein Betrag ohne Kurs zählt nicht zur Summe und steht gesondert; ein Monat ohne
+      eigenen Kurs nimmt den des Vormonats, mit Markierung. Kurse tragen Sie oder Ihr Skript mit API-Schlüssel ein, Ausgaben
+      auf Ihre Bitte auch der Agent.
+    </p>
+    <dl>
+      <dt>LTV pro Kunde</dt>
+      <dd>Umsatz neuer Kunden über die „Lebensdauer“ — 3, 6 oder 12 Monate ab der ersten Zahlung oder die gesamte Zeit — je Kunde, der diese Zeit schon erlebt hat.</dd>
+      <dt>LTV pro Person</dt>
+      <dd>Dasselbe über alle neuen Personen der Zeile, auch die, die nie gezahlt haben.</dd>
+      <dt>CAC, Kosten pro Person</dt>
+      <dd>Die Ausgaben der Zeile je neuem Kunden und je neuer Person.</dd>
+      <dt>LTV / CAC, Amortisation</dt>
+      <dd>Über 1 bringt ein Kunde über die Lebensdauer mehr ein, als er gekostet hat. Die Amortisation ist der Lebensmonat, in dem der Umsatz je Kunde den CAC eingeholt hat.</dd>
+    </dl>
+    <p>„Umsatz: Vor Gebühren / Nach Gebühren“ zieht die Gebühr des Zahlungsdienstes ab, wenn der Absender sie meldet.</p>
+  </section>
+  <section id="analytics-quality" data-topic hidden={!shown('analytics-quality')}>
+    <h3>Datenqualität</h3>
+    <p>
+      Der Bereich <a href={resolve('/(app)/stats/quality')}>„Qualität“</a> öffnet „Datenqualität“: Kann man den Zahlen trauen?
+      Jeden Tag prüft die Website die Daten und gleicht die Zusammenfassung des Absenders mit ihrer eigenen Zählung ab. Ein
+      Fehler heißt, dass Daten verloren sind oder nicht übereinstimmen (keine Zusammenfassung, weniger Ereignisse, anderer
+      Umsatz); ein Hinweis, dass eine Regel verletzt ist, aber keine Daten fehlen; keine Daten, dass es noch nichts zu prüfen
+      gibt: vor der ersten Zusammenfassung, bei ausgeschaltetem Empfang, bei zu wenigen Kontakten.
+    </p>
+    <ul>
+      <li>
+        <strong>„Übersicht“</strong> zeigt eine Kachel je Prüfung (Fehler zuerst) und ein Raster der Prüfungen nach Tagen über
+        30 Tage: ✓ in Ordnung, ! Hinweis, ✕ Fehler, – keine Daten, ein Haken im Kreis — von Hand erledigt. Eine Zelle öffnet den
+        Tag: was verglichen wurde, die Zahlen und die Aktionen.
+      </li>
+      <li>
+        Die Prüfungen der Zusammenfassung („Zusammenfassung eingegangen“, „Ereignisse angekommen“, „Umsatz stimmt“, „Absender
+        hat alles zugestellt“) zählen UTC-Tage und laufen 5 Minuten nach der Uhrzeit der Zusammenfassung des Absenders. Die
+        übrigen laufen am Folgetag um 06:05 UTC; „Weiterleitungen kommen an“, „Kurse vorhanden“ und Ihre eigenen Prüfungen
+        rechnen in Tagen der Zeitzone der Berichte, „Abgleich mit Kontoauszug“ in Monaten.
+      </li>
+      <li>
+        Fehler bei „Ereignisse angekommen“: Exportieren Sie beim Absender die Ereignisse dieses UTC-Tages und laden Sie sie im
+        Fenster des Tages mit „Fehlende Ereignisse hochladen“ hoch. Wiederholungen werden nicht doppelt gezählt, und die Prüfung
+        schließt sich von selbst, sobald die Zahlen stimmen. „Erneut prüfen“ prüft den Tag sofort.
+      </li>
+      <li>
+        „Von Hand erledigen“, wenn der Grund bekannt ist und die Daten nicht zurückkommen: Der Absender stand still, es war ein
+        Testtag. Eine Notiz ist Pflicht, und man sieht, wer wann erledigt hat; „Wieder öffnen“ hebt das auf. Wird es später
+        schlimmer — aus einem Hinweis wird ein Fehler —, fällt die Erledigung von selbst weg.
+      </li>
+      <li>
+        <strong>Benachrichtigungen</strong> gehen an die Störungskanäle unter
+        <a href={`${resolve('/(app)/settings')}?tab=notify`}>„Einstellungen → Benachrichtigungen“</a> (Telegram, E-Mail): alle
+        Fehler eines Morgens in einer Nachricht, zu jeder Prüfung höchstens einmal am Tag, eine Erinnerung nach 7 Tagen und
+        „wieder in Ordnung“, wenn sich ein Fehler von selbst geschlossen hat. Ohne Kanäle meldet der Bildschirm, dass keine
+        Benachrichtigungen gesendet werden, und ein Fehler erscheint nur als Punkt bei „Statistik“ im Menü. Solange die
+        Verbindung neu ist — bis zur ersten Zusammenfassung, aber höchstens 7 Tage —, gibt es keine Benachrichtigungen.
+      </li>
+      <li>
+        <strong>„Prüfungen“</strong> enthält die Schwellen der eingebauten Prüfungen, „Benachrichtigen“ (bei Fehler, bei Fehler
+        und Hinweis, nie) und ob die Prüfung an ist; „Standard wiederherstellen“ nimmt Ihre Änderungen zurück. Hier stehen auch
+        die Schwellen für „wenig Daten“ in den Berichten und Ihre eigenen Prüfungen — „Prüfung hinzufügen“: eine Kennzahl
+        (Ereignisse eines Typs, Ereignisse mit einer Rolle, neue Personen, neue Kunden, Umsatz, Besucher der Website, Besucher mit
+        erreichtem Ziel), unter oder über einer Schwelle, über 1, 7 oder 30 Tage, als Fehler oder Hinweis. Zum Beispiel
+        „weniger als eine Zahlung am Tag“.
+      </li>
+      <li>
+        <strong>„Kontoauszüge“</strong>, sobald „Abgleich mit Kontoauszug“ an ist: der Betrag eines Monats aus dem Auszug Ihrer
+        Bank oder Ihres Zahlungsdienstes („Auszug hinzufügen“), den die Website mit ihrem eigenen Umsatz vergleicht. Fehlt der
+        Auszug am 5., erinnert sie daran.
+      </li>
+      <li><strong>„Empfang“</strong> zeigt, ob der Empfang an ist, wie viel heute ankam, die letzten Ablehnungen mit Fehlern nach Feldern und die Zählung je Tag.</li>
+    </ul>
+  </section>
+  <section id="analytics-transfer" data-topic hidden={!shown('analytics-transfer')}>
+    <h3>Einrichtung übertragen und Vorlagen</h3>
+    <p>
+      Unter <a href={`${resolve('/(app)/stats/setup')}?tab=transfer`}>„Einrichtung → Übertragung“</a> speichert „Paket
+      herunterladen“ die gesamte Einrichtung der Analyse als eine JSON-Datei: Absender mit Uhrzeit der Zusammenfassung, Typen,
+      Eigenschaften, Verzeichnisse, Schemata, Verweisregeln, Weiterleitungen, Meilensteine, Trichter und Prüfungen, auch
+      archivierte. „Paket importieren“ nimmt eine Datei bis 2 MB und zeigt zuerst einen Probelauf: was angelegt wird, was sich
+      ändert („vorher → nachher“), Hinweise und Fehler. „Importieren“ speichert alles oder nichts; Elemente der Website, die
+      nicht in der Datei stehen, bleiben, wie sie sind.
+    </p>
+    <p>
+      Ein Paket enthält keine Absenderschlüssel, keinen Empfangsschalter, keine Aufbewahrungsfrist, keine Basiswährung, kein
+      Label-Register, keine Kurse, Ausgaben und Kontoauszüge, keine Ereignisse, Personen und Prüfergebnisse. Auf einer neuen
+      Website stellen Sie die Schlüssel neu aus; die Ereignisse bringt eine Kopie der Website oder eine Ereignisdatei mit. Ein
+      Paket importiert nur eine Person im Manager — weder ein API-Schlüssel noch der Agent kann das.
+    </p>
+    <p>
+      Die Vorlagen „Abonnement“ und „Onlineshop“ stehen hier und bei leerer Einrichtung: „Ansehen, was angelegt wird“, dann
+      „Anlegen“. Die Namen kommen in der Sprache des Managers, die Codes sind in allen Sprachen gleich. Weiterleitungen haben
+      die Vorlagen nicht — die Adresse Ihres Bots oder Shops ist Ihre eigene, legen Sie die Weiterleitung selbst an.
+    </p>
+    <p>Auf dem Server erledigt das die Kommandozeile. Die Datenbank muss schon da sein — sie entsteht beim ersten Start des Servers oder mit <code>cms new</code>:</p>
+    <pre>cms analytics export analytics.json --db site.db            # Paket exportieren; „-“ gibt es aus
+cms analytics import analytics.json --dry-run --db site.db  # Probelauf: die Datenbank bleibt, wie sie ist
+cms analytics import analytics.json --db site.db            # importieren
+cms analytics import --sample shop --language de --db site.db
+cms analytics samples                                       # Vorlagen anzeigen</pre>
+    <p>Ein Paket über 2 MB lässt sich nur mit dem Befehl importieren.</p>
+  </section>
+  <section id="analytics-agent" data-topic hidden={!shown('analytics-agent')}>
+    <h3>Der Agent und die Kundenanalyse</h3>
+    <p>
+      Der Assistent im Manager und ein Agent über MCP lesen die Berichte als Zahlen und Codes aus der Einrichtung: welche Quelle
+      sich gelohnt hat, wo eine Prüfung fehlschlug und warum. Auf Wunsch legt der Agent Typen, Eigenschaften, Meilensteine,
+      Trichter und Prüfungen an, erstellt Labels für Kampagnen, trägt Ausgaben ein und erledigt einen Fehler mit einer Notiz zum
+      Grund.
+    </p>
+    <p>
+      Nur Sie legen einen Absender und seinen Schlüssel an, schalten den Empfang ein, bestimmen Aufbewahrungsfrist und
+      Basiswährung und importieren ein Paket; Kurse und Kontoauszüge kommen von Ihnen oder Ihrem Skript mit API-Schlüssel, nie
+      vom Agenten. Hat der Agent Personen (Pseudonyme, Labels, Antworten), „Unbekannte“ oder die Besucherstatistik gelesen,
+      ändert er bis zum Ende der Anfrage — über MCP bis zum Ende der Sitzung — weder die Einrichtung der Analyse noch Labels
+      und Ausgaben und erledigt keine Prüfungen: Diesen Text schreiben Fremde, und ein geschickt gebautes Label darf dem
+      Agenten keine Befehle geben. Er sagt Ihnen, was er ändern würde: Erledigen Sie es selbst oder bitten Sie erneut — in einer
+      neuen Nachricht an den Assistenten oder einem neuen Gespräch mit dem Agenten.
+    </p>
+  </section>
+  {/if}
 
   <!-- Быстрая работа -->
   <h2 id="speed" hidden={!chapterShown('speed')}>Schneller arbeiten</h2>

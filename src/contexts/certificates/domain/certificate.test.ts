@@ -94,7 +94,7 @@ describe('домены сайта', () => {
         'example.net',
         'www.example.com.',
         'evil.example',
-        'sbdigitaal.nl',
+        'other.example',
         'example.com',
         'example.com.',
         '127.0.0.1',

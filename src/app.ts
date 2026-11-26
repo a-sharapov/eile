@@ -1,6 +1,18 @@
 import { dirname, resolve } from 'node:path';
 import { VERSION } from './cli/version.ts';
 import {
+  ANALYTICS_DERIVED_TABLES,
+  ANALYTICS_SERVER_TABLES,
+  type Analytics,
+  analyticsMigrations,
+  clearAnalyticsPeople,
+  defineAnalytics,
+  defineRefusalTally,
+  EVENTS_PATH,
+  GO_PREFIX,
+  type RefusalTally,
+} from './contexts/analytics/index.ts';
+import {
   ASSISTANT_TABLE,
   type Assistant,
   assistantMigrations,
@@ -149,6 +161,7 @@ import {
 import { defineEventBus } from './platform/event-bus.ts';
 import { withAbsoluteUrl } from './platform/request-url.ts';
 import { REPOSITORY } from './product.ts';
+import { ANALYTICS_SAMPLES } from './scaffolds/analytics/index.ts';
 import { applyScaffold, type Scaffold } from './scaffolds/scaffold.ts';
 import { serverChecks } from './server-checks.ts';
 import {
@@ -232,6 +245,8 @@ export type App = {
   readonly review: Review;
   /** Статистика посещений: счёт без cookie, цели, отчёт. */
   readonly stats: Stats;
+  /** Аналитика клиентского пути: справочники, отправители и их ключи, приём событий. */
+  readonly analytics: Analytics;
   /** Диагностика сайта; другие модули добавляют проверки через `register`. */
   readonly diagnostics: DiagnosticsService;
   /** Копия всего сайта в один файл: база, элементы, медиа. */
@@ -285,11 +300,13 @@ const _MIGRATIONS: readonly Migration[] = [
   ...redirectsMigrations,
   ...statsMigrations,
   ...reviewMigrations,
+  ...analyticsMigrations,
 ];
 
 // Сеансы входа, подключение ИИ (его ключ), каналы уведомлений и их очередь, сертификаты HTTPS и их
-// ключи, посетители дня статистики — не содержимое сайта, а этого сервера: в копию не попадают и при
-// восстановлении остаются свои. Сводки статистики по дням — сайта: едут с ним в копии.
+// ключи, посетители дня статистики, ключи отправителей событий — не содержимое сайта, а этого сервера: в
+// копию не попадают и при восстановлении остаются свои. Сводки статистики по дням и события — сайта: едут
+// с ним в копии.
 const _SERVER_ONLY = [
   ...IDENTITY_SERVER_TABLES,
   ASSISTANT_TABLE,
@@ -299,11 +316,16 @@ const _SERVER_ONLY = [
   ...CERTIFICATES_TABLES,
   ...STATS_SERVER_TABLES,
   ...REVIEW_SERVER_TABLES,
+  ...ANALYTICS_SERVER_TABLES,
 ];
 
-// Индекс поиска выводится из страниц: в JSON-копию не идёт, восстановление его не трогает, а после
-// восстановления он строится заново. В копию .db попадает как есть — согласованным.
-const _DERIVED = [..._SERVER_ONLY, ...SEARCH_TABLES];
+// Индекс поиска выводится из страниц, люди аналитики — из событий: в JSON-копию не идут, восстановление их
+// не трогает, а после восстановления они строятся заново. В копию .db попадают как есть — согласованными.
+const _DERIVED = [
+  ..._SERVER_ONLY,
+  ...SEARCH_TABLES,
+  ...ANALYTICS_DERIVED_TABLES,
+];
 
 // Копий «до восстановления» рядом с базой — не больше трёх последних.
 const _KEEP_BEFORE_RESTORE = 3;
@@ -334,6 +356,11 @@ const _AUDIT: Readonly<Record<string, Localized>> = {
     en: 'A new API token for agents and scripts',
     de: 'Neuer API-Schlüssel für Agenten und Skripte',
     ru: 'Выпущен ключ API для агентов и скриптов',
+  },
+  'analytics.sender_key_issued': {
+    en: 'A new key for a sender of analytics events',
+    de: 'Neuer Schlüssel für einen Absender von Analyse-Ereignissen',
+    ru: 'Выпущен ключ отправителя событий аналитики',
   },
 };
 
@@ -405,6 +432,7 @@ const _compose = (
   recorder: StatsRecorder,
   resize: ImageResizer,
   scheduler: PluginScheduler,
+  refusals: RefusalTally,
   setup: string | null = null
 ): Parts => {
   const clock = options.clock ?? (() => new Date());
@@ -439,8 +467,12 @@ const _compose = (
           kind: event.type,
           severity: 'info',
           title: _AUDIT[event.type]!,
-          detail: ((user) => localized((_) => `${_USER[_]} #${user}`))(
-            (event as { userId?: number }).userId ?? '?'
+          detail: ((user, sender) =>
+            localized(
+              (_) => `${_USER[_]} #${user}${sender ? ` → ${sender}` : ''}`
+            ))(
+            (event as { userId?: number | null }).userId ?? '?',
+            (event as { sender?: string }).sender
           ),
           key: `${event.type}:${(event as { userId?: number }).userId}`,
         })
@@ -581,13 +613,69 @@ const _compose = (
         url: _.siteUrl,
       }))(settings()),
   });
-  // Статистика: формы создаются ниже, их названия нужны только отчёту.
+  // Статистика и аналитика друг друга не импортируют: порты собраны здесь замыканиями. Формы создаются ниже,
+  // аналитика — следом: названия форм и переходов нужны только отчёту статистики.
   const stats = defineStats({
     db,
     bus,
     recorder,
     siteUrl: () => settings().siteUrl,
     forms: () => forms.forms.list(),
+    links: () =>
+      analytics.setup.get().links.map(({ code, name }) => ({ code, name })),
+  });
+  const analytics = defineAnalytics({
+    db,
+    bus,
+    clock,
+    siteUrl: () => settings().siteUrl,
+    // Сутки отчётов аналитики — в поясе статистики: стороны воронки сравнивают одни и те же дни.
+    visits: {
+      timeZone: () => stats.settings.get().timeZone,
+      enabled: () => stats.settings.get().enabled,
+      sums: (period, filter) => stats.visits(period, filter),
+      since: () => stats.since(),
+      go: (link, request, client) => stats.go(link, request, client),
+    },
+    refusals,
+    // Уведомление о проверках данных — каналами сбоев, как о наборе правок агента; тексты собирает аналитика.
+    // Порог важности журнала сбоев к нему не применяется: о чём уведомлять, решает «уведомлять» проверки.
+    alerts: {
+      ready: () =>
+        ((status) =>
+          status.incidents.some((_) =>
+            _ === 'telegram'
+              ? (status.telegram?.chats.length ?? 0) > 0
+              : status.email !== null
+          ))(notify.settings.status()),
+      send: (notice) =>
+        ((language) =>
+          void notify.send(
+            message({
+              topic: 'incidents',
+              severity: notice.severity,
+              title: notice.title[language],
+              fields: notice.lines.map((_) => ({
+                label: _.label[language],
+                value: _.value[language],
+              })),
+              text: notice.text[language],
+              link: settings().siteUrl
+                ? {
+                    label: notice.link[language],
+                    url: `${settings().siteUrl.replace(/\/$/, '')}${MANAGER_PATH}${notice.path}`,
+                  }
+                : null,
+              language,
+            }),
+            notify.settings.status().incidents,
+            notice.source
+          ))(notify.language()),
+    },
+    // Образцы наборов — данные бинарника рядом с каркасами сайтов: аналитика знает только их код и тексты.
+    samples: ANALYTICS_SAMPLES,
+    version: VERSION,
+    siteName: () => settings().name,
   });
   // Формы: страница — для скрытых полей и возврата, заявка — в уведомления по маршруту формы.
   const forms = defineForms({
@@ -757,6 +845,7 @@ const _compose = (
     diagnostics,
     stats,
     review,
+    analytics,
     version: VERSION,
     db,
     files: options.managerFiles,
@@ -774,23 +863,30 @@ const _compose = (
       ? manager.handle(request, client)
       : path === GOAL_PATH
         ? stats.handle(request, client)
-        : path.startsWith(FORMS_PREFIX)
-          ? forms.handle(request, client)
-          : path === SEARCH_PATH
-            ? Promise.resolve(searchHandler.handle(request, client))
-            : path.startsWith(PREVIEW_PREFIX)
-              ? review.preview.handle(request, client)
-              : path.startsWith(`${ASSETS_PREFIX}/`)
-                ? design.assets(request)
-                : path.startsWith(MEDIA_PREFIX)
-                  ? Promise.resolve(media.handle(request))
-                  : notify.gateway.claims(path)
-                    ? (server?.timeout?.(request, _GATEWAY_SECONDS),
-                      notify.gateway.handle(request, client))
-                    : // Файл связанной папки по исходному адресу — раньше страниц и правил, как настоящий
-                      // файл перед index.php в .htaccess Evo (ADR 0065); нет файла — дальше страницы.
-                      (media.original(request) ??
-                      delivery.handle(request, client));
+        : path === EVENTS_PATH
+          ? analytics.handle(request, client)
+          : // Переход — раньше служебных адресов дизайна `/_cms/*`; перехода нет — страница 404 сайта.
+            path.startsWith(GO_PREFIX)
+            ? Promise.resolve()
+                .then(() => analytics.go(request, client))
+                .then((_) => _ ?? delivery.notFound(request))
+            : path.startsWith(FORMS_PREFIX)
+              ? forms.handle(request, client)
+              : path === SEARCH_PATH
+                ? Promise.resolve(searchHandler.handle(request, client))
+                : path.startsWith(PREVIEW_PREFIX)
+                  ? review.preview.handle(request, client)
+                  : path.startsWith(`${ASSETS_PREFIX}/`)
+                    ? design.assets(request)
+                    : path.startsWith(MEDIA_PREFIX)
+                      ? Promise.resolve(media.handle(request))
+                      : notify.gateway.claims(path)
+                        ? (server?.timeout?.(request, _GATEWAY_SECONDS),
+                          notify.gateway.handle(request, client))
+                        : // Файл связанной папки по исходному адресу — раньше страниц и правил, как настоящий
+                          // файл перед index.php в .htaccess Evo (ADR 0065); нет файла — дальше страницы.
+                          (media.original(request) ??
+                          delivery.handle(request, client));
   };
 
   return {
@@ -815,6 +911,7 @@ const _compose = (
     certificates,
     redirects,
     stats,
+    analytics,
     review,
     diagnostics,
     mcp: manager.mcp,
@@ -892,13 +989,18 @@ export var createApp = (options: AppOptions = {}): App => {
         const before = parts.identity.users
           .list()
           .map((_) => ({ id: _.id, email: _.email }));
-        // Прибавки статистики до этой минуты — в прежние сводки: восстановление заменит их сводками копии.
+        // Прибавки статистики и счёт отказов до этой минуты — в прежние сводки: восстановление заменит их копией.
         statsRecorder.flush();
+        refusals.flush();
+        // Копия могла быть сделана до удаления истории человека: отметки удалений переживают восстановление.
+        const erasures = parts.analytics.erasures.carry();
         restoreDatabase(db, source, _DERIVED);
         clearSearchIndex(db);
+        clearAnalyticsPeople(db);
         // В восстановленной базе другие файлы: прежний кэш не нужен, он наберётся заново.
         parts.media.cache.clear();
         recompose();
+        parts.analytics.erasures.reapply(erasures);
         parts.identity.sessions.closeChanged(before);
         return { pages: parts.content.drafts.tree().length, savedTo };
       })
@@ -947,6 +1049,9 @@ export var createApp = (options: AppOptions = {}): App => {
   const stopStats = options.background
     ? statsRecorder.start()
     : statsRecorder.flush;
+  // Счёт отказов приёмника — тоже один на процесс: пересборка контекстов, которую будит запись другого процесса
+  // (cms events import), его не теряет.
+  const refusals = defineRefusalTally(db);
   // Нарезка картинок — тоже одна на процесс: два декодирования сразу не уместились бы в память VPS.
   const resize = defineImageResizer();
   // Таймеры расписаний плагинов — одни на процесс: после пересборки задания той же версии идут своим ходом,
@@ -961,18 +1066,27 @@ export var createApp = (options: AppOptions = {}): App => {
     mediaCache,
     statsRecorder,
     resize,
-    scheduler
+    scheduler,
+    refusals
   );
   // Фон — у собранных заново контекстов: восстановление копии останавливает прежний и запускает новый.
   const startBackground = (): (() => void) =>
     options.background
-      ? ((notify, forms, upkeep, media, plugins, warm) => () => (
-          notify(), forms(), upkeep(), media(), plugins(), clearTimeout(warm)
+      ? ((notify, forms, upkeep, media, analytics, plugins, warm) => () => (
+          notify(),
+          forms(),
+          upkeep(),
+          media(),
+          analytics(),
+          plugins(),
+          clearTimeout(warm)
         ))(
           parts.notify.start(),
           parts.forms.start(),
           parts.upkeep.start(),
           parts.media.start(),
+          // Люди строятся фоном пачками: после восстановления копии их таблица пуста.
+          parts.analytics.start(),
           // Расписания плагинов — только у сервера: команды CLI их не запускают.
           parts.extensions.start(),
           // Индекс поиска строится вскоре после запуска, а не на первом поиске посетителя.
@@ -995,6 +1109,7 @@ export var createApp = (options: AppOptions = {}): App => {
       statsRecorder,
       resize,
       scheduler,
+      refusals,
       parts.identity.setup.token()
     );
     stopBackground = startBackground();
@@ -1090,6 +1205,9 @@ export var createApp = (options: AppOptions = {}): App => {
     get stats() {
       return parts.stats;
     },
+    get analytics() {
+      return parts.analytics;
+    },
     get review() {
       return parts.review;
     },
@@ -1113,6 +1231,12 @@ export var createApp = (options: AppOptions = {}): App => {
         ),
     },
     transaction: (run) => db.transaction(run)(),
-    close: () => (stopBackground(), scheduler.stop(), stopStats(), db.close()),
+    close: () => (
+      stopBackground(),
+      scheduler.stop(),
+      stopStats(),
+      refusals.flush(),
+      db.close()
+    ),
   };
 };

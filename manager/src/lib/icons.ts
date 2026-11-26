@@ -3,6 +3,7 @@ import archiveRestore from 'lucide-static/icons/archive-restore.svg?raw';
 import arrowDown from 'lucide-static/icons/arrow-down.svg?raw';
 import arrowUp from 'lucide-static/icons/arrow-up.svg?raw';
 import atSign from 'lucide-static/icons/at-sign.svg?raw';
+import badgeCheck from 'lucide-static/icons/badge-check.svg?raw';
 import blocks from 'lucide-static/icons/blocks.svg?raw';
 import bold from 'lucide-static/icons/bold.svg?raw';
 import calendar from 'lucide-static/icons/calendar.svg?raw';
@@ -21,6 +22,7 @@ import circleHelp from 'lucide-static/icons/circle-help.svg?raw';
 import clipboardList from 'lucide-static/icons/clipboard-list.svg?raw';
 import clock from 'lucide-static/icons/clock.svg?raw';
 import codeXml from 'lucide-static/icons/code-xml.svg?raw';
+import coins from 'lucide-static/icons/coins.svg?raw';
 import component from 'lucide-static/icons/component.svg?raw';
 import copy from 'lucide-static/icons/copy.svg?raw';
 import database from 'lucide-static/icons/database.svg?raw';
@@ -42,7 +44,9 @@ import fileType from 'lucide-static/icons/file-type.svg?raw';
 import folder from 'lucide-static/icons/folder.svg?raw';
 import folderInput from 'lucide-static/icons/folder-input.svg?raw';
 import folderTree from 'lucide-static/icons/folder-tree.svg?raw';
+import funnel from 'lucide-static/icons/funnel.svg?raw';
 import gitPullRequest from 'lucide-static/icons/git-pull-request.svg?raw';
+import grid from 'lucide-static/icons/grid-3x3.svg?raw';
 import gripVertical from 'lucide-static/icons/grip-vertical.svg?raw';
 import hash from 'lucide-static/icons/hash.svg?raw';
 import image from 'lucide-static/icons/image.svg?raw';
@@ -51,6 +55,7 @@ import inbox from 'lucide-static/icons/inbox.svg?raw';
 import italic from 'lucide-static/icons/italic.svg?raw';
 import keyRound from 'lucide-static/icons/key-round.svg?raw';
 import languages from 'lucide-static/icons/languages.svg?raw';
+import layoutDashboard from 'lucide-static/icons/layout-dashboard.svg?raw';
 import layoutTemplate from 'lucide-static/icons/layout-template.svg?raw';
 import link from 'lucide-static/icons/link.svg?raw';
 import list from 'lucide-static/icons/list.svg?raw';
@@ -70,6 +75,7 @@ import plug from 'lucide-static/icons/plug.svg?raw';
 import plus from 'lucide-static/icons/plus.svg?raw';
 import quote from 'lucide-static/icons/quote.svg?raw';
 import refreshCw from 'lucide-static/icons/refresh-cw.svg?raw';
+import route from 'lucide-static/icons/route.svg?raw';
 import search from 'lucide-static/icons/search.svg?raw';
 import send from 'lucide-static/icons/send.svg?raw';
 import settings from 'lucide-static/icons/settings.svg?raw';
@@ -77,6 +83,7 @@ import share from 'lucide-static/icons/share-2.svg?raw';
 import shieldCheck from 'lucide-static/icons/shield-check.svg?raw';
 import squareChevronDown from 'lucide-static/icons/square-chevron-down.svg?raw';
 import sun from 'lucide-static/icons/sun.svg?raw';
+import tag from 'lucide-static/icons/tag.svg?raw';
 import textLines from 'lucide-static/icons/text.svg?raw';
 import textCursorInput from 'lucide-static/icons/text-cursor-input.svg?raw';
 import trash from 'lucide-static/icons/trash-2.svg?raw';
@@ -111,6 +118,7 @@ export var icons = {
   activity: _icon(activity),
   alert: _icon(circleAlert),
   at: _icon(atSign),
+  badgeCheck: _icon(badgeCheck),
   arrowDown: _icon(arrowDown),
   arrowUp: _icon(arrowUp),
   blocks: _icon(blocks),
@@ -126,10 +134,12 @@ export var icons = {
   clock: _icon(clock),
   close: _icon(x),
   code: _icon(codeXml),
+  coins: _icon(coins),
   consent: _icon(shieldCheck),
   collapse: _icon(chevronsDownUp),
   component: _icon(component),
   copy: _icon(copy),
+  dashboard: _icon(layoutDashboard),
   expand: _icon(chevronsUpDown),
   external: _icon(externalLink),
   eye: _icon(eye),
@@ -153,6 +163,8 @@ export var icons = {
   folder: _icon(folder),
   folderInput: _icon(folderInput),
   forms: _icon(clipboardList),
+  funnel: _icon(funnel),
+  grid: _icon(grid),
   grip: _icon(gripVertical),
   hash: _icon(hash),
   image: _icon(image),
@@ -181,7 +193,10 @@ export var icons = {
   quote: _icon(quote),
   radio: _icon(circleDot),
   refresh: _icon(refreshCw),
+  route: _icon(route),
   restore: _icon(archiveRestore),
+  /** Сбой снят вручную — в сетке «Качества». */
+  resolved: _icon(circleCheck),
   saved: _icon(circleCheck),
   search: _icon(search),
   select: _icon(squareChevronDown),
@@ -189,6 +204,7 @@ export var icons = {
   settings: _icon(settings),
   share: _icon(share),
   slider: _icon(slider),
+  tag: _icon(tag),
   template: _icon(layoutTemplate),
   text: _icon(type),
   trash: _icon(trash),

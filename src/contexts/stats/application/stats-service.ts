@@ -9,8 +9,11 @@ import type {
 } from '../domain/ports.ts';
 import {
   dailyOf,
+  type GoalKind,
+  goalKindOf,
   goalsOf,
   limitOf,
+  type OriginRow,
   type Period,
   periodOf,
   previousOf,
@@ -19,18 +22,28 @@ import {
   type Row,
   type StatsReport,
   topOf,
+  type VisitFilter,
+  type VisitSums,
 } from '../domain/report.ts';
 import {
   changeStatsSettings,
   formGoal,
+  goGoal,
   linkGoal,
   type StatsSettings,
 } from '../domain/settings.ts';
 import { VISIT_DIMENSIONS } from '../domain/tally.ts';
 import {
   countableBeacon,
+  countableGo,
   countableView,
+  type Day,
+  type GoSources,
   type Header,
+  isBot,
+  requestSourceOf,
+  sourceOfOrigin,
+  sourceOfVisit,
   visitOf,
 } from '../domain/visit.ts';
 
@@ -39,6 +52,30 @@ export type VisitRequest = {
   readonly header: Header;
   readonly url: URL;
 };
+
+/** Запрос перехода: цель засчитывает только GET. */
+export type GoRequest = VisitRequest & { readonly method: string };
+
+/** Названия для подписей целей: заголовки форм и названия переходов по их именам. */
+type Names = {
+  readonly forms: ReadonlyMap<string, string>;
+  readonly links: ReadonlyMap<string, string>;
+};
+
+// Цель формы называется заголовком формы, цель ссылки — началом её адреса, цель перехода — его названием;
+// у `go:` (любой переход) подписи нет: её даёт экран.
+const _LABELS: Readonly<
+  Record<GoalKind, (name: string, names: Names) => string>
+> = {
+  form: (name, _) => _.forms.get(name) ?? name,
+  link: (name) => name,
+  go: (name, _) => (name === '' ? '' : (_.links.get(name) ?? name)),
+};
+
+const _origins = (
+  rows: readonly { readonly value: string; readonly visitors: number }[]
+): OriginRow[] =>
+  rows.map((_) => ({ source: sourceOfOrigin(_.value), visitors: _.visitors }));
 
 export type StatsPorts = {
   readonly settings: StatsSettingsRepository;
@@ -52,6 +89,11 @@ export type StatsPorts = {
     readonly name: string;
     readonly title: string;
   }[];
+  /** Переходы аналитики: название — подпись цели `go:<код>`. */
+  readonly links: () => readonly {
+    readonly code: string;
+    readonly name: string;
+  }[];
 };
 
 const _hostOf = (url: string): string => URL.parse(url)?.hostname ?? '';
@@ -63,20 +105,38 @@ export var defineStatsService = ({
   bus,
   siteUrl,
   forms,
+  links,
 }: StatsPorts) => {
   const current = (): StatsSettings => settings.get();
 
   const own = (request: VisitRequest): string[] =>
     [request.url.hostname, _hostOf(siteUrl())].filter(Boolean);
 
-  // Цель формы называется заголовком формы, цель ссылки — началом её адреса.
   const label =
-    (titles: ReadonlyMap<string, string>) =>
+    (names: Names) =>
     (goal: string): string =>
-      ((name) =>
-        goal.startsWith('form:') ? (titles.get(name) ?? name) : name)(
-        goal.slice(goal.indexOf(':') + 1)
-      );
+      _LABELS[goalKindOf(goal)](goal.slice(goal.indexOf(':') + 1), names);
+
+  // Посетители периода для аналитики: все, достигшие цели, вошедшие на странице или достигшие её, войдя там.
+  const sumsOf = (period: Period, { goal, page }: VisitFilter): VisitSums =>
+    goal !== undefined && page !== undefined
+      ? {
+          total:
+            reader.reached(goal, 'entry', period).find((_) => _.value === page)
+              ?.visitors ?? 0,
+          origins: [],
+        }
+      : goal !== undefined
+        ? {
+            total: reader.reached(goal, 'total', period)[0]?.visitors ?? 0,
+            origins: _origins(reader.reached(goal, 'origin', period)),
+          }
+        : page !== undefined
+          ? { total: reader.visitors('entry', page, period), origins: [] }
+          : {
+              total: reader.totals(period).visitors,
+              origins: _origins(reader.sums('origin', period)),
+            };
 
   const sums = (period: Period) =>
     Object.fromEntries(
@@ -99,7 +159,7 @@ export var defineStatsService = ({
     return {
       ...period,
       today: recorder.today(),
-      since: reader.since(),
+      since: reader.since('total'),
       enabled,
       totals,
       previous: reader.totals(previousOf(period)),
@@ -122,7 +182,10 @@ export var defineStatsService = ({
         reader.goals(period),
         totals.visitors,
         { source: bases(all.sources), entry: bases(all.entries) },
-        label(new Map(forms().map((_) => [_.name, _.title]))),
+        label({
+          forms: new Map(forms().map((_) => [_.name, _.title])),
+          links: new Map(links().map((_) => [_.code, _.name])),
+        }),
         limit
       ),
     };
@@ -188,6 +251,46 @@ export var defineStatsService = ({
           request.header('user-agent') ?? '',
           linkGoal(prefix)
         ))(current()),
+    /**
+     * Источники метки перехода `code`: UTM и реферер самого запроса и посещение дня посетителя. Нажатие браузера
+     * (GET, не бот, не предзагрузка) посетителя, который сегодня смотрел страницы, засчитывает цели `go:<код>` и
+     * `go:`; HEAD и предзагрузка получают то же посещение без цели. Посещение ищется, только пока счёт включён.
+     */
+    go: (code: string, request: GoRequest, client: string): GoSources =>
+      ((options, agent) => ({
+        request: requestSourceOf(
+          request.header,
+          request.url.searchParams,
+          own(request)
+        ),
+        visit:
+          options.enabled && !isBot(agent)
+            ? ((found) => (found === null ? null : sourceOfVisit(found)))(
+                recorder.visit(
+                  client,
+                  agent,
+                  countableGo(request.method, request.header)
+                    ? [goGoal(code), goGoal('')]
+                    : []
+                )
+              )
+            : null,
+      }))(current(), request.header('user-agent') ?? ''),
+    /**
+     * Посетители периода для аналитики (дни — в поясе статистики): всего и по `origin`; с целью — достигшие её,
+     * со страницей — вошедшие на ней. Буфер счётчика сначала уходит в базу, как у отчёта.
+     */
+    visits: (period: Period, filter: VisitFilter = {}): VisitSums => (
+      recorder.flush(), sumsOf(period, filter)
+    ),
+    /** С какого дня есть сводки посещений и с какого — их `origin` (с обновления, которое его ввело). */
+    since: (): {
+      readonly visits: Day | null;
+      readonly origins: Day | null;
+    } => (
+      recorder.flush(),
+      { visits: reader.since('total'), origins: reader.since('origin') }
+    ),
     /** Ссылки-цели маячка; пусто — маячка на страницах нет. */
     beaconLinks: (): readonly string[] =>
       ((options) =>

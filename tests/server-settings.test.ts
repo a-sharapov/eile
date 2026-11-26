@@ -110,6 +110,7 @@ describe('файл настроек сервера', () => {
       'forms',
       'from',
       'notify',
+      'senderKeys',
       'tokens',
       'upkeep',
       'version',
@@ -179,6 +180,7 @@ describe('файл настроек сервера', () => {
         keyReplaced: null,
       },
       tokens: { added: 1, present: 0, skipped: ['helper@example.com'] },
+      senderKeys: { added: 0, present: 0, skipped: [] },
     });
     expect(target.app.notify.serverSettings.read()).toEqual(settings.notify);
     expect(target.app.forms.serverSettings.read()).toEqual(settings.forms);

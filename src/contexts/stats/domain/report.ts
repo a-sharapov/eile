@@ -1,6 +1,12 @@
 import { fail } from '../../../shared/kernel/errors.ts';
 import type { Dimension, GoalDimension } from './tally.ts';
-import { addDays, type Day, daysBetween, isDay } from './visit.ts';
+import {
+  addDays,
+  type Day,
+  daysBetween,
+  isDay,
+  type VisitSource,
+} from './visit.ts';
 
 /** Период отчёта: дни включительно. */
 export type Period = { readonly from: Day; readonly to: Day };
@@ -39,12 +45,15 @@ export type GoalSlice = {
   readonly rate: number;
 };
 
+/** Вид цели: заявка формы, ссылка-цель маячка, переход аналитики `/_cms/go/<код>`. */
+export type GoalKind = 'form' | 'link' | 'go';
+
 export type GoalReport = {
   readonly goal: string;
-  readonly kind: 'form' | 'link';
-  /** Имя формы или начало адреса ссылки. */
+  readonly kind: GoalKind;
+  /** Имя формы, начало адреса ссылки или код перехода; у `go:` (любой переход) — пусто. */
   readonly name: string;
-  /** Название для человека: заголовок формы или адрес ссылки. */
+  /** Название для человека: заголовок формы, адрес ссылки или название перехода; у `go:` — пусто. */
   readonly label: string;
   readonly visitors: number;
   readonly events: number;
@@ -69,11 +78,31 @@ export type StatsReport = Period & {
   readonly utmSources: readonly Row[];
   readonly utmMediums: readonly Row[];
   readonly utmCampaigns: readonly Row[];
+  readonly utmContents: readonly Row[];
+  readonly utmTerms: readonly Row[];
   readonly entries: readonly Row[];
   readonly devices: readonly Row[];
   readonly browserLanguages: readonly Row[];
   readonly goals: readonly GoalReport[];
 };
+
+/** Посетители источника за период: строка разреза `origin`. */
+export type OriginRow = {
+  readonly source: VisitSource;
+  readonly visitors: number;
+};
+
+/**
+ * Посетители за период для аналитики: всего и по источникам. С целью — достигшие её, со страницей — вошедшие
+ * на ней; у страницы `origins` пуст: страница входа и источник вместе не хранятся.
+ */
+export type VisitSums = {
+  readonly total: number;
+  readonly origins: readonly OriginRow[];
+};
+
+/** Чьи посетители: все, достигшие цели (`go:`, `go:<код>`, `form:<имя>`), вошедшие на странице. */
+export type VisitFilter = { readonly goal?: string; readonly page?: string };
 
 /** Отчёт — не длиннее года и одного високосного дня. */
 export var MAX_PERIOD_DAYS = 366;
@@ -168,6 +197,16 @@ const _slices = (
     )
     .slice(0, limit);
 
+const _KINDS: Readonly<Record<string, GoalKind>> = {
+  form: 'form',
+  link: 'link',
+  go: 'go',
+};
+
+/** Вид цели по её приставке: `form:`, `link:`, `go:`. */
+export var goalKindOf = (goal: string): GoalKind =>
+  _KINDS[goal.slice(0, goal.indexOf(':'))] ?? 'link';
+
 /**
  * Цели периода с долей достигших: от всех посетителей, по источнику и по странице входа. `bases` —
  * посетители периода по значениям разрезов `source` и `entry`.
@@ -183,10 +222,9 @@ export var goalsOf = (
     .map((goal) => {
       const own = rows.filter((_) => _.goal === goal);
       const total = own.find((_) => _.dimension === 'total');
-      const kind = goal.startsWith('form:') ? 'form' : 'link';
       return {
         goal,
-        kind,
+        kind: goalKindOf(goal),
         name: goal.slice(goal.indexOf(':') + 1),
         label: label(goal),
         visitors: total?.visitors ?? 0,
@@ -208,7 +246,7 @@ export var goalsOf = (
       (a, b) => b.visitors - a.visitors || a.goal.localeCompare(b.goal)
     );
 
-/** Разрезы отчёта и поле ответа для каждого. */
+/** Разрезы отчёта и поле ответа для каждого; `origin` в отчёт не выходит — его читает аналитика. */
 export var REPORT_DIMENSIONS = {
   pages: 'page',
   languages: 'language',
@@ -217,6 +255,8 @@ export var REPORT_DIMENSIONS = {
   utmSources: 'utm_source',
   utmMediums: 'utm_medium',
   utmCampaigns: 'utm_campaign',
+  utmContents: 'utm_content',
+  utmTerms: 'utm_term',
   entries: 'entry',
   devices: 'device',
   browserLanguages: 'browser_language',

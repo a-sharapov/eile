@@ -1,8 +1,38 @@
-<script lang="ts">
-import { currentLanguage, number, t, tn } from '#lib/i18n.ts';
-import type { StatsDay } from '#lib/types.ts';
+<script lang="ts" module>
+/** День графика: линия — главный ряд, столбик — второй; без второго ряда — null. */
+export type ChartPoint = {
+  readonly day: string;
+  readonly line: number;
+  readonly bar: number | null;
+};
 
-let { days, label }: { days: StatsDay[]; label: string } = $props();
+/** Ряды графика: подписи линии и столбиков и число дня словами — для читалки и подсказки. */
+export type ChartSeries = {
+  readonly line: string;
+  readonly bar: string | null;
+  /** «12 посетителей, 40 просмотров» — без даты: её добавит график. */
+  readonly text: (point: ChartPoint) => string;
+};
+</script>
+
+<script lang="ts">
+import { currentLanguage, type MessageKey, number, t } from '#lib/i18n.ts';
+import type { ChartMark } from './overview.ts';
+
+// График по дням: линия — главный ряд цветом акцента, столбики — второй ряд серым за ней. Посещения — посетители
+// и просмотры, «Источники» — новые люди и новые клиенты, вернувшиеся — одна линия. Отметки — смены версии
+// отправителя: пунктир и треугольник над днём, тон — формой (закрашен, с «!», пустой) и словом в подсказке.
+let {
+  days,
+  label,
+  series,
+  marks = [],
+}: {
+  days: readonly ChartPoint[];
+  label: string;
+  series: ChartSeries;
+  marks?: readonly ChartMark[];
+} = $props();
 
 // Холст в пикселях ширины блока: подписи — в rem, как весь менеджер, и не растягиваются вместе с SVG.
 let width = $state(0);
@@ -25,7 +55,9 @@ const stepOf = (max: number): number =>
       10 ** Math.floor(Math.log10(raw))
     ))(Math.max(max / 4, 1));
 
-const max = $derived(Math.max(0, ...days.map((_) => _.views)));
+const max = $derived(
+  Math.max(0, ...days.map((_) => Math.max(_.line, _.bar ?? 0)))
+);
 const step = $derived(stepOf(max));
 const top = $derived(Math.max(step, Math.ceil(max / step) * step));
 const ticks = $derived(
@@ -45,7 +77,12 @@ const left = $derived(
     (rem * 0.75)
 );
 const right = $derived(0.5 * rem);
-const plotTop = $derived(0.75 * rem);
+const placed = $derived(
+  marks
+    .map((mark) => ({ mark, index: days.findIndex((_) => _.day === mark.day) }))
+    .filter((_) => _.index >= 0)
+);
+const plotTop = $derived((placed.length > 0 ? 1.6 : 0.75) * rem);
 const plotBottom = $derived(height - 1.75 * rem);
 const plotWidth = $derived(Math.max(0, width - left - right));
 const band = $derived(days.length > 0 ? plotWidth / days.length : 0);
@@ -66,7 +103,7 @@ const barPath = (index: number, value: number): string =>
 
 const line = $derived(
   days
-    .map((_, n) => `${n === 0 ? 'M' : 'L'}${centre(n)},${y(_.visitors)}`)
+    .map((_, n) => `${n === 0 ? 'M' : 'L'}${centre(n)},${y(_.line)}`)
     .join('')
 );
 
@@ -110,11 +147,34 @@ const onKey = (event: KeyboardEvent) =>
     ))(_KEYS[event.key]);
 
 const shown = $derived(active === null ? null : (days[active] ?? null));
+const marksOn = (day: string | undefined): ChartMark[] =>
+  placed.filter((_) => _.mark.day === day).map((_) => _.mark);
 const valueText = $derived(
   ((day) =>
     day
-      ? `${_date(day.day, { day: 'numeric', month: 'long' })}: ${tn('stats.visitorsCount', day.visitors)}, ${tn('stats.viewsCount', day.views)}`
+      ? `${_date(day.day, { day: 'numeric', month: 'long' })}: ${series.text(day)}${marksOn(day.day)
+          .map((_) => `; ${_.label}`)
+          .join('')}`
       : '')(days[active ?? days.length - 1])
+);
+
+// Треугольник над днём остриём вниз: у «не сошлось» внутри «!», у «не сверялось» — только контур.
+const triangle = (index: number): string =>
+  ((x, size) =>
+    `M${x - size},${plotTop - size * 1.7}H${x + size}L${x},${plotTop - 0.25 * rem}Z`)(
+    centre(index),
+    0.42 * rem
+  );
+
+const _MARK_LABELS: Readonly<Record<ChartMark['tone'], MessageKey>> = {
+  ok: 'analyticsOverview.markOk',
+  bad: 'analyticsOverview.markBad',
+  none: 'analyticsOverview.markNone',
+};
+const tones = $derived(
+  (['ok', 'bad', 'none'] as const).filter((tone) =>
+    placed.some((_) => _.mark.tone === tone)
+  )
 );
 // Подсказка — над днём, но не за краем холста.
 const tipLeft = $derived(
@@ -125,8 +185,9 @@ const tipLeft = $derived(
 </script>
 
 <div class="legend" aria-hidden="true">
-  <span><span class="key line"></span>{t('stats.visitors')}</span>
-  <span><span class="key bar"></span>{t('stats.views')}</span>
+  <span><span class="key line"></span>{series.line}</span>
+  {#if series.bar !== null}<span><span class="key bar"></span>{series.bar}</span>{/if}
+  {#each tones as tone (tone)}<span><svg class="key mark {tone}" viewBox="0 0 12 10" aria-hidden="true"><path d="M1,1H11L6,9Z" />{#if tone === 'bad'}<path class="bang" d="M6,2.6V5.2" />{/if}</svg>{t(_MARK_LABELS[tone])}</span>{/each}
 </div>
 <!-- С клавиатуры график — ползунок по дням: стрелки дают ту же подсказку, что мышь; таблица — под ним. -->
 <div
@@ -151,9 +212,14 @@ const tipLeft = $derived(
         <text class="tick" x={left - 0.5 * rem} y={y(tick)} dy="0.32em" text-anchor="end">{_compact(tick)}</text>
       {/each}
       {#each days as day, index (day.day)}
-        {#if day.views > 0}
-          <path class="bar" class:lifted={active === index} d={barPath(index, day.views)} />
+        {#if (day.bar ?? 0) > 0}
+          <path class="bar" class:lifted={active === index} d={barPath(index, day.bar ?? 0)} />
         {/if}
+      {/each}
+      {#each placed as item (`${item.mark.day}/${item.mark.label}`)}
+        <line class="mark-line {item.mark.tone}" x1={centre(item.index)} x2={centre(item.index)} y1={plotTop - 0.2 * rem} y2={plotBottom} />
+        <path class="mark {item.mark.tone}" d={triangle(item.index)} />
+        {#if item.mark.tone === 'bad'}<line class="bang" x1={centre(item.index)} x2={centre(item.index)} y1={plotTop - 0.42 * rem * 1.45} y2={plotTop - 0.42 * rem * 0.75} />{/if}
       {/each}
       {#if active !== null}
         <line class="cross" x1={centre(active)} x2={centre(active)} y1={plotTop} y2={plotBottom} />
@@ -161,7 +227,7 @@ const tipLeft = $derived(
       <path class="line" d={line} />
       {#if days.length > 0}
         {@const at = active ?? days.length - 1}
-        <circle class="dot" cx={centre(at)} cy={y(days[at]!.visitors)} r="4" />
+        <circle class="dot" cx={centre(at)} cy={y(days[at]!.line)} r="4" />
       {/if}
       {#each labels as index (index)}
         <text class="tick" x={centre(index)} y={plotBottom + 1.15 * rem} text-anchor={index === 0 && days.length > 1 ? 'start' : index === days.length - 1 && days.length > 1 ? 'end' : 'middle'} dx={index === 0 && days.length > 1 ? -band / 2 : index === days.length - 1 && days.length > 1 ? band / 2 : 0}>{_date(days[index]!.day, { day: 'numeric', month: 'short' })}</text>
@@ -174,25 +240,85 @@ const tipLeft = $derived(
   {#if shown}
     <div class="tip" style:left={`${tipLeft}px`} role="status" aria-live="polite">
       <span class="when">{_date(shown.day, { weekday: 'short', day: 'numeric', month: 'long' })}</span>
-      <span class="row"><span class="key line"></span><strong>{number(shown.visitors)}</strong> {t('stats.visitors')}</span>
-      <span class="row"><span class="key bar"></span><strong>{number(shown.views)}</strong> {t('stats.views')}</span>
+      <span class="row"><span class="key line"></span><strong>{number(shown.line)}</strong> {series.line}</span>
+      {#if series.bar !== null}<span class="row"><span class="key bar"></span><strong>{number(shown.bar ?? 0)}</strong> {series.bar}</span>{/if}
+      {#each marksOn(shown.day) as mark (mark.label)}<span class="row note"><svg class="key mark {mark.tone}" viewBox="0 0 12 10" aria-hidden="true"><path d="M1,1H11L6,9Z" />{#if mark.tone === 'bad'}<path class="bang" d="M6,2.6V5.2" />{/if}</svg>{mark.label}</span>{/each}
     </div>
   {/if}
 </div>
 
 <style>
-  /* Посетители — главный ряд, цветом акцента; просмотры — серые столбики за ним. Шаги для тёмной темы —
-     свои, проверены валидатором палитры против поверхности каждой темы. */
+  /* Линия — главный ряд, цветом акцента; столбики — второй ряд серым за ним. Шаги для тёмной темы — свои,
+     проверены валидатором палитры против поверхности каждой темы. */
   .chart,
   .legend {
-    --series-visitors: light-dark(
+    --series-line: light-dark(
       oklch(51% calc(0.15 * var(--sig)) var(--hue)),
       oklch(66% calc(0.13 * var(--sig)) var(--hue))
     );
-    --series-views: light-dark(
+    --series-bar: light-dark(
       oklch(75% 0.012 var(--hue)),
       oklch(45% 0.012 var(--hue))
     );
+    --mark-ok: color-mix(in oklch, var(--ok) 80%, var(--text));
+    --mark-bad: color-mix(in oklch, var(--danger) 85%, var(--text));
+    --mark-none: var(--muted);
+  }
+
+  /* Отметки смены версии: пунктир через весь график и треугольник над днём. */
+  .mark-line {
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+  }
+
+  .mark-line.ok,
+  .mark.ok {
+    stroke: var(--mark-ok);
+  }
+
+  .mark-line.bad,
+  .mark.bad {
+    stroke: var(--mark-bad);
+  }
+
+  .mark-line.none,
+  .mark.none {
+    stroke: var(--mark-none);
+  }
+
+  .mark {
+    stroke-width: 1.25;
+    stroke-linejoin: round;
+  }
+
+  .mark.ok {
+    fill: var(--mark-ok);
+  }
+
+  .mark.bad {
+    fill: var(--mark-bad);
+  }
+
+  .mark.none {
+    fill: var(--surface);
+  }
+
+  .bang {
+    stroke: var(--surface);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+  }
+
+  svg.key.mark {
+    width: 0.75rem;
+    height: 0.625rem;
+    overflow: visible;
+  }
+
+  .tip .note {
+    max-width: 18rem;
+    color: var(--text);
+    overflow-wrap: anywhere;
   }
 
   .legend {
@@ -218,14 +344,14 @@ const tipLeft = $derived(
     width: 0.875rem;
     height: 0.125rem;
     border-radius: 0.0625rem;
-    background: var(--series-visitors);
+    background: var(--series-line);
   }
 
   .key.bar {
     width: 0.5rem;
     height: 0.75rem;
     border-radius: 0.125rem 0.125rem 0 0;
-    background: var(--series-views);
+    background: var(--series-bar);
   }
 
   .chart {
@@ -257,24 +383,24 @@ const tipLeft = $derived(
   }
 
   .bar {
-    fill: var(--series-views);
+    fill: var(--series-bar);
     transition: fill 120ms var(--ease);
   }
 
   .bar.lifted {
-    fill: color-mix(in oklch, var(--series-views), var(--text) 22%);
+    fill: color-mix(in oklch, var(--series-bar), var(--text) 22%);
   }
 
   .line {
     fill: none;
-    stroke: var(--series-visitors);
+    stroke: var(--series-line);
     stroke-width: 2;
     stroke-linejoin: round;
     stroke-linecap: round;
   }
 
   .dot {
-    fill: var(--series-visitors);
+    fill: var(--series-line);
     stroke: var(--surface);
     stroke-width: 2;
   }

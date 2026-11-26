@@ -148,13 +148,13 @@ describe('поля страницы в индексе', () => {
       options: ['Да', 'Нет'],
       templates: ['Base'],
     });
-    const id = page('Памятник АП-2152', '<p>Стела.</p>', {
+    const id = page('Изделие ИЗ-2152', '<p>Описание.</p>', {
       fields: {
         params: JSON.stringify({
           fieldValue: [
             {
-              name: 'Камень:',
-              value: 'Габбро-диабаз',
+              name: 'Материал:',
+              value: 'Ясень-массив',
               image: 'assets/images/a.jpg',
             },
           ],
@@ -163,8 +163,8 @@ describe('поля страницы в индексе', () => {
         feed: 'Да',
       },
     });
-    expect(find('габбро').map((_) => _.id)).toEqual([id]);
-    const snippet = find('габбро')[0]!.snippet;
+    expect(find('ясень').map((_) => _.id)).toEqual([id]);
+    const snippet = find('ясень')[0]!.snippet;
     expect(snippet).not.toContain('fieldValue');
     expect(snippet).not.toContain('{');
     expect(snippet).not.toContain('assets/images');

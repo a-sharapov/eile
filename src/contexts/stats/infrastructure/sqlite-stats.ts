@@ -5,7 +5,13 @@ import {
   DEFAULT_STATS_SETTINGS,
   type StatsSettings,
 } from '../domain/settings.ts';
-import type { GoalIncrement, Increment, Visitor } from '../domain/tally.ts';
+import type {
+  Dimension,
+  GoalDimension,
+  GoalIncrement,
+  Increment,
+  Visitor,
+} from '../domain/tally.ts';
 import type { Day } from '../domain/visit.ts';
 
 // Настройки читаются на каждом просмотре: в памяти, база — при сохранении и при сборке контекстов.
@@ -46,18 +52,36 @@ export var defineStatsReader = (db: Database): StatsReader => {
   const sums = db.query<Row, [string, Day, Day]>(`
     SELECT value, sum(visitors) AS visitors, sum(views) AS views FROM stats_daily
     WHERE dimension = ? AND day BETWEEN ? AND ? GROUP BY value`);
+  const visitors = db.query<
+    { visitors: number },
+    [Dimension, string, Day, Day]
+  >(`
+    SELECT coalesce(sum(visitors), 0) AS visitors FROM stats_daily
+    WHERE dimension = ? AND value = ? AND day BETWEEN ? AND ?`);
+  // Строки origin — для аналитики: отчёту статистики они не нужны, и читать их ради него незачем.
   const goals = db.query<GoalRow, [Day, Day]>(`
     SELECT goal, dimension, value, sum(visitors) AS visitors, sum(events) AS events
-    FROM stats_goals WHERE day BETWEEN ? AND ? GROUP BY goal, dimension, value`);
-  const since = db.query<{ day: Day | null }, []>(
-    "SELECT min(day) AS day FROM stats_daily WHERE dimension = 'total'"
+    FROM stats_goals WHERE day BETWEEN ? AND ? AND dimension <> 'origin'
+    GROUP BY goal, dimension, value`);
+  const reached = db.query<
+    { value: string; visitors: number },
+    [string, GoalDimension, Day, Day]
+  >(`
+    SELECT value, sum(visitors) AS visitors FROM stats_goals
+    WHERE goal = ? AND dimension = ? AND day BETWEEN ? AND ? GROUP BY value`);
+  const since = db.query<{ day: Day | null }, [Dimension]>(
+    'SELECT min(day) AS day FROM stats_daily WHERE dimension = ?'
   );
   return {
     daily: ({ from, to }) => daily.all(from, to),
     totals: ({ from, to }) => totals.get(from, to)!,
     sums: (dimension, { from, to }) => sums.all(dimension, from, to),
+    visitors: (dimension, value, { from, to }) =>
+      visitors.get(dimension, value, from, to)!.visitors,
     goals: ({ from, to }) => goals.all(from, to),
-    since: () => since.get()?.day ?? null,
+    reached: (goal, dimension, { from, to }) =>
+      reached.all(goal, dimension, from, to),
+    since: (dimension) => since.get(dimension)?.day ?? null,
   };
 };
 
@@ -122,10 +146,16 @@ export var defineStatsStore = (db: Database): StatsStore => {
     }
   );
   return {
+    // У посетителя, записанного до utm_content и utm_term, этих полей нет: они пустые.
     visitor: (day, id) =>
-      ((row) => (row ? (JSON.parse(row.visit) as Visitor) : null))(
-        visitor.get(day, id)
-      ),
+      ((row) =>
+        row
+          ? ({
+              utmContent: '',
+              utmTerm: '',
+              ...(JSON.parse(row.visit) as Partial<Visitor>),
+            } as Visitor)
+          : null)(visitor.get(day, id)),
     write: (day, increments, goals, visitors) =>
       void write(day, increments, goals, visitors),
     forgetVisitors: () => void forget.run(),

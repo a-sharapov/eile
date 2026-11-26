@@ -18,20 +18,20 @@ const KEY = `MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA${'A'.repeat(348)}`;
 /** Mühlenhof до переезда: MX и SPF смотрят на сам домен, wildcard CNAME на него же, DMARC нет. */
 const MUEHLENHOF: Zone = {
   'muehlenhof.example': {
-    A: ['46.242.244.215'],
+    A: ['192.0.2.215'],
     MX: ['10 muehlenhof.example'],
     TXT: ['v=spf1 a mx ~all'],
-    NS: ['dns.home.pl', 'dns2.home.pl', 'dns3.home.pl'],
+    NS: ['ns1.hosting.example', 'ns2.hosting.example', 'ns3.hosting.example'],
     ttl: 60,
   },
   '*.muehlenhof.example': { CNAME: ['muehlenhof.example'], ttl: 60 },
   'dkim._domainkey.muehlenhof.example': { TXT: [`v=DKIM1; k=rsa; p=${KEY}`] },
-  '215.244.242.46.in-addr.arpa': {
-    PTR: ['cloudserver3234681-3234712.home.pl'],
+  '215.2.0.192.in-addr.arpa': {
+    PTR: ['server-1234.hosting.example'],
   },
-  'cloudserver3234681-3234712.home.pl': { A: ['46.242.244.215'] },
-  'dns.home.pl': { A: ['217.160.80.244'] },
-  'dns2.home.pl': { A: ['217.160.81.248'] },
+  'server-1234.hosting.example': { A: ['192.0.2.215'] },
+  'ns1.hosting.example': { A: ['198.51.100.53'] },
+  'ns2.hosting.example': { A: ['198.51.100.54'] },
 };
 
 /** Аккуратный домен: почта в Google, www — CNAME, DMARC и DKIM есть, TTL зоны — час. */
@@ -135,7 +135,7 @@ describe('cms diagnose domain: Mühlenhof перед переездом', () => 
     ]);
     expect(out).toContain('muehlenhof.example → 203.0.113.10');
     expect(out).toContain(
-      'Серверы DNS  dns.home.pl, dns2.home.pl, dns3.home.pl'
+      'Серверы DNS  ns1.hosting.example, ns2.hosting.example, ns3.hosting.example'
     );
     const breaks = out.slice(
       out.indexOf('Что сломается при переключении'),
@@ -168,19 +168,19 @@ describe('cms diagnose domain: Mühlenhof перед переездом', () => 
       'удалить  muehlenhof.example. IN MX 10 muehlenhof.example.'
     );
     expect(plan).toContain(
-      'создать  muehlenhof.example. 60 IN MX 10 cloudserver3234681-3234712.home.pl.'
+      'создать  muehlenhof.example. 60 IN MX 10 server-1234.hosting.example.'
     );
     expect(plan).toContain('Это предложение');
     expect(plan).toContain(
-      'создать  mail.muehlenhof.example. 60 IN A 46.242.244.215'
+      'создать  mail.muehlenhof.example. 60 IN A 192.0.2.215'
     );
     expect(plan).toContain(
-      'создать  muehlenhof.example. 300 IN TXT "v=spf1 ip4:46.242.244.215 mx ~all"'
+      'создать  muehlenhof.example. 300 IN TXT "v=spf1 ip4:192.0.2.215 mx ~all"'
     );
     expect(plan).toContain(
       'создать  _dmarc.muehlenhof.example. 300 IN TXT "v=DMARC1; p=none; rua=mailto:postmaster@muehlenhof.example"'
     );
-    expect(plan).toContain('удалить  muehlenhof.example. IN A 46.242.244.215');
+    expect(plan).toContain('удалить  muehlenhof.example. IN A 192.0.2.215');
     expect(plan).toContain('создать  muehlenhof.example. 60 IN A 203.0.113.10');
   });
 
@@ -197,13 +197,13 @@ describe('cms diagnose domain: Mühlenhof перед переездом', () => 
       title: 'Почта переедет вместе с сайтом',
       data: {
         hosts: ['muehlenhof.example'],
-        suggestion: 'cloudserver3234681-3234712.home.pl',
+        suggestion: 'server-1234.hosting.example',
         confirmed: true,
       },
     });
     expect(found['spf.moves']!.data).toMatchObject({
       mechanisms: ['a', 'mx'],
-      lost: ['46.242.244.215'],
+      lost: ['192.0.2.215'],
       dkim: true,
     });
     expect(found['www.follows']!.data).toEqual({ how: 'wildcard' });

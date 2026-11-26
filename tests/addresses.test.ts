@@ -73,9 +73,9 @@ beforeEach(() => {
     template: 'Plain',
     aliasInPath: false,
   });
-  create('baran', {
-    title: 'Барановичи',
-    alias: 'baran',
+  create('riga', {
+    title: 'Рига',
+    alias: 'riga',
     parentId: ids.cities,
     template: 'Plain',
     folder: true,
@@ -115,7 +115,7 @@ describe('адреса в стиле Evo', () => {
     expect(path('feed')).toBe('/feed.xml');
     // Дочерняя страница сделала раздел папкой, как в Evo.
     expect(path('cities')).toBe('/cities/');
-    expect(path('baran')).toBe('/baran/');
+    expect(path('riga')).toBe('/riga/');
   });
 
   it.each([
@@ -123,7 +123,7 @@ describe('адреса в стиле Evo', () => {
     '/katalog/',
     '/katalog/first.html',
     '/novosti.html',
-    '/baran/',
+    '/riga/',
     '/cities/',
     '/feed.xml',
   ])('%p — 200', async (path) => {
@@ -136,8 +136,8 @@ describe('адреса в стиле Evo', () => {
     ['/katalog/first', '/katalog/first.html'],
     ['/katalog/first/', '/katalog/first.html'],
     ['/katalog/first.html/', '/katalog/first.html'],
-    ['/baran', '/baran/'],
-    ['/baran.html', '/baran/'],
+    ['/riga', '/riga/'],
+    ['/riga.html', '/riga/'],
     ['/feed.xml/', '/feed.xml'],
     ['/index.html', '/'],
     ['/index/', '/'],
@@ -154,20 +154,20 @@ describe('адреса в стиле Evo', () => {
   });
 
   it('по пути со скрытым алиасом страницы нет', async () => {
-    expect((await get('/cities/baran/')).status).toBe(404);
+    expect((await get('/cities/riga/')).status).toBe(404);
   });
 
   it('ссылки, крошки и [~id~] ведут на адрес с окончанием', async () => {
     const page = await text('/katalog/');
     expect(page).toContain('<a href="/katalog/first.html">Первый</a>');
     app.content.pages.edit(ids.cities!, {
-      content: `<p><a href="[~${ids.baran}~]">город</a></p>`,
+      content: `<p><a href="[~${ids.riga}~]">город</a></p>`,
     });
     app.design.templates.save(
       'Plain',
       `<script>import Content from '$core/Content'; let { page } = $props();</script><Content of={page} />`
     );
-    expect(await text('/cities/')).toContain('<a href="/baran/">город</a>');
+    expect(await text('/cities/')).toContain('<a href="/riga/">город</a>');
   });
 });
 
@@ -231,7 +231,7 @@ describe('находимость', () => {
     const xml = await text('/sitemap.xml');
     expect(xml).toContain('<loc>https://site.test/katalog/</loc>');
     expect(xml).toContain('<loc>https://site.test/katalog/first.html</loc>');
-    expect(xml).toContain('<loc>https://site.test/baran/</loc>');
+    expect(xml).toContain('<loc>https://site.test/riga/</loc>');
     expect(xml).toContain('<loc>https://site.test/</loc>');
     expect(await text('/llms.txt')).toContain(
       '(https://site.test/katalog/first.md)'
@@ -252,8 +252,8 @@ describe('единственность адреса', () => {
     expect(
       errorOf(() =>
         app.content.pages.create({
-          title: 'Ещё Барановичи',
-          alias: 'baran',
+          title: 'Ещё Рига',
+          alias: 'riga',
           template: 'Plain',
         })
       )
@@ -326,9 +326,9 @@ describe('смена адреса', () => {
 
   it('алиас родителя снова в адресе — прежние адреса детей ведут на новые', async () => {
     app.content.pages.edit(ids.cities!, { aliasInPath: true });
-    expect(app.content.published.page(ids.baran!)!.path).toBe('/cities/baran/');
-    expect(await location('/baran/')).toEqual([301, '/cities/baran/']);
-    expect(await location('/baran')).toEqual([301, '/cities/baran/']);
+    expect(app.content.published.page(ids.riga!)!.path).toBe('/cities/riga/');
+    expect(await location('/riga/')).toEqual([301, '/cities/riga/']);
+    expect(await location('/riga')).toEqual([301, '/cities/riga/']);
   });
 
   it('стиль адресов по умолчанию — снова без окончаний', async () => {
@@ -337,6 +337,6 @@ describe('смена адреса', () => {
     expect(await location('/katalog/')).toEqual([301, '/katalog']);
     // Прежний суффикс — уже не вариант адреса: смена стиля меняет адреса всего сайта (ADR 0063).
     expect((await get('/katalog/first.html')).status).toBe(404);
-    expect((await get('/baran')).status).toBe(200);
+    expect((await get('/riga')).status).toBe(200);
   });
 });

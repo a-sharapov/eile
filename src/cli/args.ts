@@ -95,6 +95,12 @@ export type Options = {
   readonly serveOriginal?: boolean;
   /** `cms media link --static`: папка-сайт — статический сайт по `/<приставка>/…` (ADR 0068). */
   readonly staticSite?: boolean;
+  /** `cms events import --sender <код>`: чьи события в файле; один действующий отправитель — не нужен. */
+  readonly sender?: string;
+  /** `cms analytics import --sample <код>`: набор-образец из бинарника вместо файла. */
+  readonly sample?: string;
+  /** `cms analytics import --sample … --language de`: язык названий образца; по умолчанию — язык CLI. */
+  readonly language?: string;
 };
 
 /** Разобранная строка вызова: команда, её аргументы и параметры; или ошибка для человека. */
@@ -154,6 +160,9 @@ const _OPTIONS = {
   'serve-original': { type: 'boolean' },
   'no-serve-original': { type: 'boolean' },
   static: { type: 'boolean' },
+  sender: { type: 'string' },
+  sample: { type: 'string' },
+  language: { type: 'string' },
 } as const;
 
 // parseArgs говорит длинно: «Unknown option '--prot'…» — самое частое говорим коротко и на языке CLI.
@@ -259,6 +268,11 @@ export var parseInvocation = (argv: readonly string[], env: Env): Invocation =>
                 ? { serveOriginal: false }
                 : {}),
             ...(parsed.values.static ? { staticSite: true } : {}),
+            ...(parsed.values.sender ? { sender: parsed.values.sender } : {}),
+            ...(parsed.values.sample ? { sample: parsed.values.sample } : {}),
+            ...(parsed.values.language
+              ? { language: parsed.values.language }
+              : {}),
             ...(parsed.values.to ? { to: parsed.values.to } : {}),
             ...(parsed.values.resolver
               ? { resolver: parsed.values.resolver }

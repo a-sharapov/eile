@@ -1,3 +1,5 @@
+import { attempt } from '../../../shared/kernel/errors.ts';
+
 /** Заголовок запроса по имени; нет — null. */
 export type Header = (name: string) => string | null;
 
@@ -19,9 +21,36 @@ export type Visit = {
   readonly utmSource: string;
   readonly utmMedium: string;
   readonly utmCampaign: string;
+  readonly utmContent: string;
+  readonly utmTerm: string;
   readonly device: Device;
   /** Первый язык из Accept-Language, без региона: `de`. */
   readonly browserLanguage: string;
+};
+
+/**
+ * Источник посещения — UTM и хост чужого сайта, как пришли от посетителя. Из него аналитика складывает части
+ * метки перехода и шаги-посещения воронки; в сводках он — разрез `origin`.
+ */
+export type VisitSource = {
+  readonly utmSource: string;
+  readonly utmMedium: string;
+  readonly utmCampaign: string;
+  readonly utmContent: string;
+  readonly utmTerm: string;
+  /** Хост чужого сайта без `www.`; пусто — прямой заход или свой сайт. */
+  readonly referrer: string;
+};
+
+/** Откуда пришёл запрос перехода: без заголовка Referer, со своего сайта или с чужого. */
+export type RefererKind = 'none' | 'own' | 'foreign';
+
+/** Источники метки перехода: сам запрос и посещение дня этого посетителя. */
+export type GoSources = {
+  /** Источник самого запроса перехода: его UTM и реферер. */
+  readonly request: VisitSource & { readonly referer: RefererKind };
+  /** Посещение дня этого посетителя; null — счёт выключен, бот или сегодня просмотров не было. */
+  readonly visit: VisitSource | null;
 };
 
 // Боты, проверки, превью ссылок и HTTP-библиотеки. Браузер их слов в User-Agent не пишет; встроенные
@@ -52,6 +81,10 @@ export var countableView = (header: Header): boolean =>
   !isBot(header('user-agent') ?? '') &&
   !isPrefetch(header) &&
   _navigation(header);
+
+/** Нажатие на переход аналитики, которое засчитывается целью: GET и переход браузера, не бот и не предзагрузка. */
+export var countableGo = (method: string, header: Header): boolean =>
+  method === 'GET' && countableView(header);
 
 /** Запрос маячка цели: браузер, а не бот; режим fetch у маячка свой, переходом он не бывает. */
 export var countableBeacon = (header: Header): boolean =>
@@ -90,6 +123,18 @@ export var referrerHost = (
         )
       : '')(URL.parse(referer ?? ''));
 
+/** Откуда пришёл запрос: с чужого сайта, со своего; Referer нет или он не адрес сайта — `none`, прямой заход. */
+export var refererKindOf = (
+  referer: string | null,
+  own: readonly string[]
+): RefererKind =>
+  referrerHost(referer, own) !== ''
+    ? 'foreign'
+    : ((url) =>
+        url !== null && own.map(_host).includes(_host(url.hostname))
+          ? 'own'
+          : 'none')(URL.parse(referer ?? ''));
+
 // Метка — строка посетителя: без управляющих символов, пробелы схлопнуты, до 100 знаков.
 const _label = (value: string | null): string =>
   (value ?? '')
@@ -98,17 +143,21 @@ const _label = (value: string | null): string =>
     .trim()
     .slice(0, 100);
 
-/** Метки UTM адреса: source и medium — строчными, их сравнивают с хостами; campaign — как есть. */
+/** Метки UTM адреса: source и medium — строчными, их сравнивают с хостами; campaign, content и term — как есть. */
 export var utmOf = (
   query: URLSearchParams
 ): {
   readonly source: string;
   readonly medium: string;
   readonly campaign: string;
+  readonly content: string;
+  readonly term: string;
 } => ({
   source: _label(query.get('utm_source')).toLowerCase(),
   medium: _label(query.get('utm_medium')).toLowerCase(),
   campaign: _label(query.get('utm_campaign')),
+  content: _label(query.get('utm_content')),
+  term: _label(query.get('utm_term')),
 });
 
 /** Первый язык браузера без региона: `de-DE,de;q=0.9` → `de`; мусор — пусто. */
@@ -237,10 +286,73 @@ export var visitOf = (
     utmSource: utm.source,
     utmMedium: utm.medium,
     utmCampaign: utm.campaign,
+    utmContent: utm.content,
+    utmTerm: utm.term,
     device: deviceOf(header('user-agent') ?? '', header('sec-ch-ua-mobile')),
     browserLanguage: browserLanguageOf(header('accept-language')),
   };
 };
+
+/** Источник посещения дня: его UTM и хост реферера, без страницы входа и устройства. */
+export var sourceOfVisit = (visit: VisitSource): VisitSource => ({
+  utmSource: visit.utmSource,
+  utmMedium: visit.utmMedium,
+  utmCampaign: visit.utmCampaign,
+  utmContent: visit.utmContent,
+  utmTerm: visit.utmTerm,
+  referrer: visit.referrer,
+});
+
+/** Источник самого запроса перехода: UTM его адреса, хост чужого сайта и откуда пришли. */
+export var requestSourceOf = (
+  header: Header,
+  query: URLSearchParams,
+  own: readonly string[]
+): GoSources['request'] =>
+  ((utm, referer) => ({
+    utmSource: utm.source,
+    utmMedium: utm.medium,
+    utmCampaign: utm.campaign,
+    utmContent: utm.content,
+    utmTerm: utm.term,
+    referrer: referrerHost(referer, own),
+    referer: refererKindOf(referer, own),
+  }))(utmOf(query), header('referer'));
+
+// Порядок значений в `origin`: так их пишет сводка и читает аналитика.
+const _ORIGIN = [
+  'utmSource',
+  'utmMedium',
+  'utmCampaign',
+  'utmContent',
+  'utmTerm',
+  'referrer',
+] as const satisfies readonly (keyof VisitSource)[];
+
+/**
+ * Значение разреза `origin`: исходные UTM и хост реферера посещения одной строкой JSON —
+ * `[utm_source, utm_medium, utm_campaign, utm_content, utm_term, referrer]`. Части метки из него выводит
+ * аналитика при чтении, по нынешней настройке.
+ */
+export var originOf = (source: VisitSource): string =>
+  JSON.stringify(_ORIGIN.map((_) => source[_]));
+
+/** Источник из значения `origin`; не то, что пишет `originOf`, — пустые значения. */
+export var sourceOfOrigin = (value: string): VisitSource =>
+  ((parsed) =>
+    Object.fromEntries(
+      _ORIGIN.map((key, index) => [
+        key,
+        Array.isArray(parsed) && typeof parsed[index] === 'string'
+          ? parsed[index]
+          : '',
+      ])
+    ) as VisitSource)(
+    attempt(
+      () => JSON.parse(value) as unknown,
+      () => null
+    )
+  );
 
 const _FORMATS = new Map<string, Intl.DateTimeFormat>();
 

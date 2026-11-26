@@ -87,6 +87,7 @@ import {
 import { inertType, isHtmlType } from '../domain/content-policy.ts';
 import { sanitizeHtml } from '../infrastructure/html-sanitizer.ts';
 import type { ToolRequest } from './agent-tools.ts';
+import { type AnalyticsApi, analyticsApi } from './analytics-api.ts';
 import { API_HEADERS, apiError, json } from './responses.ts';
 import { type Operations, reviewApi } from './review-api.ts';
 import {
@@ -150,6 +151,8 @@ export type ManagerServices = {
   readonly stats: Pick<StatsService, 'report' | 'settings'>;
   /** Ссылки предпросмотра и проверка правок агентов. */
   readonly review: Review;
+  /** Аналитика клиентского пути: настройка, отправители, люди, журнал событий, загрузка файла. */
+  readonly analytics: AnalyticsApi;
   /** Диагностика сайта на языке менеджера; `again` — посчитать заново. */
   readonly diagnostics: {
     readonly report: (
@@ -285,6 +288,19 @@ const _STATUS: Readonly<Record<string, number>> = {
   not_agent: 403,
   forbidden: 403,
   settings_restricted: 403,
+  // Аналитика: на элемент ссылаются, предел исчерпан, приём выключен, у сайта нет действующего отправителя
+  // или он выключен, базовой валюты нет, строка расхода с таким ключом уже есть — конфликт с тем, что уже
+  // есть; отправители — только своими маршрутами.
+  in_use: 409,
+  too_many: 409,
+  disabled: 409,
+  no_sender: 409,
+  sender_inactive: 409,
+  no_base_currency: 409,
+  spend_exists: 409,
+  sender_route: 403,
+  // Снять можно только открытое замечание или сбой, вернуть — только снятое.
+  check_not_open: 409,
   _: 422,
 };
 
@@ -299,10 +315,16 @@ const _BODY_LIMIT: Readonly<Record<string, number>> = {
   // Скрипт сайта — до 2 МиБ, в JSON кавычки и обратные косые черты ещё и экранируются; с ним могут прийти
   // другие куски той же сборки (`scripts`).
   'PUT /elements/:kind/:name': 32 * _MB,
+  // Файл событий из менеджера; больше — `cms events import`.
+  'POST /analytics/events/import': 16 * _MB,
 };
 
 // Большие тела маршрут читает сам — `bytes()` или `spooled()`: `_buffered` держал бы их в памяти трижды.
-const _RAW_BODY = new Set(['POST /media', 'POST /backup']);
+const _RAW_BODY = new Set([
+  'POST /media',
+  'POST /backup',
+  'POST /analytics/events/import',
+]);
 
 const _limitOf = (route: Route): number =>
   _BODY_LIMIT[`${route[0]} ${route[1]}`] ??
@@ -512,6 +534,17 @@ const _SESSION_ONLY: ReadonlySet<string> = new Set([
   'POST /review/sets/:id/reject',
   'POST /review/links',
   'DELETE /review/links/:id',
+  // Аналитика (ADR 0072): включить приём — решение человека, оно требует строки в политике сайта; отправителя
+  // и ключ, который подписывает события, создаёт только человек — утёкший ключ API не заведёт своего бота.
+  // Базовая валюта — в тех же настройках: её смена выключает все введённые курсы.
+  'PUT /analytics/settings',
+  'PUT /analytics/senders/:code',
+  'POST /analytics/senders/:code/archive',
+  'POST /analytics/senders/:code/remove',
+  'POST /analytics/senders/:code/keys',
+  'DELETE /analytics/senders/:code/keys/:id',
+  // Загрузка набора создаёт отправителей, выключает их и меняет роли разом; проба и выгрузка — и ключом.
+  'POST /analytics/set',
 ]);
 
 // Эти настройки меняет только человек в менеджере, не ключ API и не агент (даже администраторский): адрес
@@ -631,6 +664,7 @@ const _routes = (
     diagnostics,
     stats,
     review,
+    analytics,
     version,
   }: ApiServices,
   toolbox: Toolbox
@@ -2616,6 +2650,7 @@ const _routes = (
       ),
     ],
     ...reviewing.routes(() => site.settings.get().siteUrl),
+    ...analyticsApi(analytics).routes,
   ];
   return { routes, handlerOf: reviewing.handlerOf };
 };

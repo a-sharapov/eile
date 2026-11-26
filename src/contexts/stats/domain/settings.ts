@@ -107,3 +107,6 @@ export var linkGoal = (prefix: string): string => `link:${prefix}`;
 
 /** Цель по форме: каждая принятая заявка, кроме спама. */
 export var formGoal = (name: string): string => `form:${name}`;
+
+/** Цель перехода аналитики `/_cms/go/<код>`; пустой код — `go:`, любой переход: посетитель в ней один раз. */
+export var goGoal = (code: string): string => `go:${code}`;

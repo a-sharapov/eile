@@ -5,7 +5,8 @@
 
 ## Что нужно
 
-- [Bun](https://bun.sh) 1.4.4 или новее — рантайм, менеджер пакетов, тесты и сборка.
+- [Bun](https://bun.sh) 1.4.5 или новее — рантайм, менеджер пакетов, тесты и сборка. Бинарник несёт в себе
+  рантайм того Bun, которым собран, а в 1.4.5 закрыты уязвимости TLS, HTTP/3 и DNS.
 - git. Больше ничего: база — SQLite внутри Bun, менеджер собирает Vite из `node_modules`.
 
 ## Первый запуск
@@ -204,7 +205,7 @@ Windows, не даёт удалить запущенный `.exe`. Сам Bun д
 --target=bun-windows-x64` скачал в `~/.bun/install/cache/bun-windows-x64-v<версия>`, — это `bun.exe`.
 
 ```sh
-cp ~/.bun/install/cache/bun-windows-x64-v1.4.4 /var/tmp/bun.exe
+cp ~/.bun/install/cache/bun-windows-x64-v1.4.5 /var/tmp/bun.exe
 WINEPATH='Z:\var\tmp' NODE_ENV=production wine /var/tmp/bun.exe test src tests --timeout 30000
 ```
 

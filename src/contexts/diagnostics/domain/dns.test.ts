@@ -58,7 +58,7 @@ describe('значения DNS', () => {
   });
 
   it('PTR: IPv4 задом наперёд, IPv6 — 32 полубайта', () => {
-    expect(reverseName('46.242.244.215')).toBe('215.244.242.46.in-addr.arpa');
+    expect(reverseName('192.0.2.215')).toBe('215.2.0.192.in-addr.arpa');
     expect(reverseName('2001:db8::1')).toBe(
       '1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa'
     );

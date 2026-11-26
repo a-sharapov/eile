@@ -53,6 +53,7 @@ import {
   relinkMedia,
   unlinkMedia,
 } from '../workspace/index.ts';
+import { runAnalytics } from './analytics.ts';
 import type { Options } from './args.ts';
 import {
   type CliError,
@@ -68,6 +69,7 @@ import {
   restoreServer,
 } from './copies.ts';
 import { runDomain } from './domain.ts';
+import { runEvents } from './events.ts';
 import { COMMANDS, commandHelp, overview, unknownText } from './help.ts';
 import { httpsUrl, type ServeBase, serveSecure } from './https.ts';
 import type { Language } from './language.ts';
@@ -227,6 +229,18 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
     'package.sha256_folder':
       'У папки нет SHA-256: соберите архив (cms scaffold pack) или уберите --sha256.',
     'package.not_found': 'Нет такого файла или папки пакета.',
+    'analytics.disabled':
+      'Приём событий выключен — загрузка тоже ничего не принимает. Включите его в менеджере: «Настройки → Статистика».',
+    'analytics.sender_required':
+      'Отправителей на сайте несколько: назовите отправителя файла — --sender <код>.',
+    'analytics.no_sender':
+      'На сайте нет действующего отправителя: создайте его в менеджере, «Статистика → Настройка → Отправители».',
+    'analytics.sender_not_found':
+      'Такого отправителя на сайте нет — проверьте код в --sender.',
+    'analytics.sender_inactive':
+      'Отправитель в архиве или выключен: его событий сайт не принимает ни по сети, ни из файла.',
+    'analytics.invalid_code':
+      'Код отправителя — латиница в нижнем регистре, цифры, _ и -, до 20 знаков.',
   },
   en: {
     'identity.weak_password': 'A password needs at least 10 characters.',
@@ -351,6 +365,18 @@ const _DOMAIN: Readonly<Record<Language, Readonly<Record<string, string>>>> = {
     'package.sha256_folder':
       'A folder has no SHA-256: pack it (cms scaffold pack) or drop --sha256.',
     'package.not_found': 'No such package file or folder.',
+    'analytics.disabled':
+      'Event intake is off, so an import accepts nothing either. Turn it on in the manager: Settings → Statistics.',
+    'analytics.sender_required':
+      'The site has several senders: name the sender of the file with --sender <code>.',
+    'analytics.no_sender':
+      'The site has no active sender: create one in the manager, Statistics → Setup → Senders.',
+    'analytics.sender_not_found':
+      'The site has no such sender: check the code in --sender.',
+    'analytics.sender_inactive':
+      'The sender is archived or turned off: the site accepts its events neither over the network nor from a file.',
+    'analytics.invalid_code':
+      'A sender code is lowercase Latin letters, digits, _ and -, up to 20 characters.',
   },
 };
 
@@ -2173,6 +2199,8 @@ export var RUN: Readonly<Record<string, (ctx: Context) => Promise<void>>> = {
   compact,
   'import-evo': _import,
   'import-wp': runImportWp,
+  events: runEvents,
+  analytics: runAnalytics,
   elements: _elements,
   media: _media,
   mcp: _mcp,

@@ -74,6 +74,8 @@ const _ALLOWED = new Set([
   'manager/src/lib/i18n.ts',
   // Таблица транслитерации заголовка в адрес.
   'manager/src/lib/translit.ts',
+  // Образец абзаца политики об аналитике — на языках сайтов, в том числе русском.
+  'manager/src/lib/analytics-privacy.ts',
   'manager/src/routes/(app)/help/HelpRu.svelte',
 ]);
 

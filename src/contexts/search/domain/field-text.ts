@@ -29,7 +29,7 @@ const _json = (value: string): unknown =>
       )
     : undefined;
 
-// Строки внутри JSON (строки multiTV из Evo: `{"fieldValue":[{"name":"Камень:","value":"Габбро"}]}`) — без ключей и
+// Строки внутри JSON (строки multiTV из Evo: `{"fieldValue":[{"name":"Материал:","value":"Ясень"}]}`) — без ключей и
 // скобок: в отрывке выдачи должен быть текст, а не разметка данных.
 const _leaves = (data: unknown): string[] =>
   typeof data === 'string'

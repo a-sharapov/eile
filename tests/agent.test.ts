@@ -256,3 +256,32 @@ it('в разговоре после заявок код не сохраняет
   );
   expect(next[0].step).toMatchObject({ tool: 'save_element', ok: true });
 });
+
+it('в разговоре после людей из событий настройка аналитики не меняется: их пишут чужие системы', async () => {
+  script = [
+    toolCall('1', 'list_people', {}),
+    toolCall('2', 'save_analytics_item', {
+      group: 'dictionary',
+      item: { code: 'sizes', name: 'Размеры', purpose: 'values' },
+    }),
+    { content: 'Не стал менять настройку.' },
+  ];
+  const events = await lines(
+    await call(
+      'POST',
+      '/assistant/agent',
+      { messages: [{ role: 'user', content: 'Посмотри людей' }] },
+      admin
+    )
+  );
+  expect(received[0].tools.map((_: any) => _.function.name)).toContain(
+    'list_people'
+  );
+  expect(events[0].step).toMatchObject({ tool: 'list_people', ok: true });
+  expect(events[1].step).toMatchObject({
+    tool: 'save_analytics_item',
+    ok: false,
+  });
+  expect(events[1].step.result).toStartWith('agent.tainted');
+  expect(app.analytics.setup.get().dictionaries).toEqual([]);
+});

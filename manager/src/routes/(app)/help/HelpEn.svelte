@@ -3,9 +3,9 @@ import { t } from '#lib/i18n.ts';
 import { icons } from '#lib/icons.ts';
 import { openPalette } from '#lib/palette.svelte.ts';
 import { resolve } from '$app/paths';
-import type { HelpProps } from './help.ts';
+import { EVENT_EXAMPLE, type HelpProps, SUMMARY_EXAMPLE } from './help.ts';
 
-let { shown, chapterShown, mod, admin }: HelpProps = $props();
+let { shown, chapterShown, mod, admin, analytics }: HelpProps = $props();
 </script>
 
   <!-- Благодарность — первой: идеи менеджера пришли отсюда. -->
@@ -353,6 +353,307 @@ let { shown, chapterShown, mod, admin }: HelpProps = $props();
       </p>
     {/if}
   </section>
+
+  <!-- Аналитика -->
+  {#if analytics}
+  <h2 id="analytics" hidden={!chapterShown('analytics')}>Customer analytics</h2>
+  <section id="analytics-what" data-topic hidden={!shown('analytics-what')}>
+    <h3>What it is for</h3>
+    <p>
+      Customer analytics answers an owner’s questions: where customers come from, which of them pay, how much each source brings
+      in and whether the ads pay off. The data does not come from visitors’ browsers but from your bot, shop or app — the
+      <strong>sender</strong>. For each step a person takes (arrives from a link, starts a trial, pays, gets a refund) it sends an
+      event to the site. The site builds people from those events by itself and shows the reports on the tabs of
+      <a href={resolve('/(app)/stats')}>Statistics</a>: Overview, Sources, Funnels, Cohorts, People, Labels, Spend, Quality and
+      Setup.
+    </p>
+    <p>
+      A person here is a pseudonym like <code>u_7f3a9c2b</code>, with no name, email or phone number; the sender makes the
+      pseudonym up. People are never linked to visits of the site, and the site sets no cookie for this. Visitor statistics count
+      the visitors of a day, analytics counts people from events. There is one bridge between them: a link button on the site
+      carries the source of the visit to the sender inside a label (see Labels and links).
+    </p>
+  </section>
+  <section id="analytics-start" data-topic hidden={!shown('analytics-start')}>
+    <h3>Getting started</h3>
+    {#if admin}
+      <ol>
+        <li>
+          Open <a href={resolve('/(app)/stats/setup')}>Statistics → Setup</a>. On an empty site it offers a choice: the sample
+          Subscription or Shop, Import a set from a file, or Start from scratch. A sample creates a sender, event types,
+          dictionaries, a label schema, a milestone and a funnel; See what it creates lists all of it before anything is
+          written, and Create writes it.
+        </li>
+        <li>
+          On the Senders tab, give the sender your own name and issue a key with New key. The key is shown once: copy it and
+          hand it to the sender’s developer together with the guide below.
+        </li>
+        <li>
+          In <a href={`${resolve('/(app)/settings')}?tab=stats`}>Settings → Statistics</a>, Event intake, turn on Accept events,
+          choose how long to keep history and publish the paragraph for the privacy policy on your site — a sample is right
+          there. While intake is off, the site answers the sender with 503 and stores nothing.
+        </li>
+        <li>Set a base currency there too if you want revenue as one figure, LTV and CAC (see Money).</li>
+      </ol>
+    {:else}
+      <p>The site administrator connects the sender, issues its key and turns event intake on.</p>
+    {/if}
+  </section>
+  <section id="analytics-sender" data-topic hidden={!shown('analytics-sender')}>
+    <h3>Guide for the sender’s developer</h3>
+    <p>
+      An event is a <code>POST</code> to <code>https://your-site/_cms/events</code> with a JSON body and the key in the
+      <code>Authorization: Bearer</code> header. The key can do one thing only: send events of its sender. Keep it on a server,
+      not in a browser or a phone app.
+    </p>
+    <pre>{EVENT_EXAMPLE}</pre>
+    <dl>
+      <dt><code>id</code></dt>
+      <dd>The event’s own ID within the sender. The site recognises a repeat with the same <code>id</code> and does not count it twice: after a network error, just send the event again.</dd>
+      <dt><code>type</code></dt>
+      <dd>A type code from Setup → Event types. An unknown type is accepted and waits under Unknown.</dd>
+      <dt><code>at</code></dt>
+      <dd>When it happened, with a time zone: <code>Z</code> or <code>+02:00</code>.</dd>
+      <dt><code>subject</code></dt>
+      <dd>The person’s pseudonym: 6 to 128 characters <code>A-Z a-z 0-9 . _ : -</code>, not digits only. An email, a phone number or a messenger ID is refused on purpose.</dd>
+      <dt><code>data</code></dt>
+      <dd>The fields of the type’s role (a payment has <code>amount</code>, <code>currency</code>, <code>payment_id</code>) and the type’s properties.</dd>
+      <dt><code>traits</code>, <code>test</code></dt>
+      <dd>Traits of the person, such as the language; <code>"test": true</code> marks a test event: the Event log shows it as a test, and it does not go into people.</dd>
+    </dl>
+    <p>How the site answers:</p>
+    <dl>
+      <dt>200</dt>
+      <dd>Accepted. <code>warnings</code> lists what the site did not recognise; <code>duplicate</code> means a repeat of an event it already has.</dd>
+      <dt>400</dt>
+      <dd>Something is wrong with the event, <code>errors</code> lists it by field. Sending the same again will not help: fix it.</dd>
+      <dt>401</dt>
+      <dd>The key is wrong or revoked, or the sender is turned off or archived.</dd>
+      <dt>429</dt>
+      <dd>This address sent five wrong keys within 15 minutes: wait as long as <code>Retry-After</code> says.</dd>
+      <dt>503</dt>
+      <dd>Intake is off on the site: try again later. A sender that retries loses no events.</dd>
+      <dt>500</dt>
+      <dd>A server error: retry with the same <code>id</code>.</dd>
+    </dl>
+    <p>
+      <strong>Daily summary.</strong> Once a day, after the day’s events have gone out, the sender sends an event with the role
+      Daily summary for the past UTC day, without <code>subject</code>. The site compares it with its own count (see Data
+      quality):
+    </p>
+    <pre>{SUMMARY_EXAMPLE}</pre>
+    <p>
+      <code>counts</code> is how many events of each type the sender counted that day, <code>revenue</code> is payments minus
+      refunds before fees per currency, <code>failed</code> is how many events it gave up on after all retries, and
+      <code>version</code> is its version. The summary hour belongs to the sender: Expect the summary by … UTC, 06:00 by default.
+      It is a deadline, not the sending time, so leave room for retries. For a sender without summaries, tick The sender sends no
+      summaries.
+    </p>
+    <p>
+      <strong>Sending missing events.</strong> If events got lost, export them from the sender as a JSON Lines file — one event
+      per line, just as they go over the network — and upload it under <a href={resolve('/(app)/stats/people')}>Statistics →
+      People</a> with Upload file (up to 16 MiB), or on the server with <code>cms events import history.jsonl --db site.db</code>.
+      Repeats are not counted twice, so you can safely send all events of the day again.
+    </p>
+  </section>
+  <section id="analytics-setup" data-topic hidden={!shown('analytics-setup')}>
+    <h3>Setup: types, properties, dictionaries</h3>
+    <p>
+      An <strong>event type</strong> is the code the sender sends plus a role, which tells the reports what the event means.
+      There are ten roles: Touch (the person came via a label), Survey, Trial, Payment, Refund, Payment amendment (the fee
+      became known later), Access ended, Action (anything else that matters for milestones), Daily summary and Erasure (forget
+      the person). <strong>Properties and traits</strong> are extra fields of events (a plan, a number of items) and of people
+      (a language); a property marked Dimension becomes a grouping in the reports. <strong>Dictionaries</strong> hold codes of
+      values with their names: plans, answers to a survey question, parts of the label.
+    </p>
+    <p>
+      A <strong>milestone</strong> is “did this N times within so many days”, for example a first action within three days of
+      arrival. A <strong>funnel</strong> runs from the visits and goals of the site to arrival, trial, milestones and payments.
+      <strong>Unknown</strong> lists what the sender sends but the setup does not know yet — a type, a value, an answer — and lets
+      you create the item right from the row.
+    </p>
+    <p>
+      Codes never change. Archive what you no longer need: it disappears from the forms, and past events keep working. Only an
+      item that nothing refers to can be deleted. Every change recounts people in the background; while that runs, the reports
+      say people are being recounted. The Log shows who changed what.
+    </p>
+  </section>
+  <section id="analytics-labels" data-topic hidden={!shown('analytics-labels')}>
+    <h3>Labels and links</h3>
+    <p>
+      A <strong>label</strong> is a string that tells where a person came from, for example <code>google__search__autumn</code>.
+      The sender’s Label schema says how to read it: the separator (<code>__</code>, <code>--</code>, a dot or <code>~</code>),
+      the length and the parts in order — source, channel, campaign. The values of the parts are dictionaries with the purpose
+      Part of the label. The sender puts the label into a touch event, for example from the bot’s start parameter or from the
+      shop’s address.
+    </p>
+    <p>
+      A <strong>link</strong> is a button on the site that leads to the sender. The address <code>/_cms/go/code</code> sends the
+      visitor on to the target and builds the label from the link’s preset parts and the source of today’s visit: its UTM tags or
+      the website the visitor came from. Nothing is stored on the visitor’s device. <strong>Referrers</strong> decide which parts a
+      visit without UTM gets: from a search engine, a social network, another website or a direct visit.
+    </p>
+    <p>
+      Under <a href={resolve('/(app)/stats/labels')}>Labels</a>, Generator builds a label for a campaign and saves it to the
+      Registry with a name, which the report rows then show; Check shows how a label or an address will be read; Unknown labels
+      lists labels of first touches that are not in the registry.
+    </p>
+  </section>
+  <section id="analytics-reports" data-topic hidden={!shown('analytics-reports')}>
+    <h3>Reading the reports</h3>
+    <ul>
+      <li>
+        <strong>Overview</strong> puts the totals of a period next to the previous period of the same length: new people and
+        customers, revenue, spend, CAC; the site’s visits are below. A triangle over a day means the sender reported a new
+        version, with a note on whether the counts matched.
+      </li>
+      <li>
+        <strong>Sources</strong> is a table by the parts of the label: new people, milestones, trial, paid within the window, new
+        customers, revenue, payments per customer, renewal, and with a base currency LTV, spend, CAC and payback. A row opens up
+        into the next part. Acquisition source is a person’s first touch; Return source is the touch before a payment after the
+        access ended.
+      </li>
+      <li>
+        Shares come with their counts: “4 of 9”. People whose window has not ended yet are “still in the window” and stay out of
+        the base. The rows “not given”, “not in the dictionary” and “the rest” collect empty values, unknown ones and what did not
+        fit into the list.
+      </li>
+      <li>
+        <strong>“little data”</strong> marks a row with fewer than 30 new people or fewer than 10 customers: better not to draw
+        conclusions from it. The thresholds are set under Quality → Checks, Low data thresholds, and apply at once.
+      </li>
+      <li><strong>Funnels</strong> go from the visits and goals of the site to people: arrival, trial, milestones, payments.</li>
+      <li>
+        <strong>Cohorts</strong>: By first payment shows the customers of the month of their first payment and revenue per
+        customer by month of life; By arrival shows the new people of the month they arrived. An incomplete cell is marked ◌ and
+        stays out of the average, as does the cohort of the month still running.
+      </li>
+      <li>
+        <strong>People</strong> lists people and opens each one: touches, payments, milestones and events. Milestone comparison
+        (which milestone predicts payment best) and the Event log with everything accepted are there too.
+      </li>
+    </ul>
+  </section>
+  <section id="analytics-money" data-topic hidden={!shown('analytics-money')}>
+    <h3>Money: currency, rates, spend, LTV and CAC</h3>
+    <p>
+      Amounts arrive in the currency of the payment. Without a base currency the reports show each currency separately. The
+      base currency is set in <a href={`${resolve('/(app)/settings')}?tab=stats`}>Settings → Statistics</a>, and only a person
+      signed in to the manager can set it. Sources then adds revenue up as one figure and counts LTV, spend, CAC and payback.
+    </p>
+    <p>
+      <a href={resolve('/(app)/stats/spend')}>Spend</a> is what you spent in a month on a source: values of label parts (say,
+      “Instagram, paid”) or the whole site. Rows do not nest: an amount on “Instagram” is spend not split by channel, not the
+      sum of other rows. Rates are the rates of other currencies to the base one, per month. An amount without a rate stays out
+      of the total and shows separately; a month without its own rate uses the previous month’s, with a mark. Rates are entered
+      by you or your script with an API key; spend also by the agent when you ask it.
+    </p>
+    <dl>
+      <dt>LTV per customer</dt>
+      <dd>Revenue of new customers over the Lifetime — 3, 6 or 12 months from the first payment, or the whole time — per customer who has already lived that long.</dd>
+      <dt>LTV per person</dt>
+      <dd>The same over all new people of the row, including those who never paid.</dd>
+      <dt>CAC, cost per person</dt>
+      <dd>The row’s spend per new customer and per new person.</dd>
+      <dt>LTV / CAC, payback</dt>
+      <dd>Above 1, a customer brings in more over the lifetime than they cost. Payback is the month of life in which revenue per customer caught up with CAC.</dd>
+    </dl>
+    <p>Revenue: Before fees / After fees takes off the payment provider’s fee, if the sender reports it.</p>
+  </section>
+  <section id="analytics-quality" data-topic hidden={!shown('analytics-quality')}>
+    <h3>Data quality</h3>
+    <p>
+      The <a href={resolve('/(app)/stats/quality')}>Quality</a> tab opens Data quality: can you trust the numbers? Every day
+      the site checks the data and compares the sender’s summary with its own count. A failure means data is lost or does not
+      match (no summary, fewer events, other revenue); a warning means a rule is broken but no data is lost; no data means
+      there is nothing to check yet: before the first summary, while intake is off, when there are too few touches.
+    </p>
+    <ul>
+      <li>
+        <strong>Overview</strong> has a tile per check (failures first) and a grid of checks by day for 30 days: ✓ OK,
+        ! warning, ✕ failure, – no data, a tick in a circle — resolved by hand. A cell opens the day: what was compared, the
+        numbers and the actions.
+      </li>
+      <li>
+        The summary checks (Summary arrived, Events arrived, Revenue matches, Sender delivered everything) count UTC days and run
+        5 minutes after the sender’s summary hour. The others run at 06:05 UTC the next day; Links arrive, Rates are entered and
+        your own checks use days of the report time zone, Statement matches uses months.
+      </li>
+      <li>
+        A failure of Events arrived: export that UTC day’s events from the sender and upload them with Upload missing events in
+        the day window. Repeats are not counted twice, and the check closes by itself as soon as the counts match. Check again
+        re-checks the day right away.
+      </li>
+      <li>
+        Resolve by hand when the cause is known and the data cannot come back: the sender was down, it was a test day. A note is
+        required, and the result shows who resolved it and when; Reopen removes the mark. If things get worse later — a warning
+        turns into a failure — the resolution goes away by itself.
+      </li>
+      <li>
+        <strong>Notifications</strong> go to the failure channels in <a href={`${resolve('/(app)/settings')}?tab=notify`}>Settings
+        → Notifications</a> (Telegram, email): all failures of a morning in one message, about each check no more than once a
+        day, a reminder after 7 days and “back to normal” when a failure closes by itself. Without channels the screen says
+        notifications are not sent, and a failure shows only as a dot next to Statistics in the menu. While the connection is
+        new — until the first summary, but no longer than 7 days — there are no notifications.
+      </li>
+      <li>
+        <strong>Checks</strong> holds the thresholds of the built-in checks, Notify (on failure, on failure and warning, never)
+        and whether each is on; Restore defaults undoes your changes. The Low data thresholds for the reports are here as well,
+        and so are your own checks — Add check: a metric (events of one type, events with a role, new people, new customers,
+        revenue, site visitors, visitors who reached a goal), below or above a threshold, over 1, 7 or 30 days, as a failure or a
+        warning. For example, “fewer than one payment a day”.
+      </li>
+      <li>
+        <strong>Statements</strong>, once Statement matches is on: the amount of a month from your bank or payment provider
+        statement (Add statement), which the site compares with its own revenue. No statement by the 5th — it reminds you.
+      </li>
+      <li><strong>Intake</strong> shows whether intake is on, how much came in today, the latest refusals with errors by field and the count per day.</li>
+    </ul>
+  </section>
+  <section id="analytics-transfer" data-topic hidden={!shown('analytics-transfer')}>
+    <h3>Moving the setup and samples</h3>
+    <p>
+      In <a href={`${resolve('/(app)/stats/setup')}?tab=transfer`}>Setup → Transfer</a>, Download the set saves the whole
+      analytics setup as one JSON file: senders with their summary hour, types, properties, dictionaries, schemas, referrers,
+      links, milestones, funnels and checks, archived items included. Import a set takes a file of up to 2 MB and first shows a
+      dry run: what is created, what changes (“before → after”), warnings and errors. Import writes all of it or nothing; site
+      items missing from the file stay as they are.
+    </p>
+    <p>
+      A set does not carry sender keys, the intake switch, retention, the base currency, the label registry, rates, spend,
+      statements, events, people or check results. On a new site you issue keys again; a copy of the site or an event file moves
+      the events. Only a person in the manager imports a set — neither an API key nor the agent can.
+    </p>
+    <p>
+      The samples Subscription and Shop are here and on an empty setup: See what it creates, then Create. Names come in the
+      manager’s language, codes are the same in every language. The samples have no links — the address of your bot or shop is
+      your own, so add the link yourself.
+    </p>
+    <p>On the server the command line does the same. The database must already exist — the first start of the server or <code>cms new</code> creates it:</p>
+    <pre>cms analytics export analytics.json --db site.db            # export the set; "-" prints it
+cms analytics import analytics.json --dry-run --db site.db  # dry run: the database stays as it is
+cms analytics import analytics.json --db site.db            # import
+cms analytics import --sample shop --language de --db site.db
+cms analytics samples                                       # list the samples</pre>
+    <p>A set larger than 2 MB can only be imported with the command.</p>
+  </section>
+  <section id="analytics-agent" data-topic hidden={!shown('analytics-agent')}>
+    <h3>The agent and analytics</h3>
+    <p>
+      The assistant in the manager and an agent over MCP read the analytics reports as numbers and codes from the setup: which
+      source paid off, where a check failed and why. On request the agent adds types, properties, milestones, funnels and checks,
+      creates labels for campaigns, enters spend and resolves a failed check with a note on the reason.
+    </p>
+    <p>
+      Only you create a sender and its key, turn intake on, set retention and the base currency and import a set; rates and
+      statements come from you or your script with an API key, never from the agent. Once the agent has read people
+      (pseudonyms, labels, answers), Unknown or visitor statistics, it stops changing the analytics setup, labels and spend and
+      resolving checks for the rest of the request — over MCP, for the rest of the session: other people write that text, and a
+      cleverly crafted label must not give the agent orders. It tells you what it would change: do it yourself, or ask again in
+      a new message to the assistant or a new conversation with the agent.
+    </p>
+  </section>
+  {/if}
 
   <!-- Быстрая работа -->
   <h2 id="speed" hidden={!chapterShown('speed')}>Working faster</h2>

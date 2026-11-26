@@ -98,8 +98,10 @@ Pull переписывает файлы, не спрашивая. Сверки 
   одна сессия MCP по HTTP (`Mcp-Session-Id` выдаётся при `initialize`; без него сеанс — у ключа, на час).
   Прочитал заявки (`untrusted`) — сеанс помечен. До конца сеанса инструменты под охраной (`guarded`:
   `save_element`, `save_form`, `save_field`, `update_settings`, `update_translations` — дополнено
-  2026-11-05, [ADR 0061](0061-translations-in-packages-and-for-agents.md)) отвечают `agent.tainted`: агент
-  говорит человеку, что поменял бы, а не меняет.
+  2026-11-05, [ADR 0061](0061-translations-in-packages-and-for-agents.md); `save_analytics_item`,
+  `archive_analytics_item` — 2026-11-25, [ADR 0072](0072-customer-analytics.md)) отвечают `agent.tainted`: агент
+  говорит человеку, что поменял бы, а не меняет. Метку ставят и люди из событий (`list_people`, `get_person`): их
+  псевдонимы, метки и ответы присылают чужие системы.
 - **Плагины агент не пишет.** Плагин исполняется на сервере: его правят человек в менеджере или папка
   элементов под git, где правку видно в диффе. Агенту — только `list_plugins` и `get_plugin`.
 - **Адреса сайта агенту не поменять.** `update_settings` принимает только безопасные настройки. От

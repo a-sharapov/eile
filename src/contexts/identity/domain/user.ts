@@ -25,7 +25,11 @@ export type Permission =
   /** Удалить заявку навсегда — вместе с файлами: необратимо, только администратору. */
   | 'inbox.delete'
   /** Смотреть статистику посещений — всем менеджерам; включает и настраивает её администратор. */
-  | 'stats.read';
+  | 'stats.read'
+  /** Люди из событий, их выручка и настройка аналитики для чтения: псевдонимная история — администратору. */
+  | 'analytics.read'
+  /** Справочники аналитики, загрузка событий, удаление истории; отправители и ключи — только войдя в менеджер. */
+  | 'analytics.edit';
 
 export type User = {
   readonly id: UserId;
@@ -58,6 +62,8 @@ const _PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = {
     'inbox.read',
     'inbox.delete',
     'stats.read',
+    'analytics.read',
+    'analytics.edit',
   ],
   editor: ['content.edit', 'inbox.read', 'stats.read'],
 };

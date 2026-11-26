@@ -18,18 +18,32 @@ let {
 
 let strip: HTMLDivElement;
 
-// Полоса вкладок, если не влезла, прокручивается: выбранная вкладка всегда в поле зрения.
+// Полоса вкладок, если не влезла, прокручивается: выбранная вкладка всегда в поле зрения и не под затуханием
+// края. Видна целиком — полоса стоит на месте: соседние вкладки не уезжают из-под руки.
+const _reach = (tab: HTMLElement): number =>
+  ((edge) =>
+    tab.offsetLeft - edge < strip.scrollLeft
+      ? tab.offsetLeft - edge
+      : tab.offsetLeft + tab.offsetWidth + edge >
+          strip.scrollLeft + strip.clientWidth
+        ? tab.offsetLeft + tab.offsetWidth + edge - strip.clientWidth
+        : strip.scrollLeft)(
+    parseFloat(getComputedStyle(document.documentElement).fontSize) * 2.5
+  );
+
 $effect(() => {
   const tab = strip?.querySelector<HTMLElement>(`[data-tab="${current}"]`);
   void (
     tab &&
     strip.scrollWidth > strip.clientWidth &&
-    strip.scrollTo({
-      left: tab.offsetLeft - 16,
-      behavior: matchMedia('(prefers-reduced-motion: reduce)').matches
-        ? 'auto'
-        : 'smooth',
-    })
+    ((left) =>
+      left !== strip.scrollLeft &&
+      strip.scrollTo({
+        left,
+        behavior: matchMedia('(prefers-reduced-motion: reduce)').matches
+          ? 'auto'
+          : 'smooth',
+      }))(_reach(tab))
   );
 });
 
@@ -98,11 +112,13 @@ const onKey = (event: KeyboardEvent) => {
     scrollbar-width: none;
   }
 
-  /* Затухание у правого края, пока справа есть вкладки: видно, что полоса прокручивается. */
+  /* Затухание у края, за которым ещё есть вкладки: видно, что полоса прокручивается и в какую сторону. */
   @supports (animation-timeline: scroll()) {
     .strip {
       mask-image: linear-gradient(
         90deg,
+        transparent,
+        #000 var(--fade-start),
         #000 calc(100% - var(--fade)),
         transparent
       );
@@ -179,12 +195,29 @@ const onKey = (event: KeyboardEvent) => {
     initial-value: 0rem;
   }
 
+  @property --fade-start {
+    syntax: '<length>';
+    inherits: false;
+    initial-value: 0rem;
+  }
+
+  /* Левое затухание набирается в первые 15 % прокрутки, правое уходит в последние 15 %. */
   @keyframes strip-fade {
-    from {
+    0% {
+      --fade-start: 0rem;
       --fade: 2.5rem;
     }
 
-    to {
+    15% {
+      --fade-start: 2.5rem;
+    }
+
+    85% {
+      --fade: 2.5rem;
+    }
+
+    100% {
+      --fade-start: 2.5rem;
       --fade: 0rem;
     }
   }

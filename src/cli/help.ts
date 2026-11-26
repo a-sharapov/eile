@@ -239,7 +239,7 @@ const _RU: readonly CommandHelp[] = [
       'Варианты размеров называются по основе картинки — пути без расширения, поэтому две картинки с одной основой (photo.jpg и photo.png) в медиатеке быть не могут. Замена формата в папке — photo.jpg → photo.webp — проходит с --prune: прежняя уходит с вариантами, сервер режет новые; без --prune команда откажет и скажет почему.',
       '--dry-run показывает, что изменится, ничего не записывая. Сервер на этой базе подхватывает новые файлы сам, перезапуск не нужен.',
       'link — связанная папка: файлы остаются на диске сервера, в базе — только их строки (путь, хэш, тип, размер, размеры картинки, описание). Так большая медиатека старого сайта не раздувает базу и копии. Предела 25 МиБ нет: файл отдаётся с диска. Повтор сверяет папку: новые, изменённые (по размеру и времени изменения, хэш — только у них) и исчезнувшие файлы; описания оставшихся сохраняются. Без папки — сверить все связанные папки там, где они записаны.',
-      "Путь в медиатеке — <приставка>/<путь на диске> по правилу: латиница (кириллица транслитом), всё, кроме a-z 0-9 . _ -, — дефис, лишние дефисы у точки и по краям снимаются: images/4a_(5).jpg → assets/images/4a-5.jpg, Притыцкого 89.JPG → pritytskogo-89.jpg. Совпавшие имена (и картинки с одной основой) получают -2, -3… по порядку путей на диске; имя файла, который уже в медиатеке, не меняется. media(), image() и /media/… принимают и исходный путь: image('assets/images/4a_(5).jpg').",
+      "Путь в медиатеке — <приставка>/<путь на диске> по правилу: латиница (кириллица транслитом), всё, кроме a-z 0-9 . _ -, — дефис, лишние дефисы у точки и по краям снимаются: images/4a_(5).jpg → assets/images/4a-5.jpg, Садовая 12.JPG → sadovaya-12.jpg. Совпавшие имена (и картинки с одной основой) получают -2, -3… по порядку путей на диске; имя файла, который уже в медиатеке, не меняется. media(), image() и /media/… принимают и исходный путь: image('assets/images/4a_(5).jpg').",
       '--serve-original — файлы папки открываются и по старым адресам /<приставка>/<путь на диске> без переадресации; такой файл важнее страницы и правила переадресации с тем же адресом, иначе адрес идёт к страницам, как обычно. --no-serve-original выключает; без флага — как было. Приставки manager, media, _cms заняты сервером.',
       'Скрытое, следы архиваторов и типы, которых не принимает медиатека, не связываются; ссылки за пределы папки пропускаются. Варианты картинок 480/960/1920 сервер делает сразу и держит в кэше медиатеки, не в базе. Путь к папке внутри каталога базы записывается от него — база и папка переезжают вместе.',
       'Связанная папка не входит в копию базы (cms backup, автокопии, скачивание в менеджере): копируйте её отдельно. unlink убирает файлы папки из медиатеки вместе с их описаниями; сами файлы на диске остаются.',
@@ -274,8 +274,8 @@ const _RU: readonly CommandHelp[] = [
         'cms media link old/assets --into assets --serve-original --db site.db',
       ],
       [
-        'Сборка Astro (base /razbor) — сайт по /razbor/',
-        'cms media link razbor/dist --into razbor --static --db site.db',
+        'Сборка Astro (base /guide) — сайт по /guide/',
+        'cms media link guide/dist --into guide --static --db site.db',
       ],
       ['Сверить связанные папки', 'cms media link --db site.db'],
     ],
@@ -514,6 +514,81 @@ const _RU: readonly CommandHelp[] = [
         'Блог — в раздел готового сайта',
         'cms import-wp blog.xml --into 12 --db site.db',
       ],
+    ],
+  },
+  {
+    name: 'events',
+    summary: 'История событий аналитики из файла JSON Lines',
+    usage: [
+      'cms events import <файл.jsonl> [--sender <код>] [--dry-run] [--json]',
+    ],
+    details: [
+      'import загружает историю событий отправителя — бота, магазина, приложения — из файла JSON Lines: событие на строку, конверт тот же, что у приёмника POST /_cms/events, строка до 64 КБ. Файл читается построчно, а не целиком, — годится и файл в сотни мегабайт. Пустые строки пропускаются.',
+      'Каждая строка проходит те же проверки, что событие по сети: повтор того же id второй раз не считается, другое тело под тем же id — конфликт, первое событие остаётся; незнакомый тип принимается с предупреждением; события стёртых людей не возвращаются. Поэтому загрузить файл ещё раз безопасно, а исправленный файл просто загружается снова.',
+      'Строки с ошибками пропускаются, остальные принимаются; первые 100 ошибок печатаются как файл:строка: поле — причина. Код выхода — 1, если такие строки были, иначе 0.',
+      'Отправителя в событии нет: по сети его называет ключ, у файла — --sender. Если действующий отправитель на сайте один, флаг не нужен. Отправитель в архиве или выключенный событий не принимает.',
+      'События пишутся пачками по 500 строк, люди пачки пересчитываются в её конце, между пачками — пауза: сервер на этой базе продолжает отвечать и принимать события. Приём событий должен быть включён (менеджер, «Настройки → Статистика»).',
+      '--dry-run проверяет файл и печатает тот же итог — сколько будет принято, повторов, конфликтов, удалений, ошибок, — ничего не записывая. --json — итог для скриптов.',
+    ],
+    options: [
+      ['--sender <код>', 'Отправитель событий файла; один на сайте — не нужен'],
+      ['--dry-run', 'Только проверить: база не меняется'],
+      ['--json', 'Итог в JSON: для скриптов и агентов'],
+      _DB,
+    ],
+    examples: [
+      [
+        'Сначала проверить файл',
+        'cms events import history.jsonl --dry-run --db site.db',
+      ],
+      ['Загрузить историю', 'cms events import history.jsonl --db site.db'],
+      [
+        'Отправителей несколько — назвать нужного',
+        'cms events import crm.jsonl --sender crm --db site.db',
+      ],
+    ],
+  },
+  {
+    name: 'analytics',
+    summary: 'Набор настройки аналитики: выгрузка, загрузка, образцы',
+    usage: [
+      'cms analytics export [<файл.json> | -] [--name <имя>]',
+      'cms analytics import <файл.json> [--dry-run] [--json]',
+      'cms analytics import --sample <код> [--language <язык>] [--dry-run]',
+      'cms analytics samples [--language <язык>] [--json]',
+    ],
+    details: [
+      'Набор — вся настройка аналитики клиентского пути одним файлом JSON: отправители с часом сводки, типы событий, свойства, справочники и части метки, схемы меток, соответствия рефереров, переходы, вехи, воронки и проверки, вместе с элементами в архиве. Им настройку переносят на другой сайт или начинают с образца. Это набор настройки, а не данных: события загружает cms events import.',
+      'export выгружает набор в файл, по умолчанию eile-analytics-<день>.json, или в вывод — «-». Файл, который уже есть, не перезаписывается. Две выгрузки одной настройки совпадают построчно, кроме имени и момента: их сравнивает diff.',
+      'В набор не входят ключи отправителей, события и люди, реестр меток, курсы, расходы и выписки, выключатель приёма, срок хранения и базовая валюта — это секреты и данные сайта. Их переносит копия сайта (cms backup), события — ещё и файл событий.',
+      'import проверяет набор целиком, как чужой файл, и применяет его одной правкой: элементы создаются или меняются по ключу, остальное на сайте остаётся как было, архив прежних элементов не меняется. Ошибка хоть в одном элементе — не применено ничего. Отчёт говорит, что создастся, изменится и останется, и печатает предупреждения и ошибки как путь — причина.',
+      '--dry-run — проба: тот же отчёт, база не меняется. Код выхода — 1, если в наборе ошибки (и у пробы), иначе 0; предупреждения — не ошибки. --json — отчёт целиком.',
+      '--sample ставит образец из бинарника вместо файла: subscription — подписка с пробным периодом, shop — магазин без него. Названия — на языке --language (ru, en, de), по умолчанию — на языке CLI; коды у всех языков одни. Переходов в образцах нет: переход на свой бот или магазин заводится в менеджере.',
+      'Ключей набор не создаёт: новому отправителю выпустите ключ в менеджере, «Статистика → Настройка → Отправители». Сервер на той же базе видит новую настройку через минуту.',
+    ],
+    options: [
+      ['--dry-run', 'Только проба: база не меняется'],
+      ['--sample <код>', 'Образец из бинарника: subscription, shop'],
+      ['--language <язык>', 'Язык названий образца: ru, en, de'],
+      ['--name <имя>', 'Имя выгрузки: по умолчанию название сайта и день'],
+      ['--json', 'Отчёт в JSON: для скриптов'],
+      _DB,
+    ],
+    examples: [
+      [
+        'Выгрузить набор сайта',
+        'cms analytics export analytics.json --db site.db',
+      ],
+      [
+        'Сначала проба на другом сайте',
+        'cms analytics import analytics.json --dry-run --db new.db',
+      ],
+      ['Загрузить набор', 'cms analytics import analytics.json --db new.db'],
+      [
+        'Образец «Магазин» с немецкими названиями',
+        'cms analytics import --sample shop --language de --db site.db',
+      ],
+      ['Какие образцы есть', 'cms analytics samples'],
     ],
   },
   {
@@ -903,8 +978,8 @@ const _EN: readonly CommandHelp[] = [
         'cms media link old/assets --into assets --serve-original --db site.db',
       ],
       [
-        'An Astro build (base /razbor) as a site at /razbor/',
-        'cms media link razbor/dist --into razbor --static --db site.db',
+        'An Astro build (base /guide) as a site at /guide/',
+        'cms media link guide/dist --into guide --static --db site.db',
       ],
       ['Resync the linked folders', 'cms media link --db site.db'],
     ],
@@ -1143,6 +1218,84 @@ const _EN: readonly CommandHelp[] = [
         'A blog into a section of a live site',
         'cms import-wp blog.xml --into 12 --db site.db',
       ],
+    ],
+  },
+  {
+    name: 'events',
+    summary: 'Analytics event history from a JSON Lines file',
+    usage: [
+      'cms events import <file.jsonl> [--sender <code>] [--dry-run] [--json]',
+    ],
+    details: [
+      'import loads the event history of a sender (a bot, a shop, an app) from a JSON Lines file: one event per line, the same envelope as at the POST /_cms/events intake, a line up to 64 KB. The file is read line by line, not as a whole, so a file of hundreds of megabytes works too. Empty lines are skipped.',
+      'Every line goes through the same checks as an event over the network: a repeat of the same id is not counted twice, another body under the same id is a conflict and the first event stays; an unknown type is accepted with a warning; events of erased people do not come back. So importing a file again is safe, and a fixed file is simply imported once more.',
+      'Lines with errors are skipped and the rest is accepted; the first 100 errors are printed as file:line: field — reason. The exit code is 1 if there were such lines, otherwise 0.',
+      'An event does not name its sender: over the network the key does, for a file --sender does. With one active sender on the site the flag is not needed. An archived or turned-off sender accepts no events.',
+      'Events are written in batches of 500 lines, the people of a batch are recounted at its end, and there is a pause between batches: a server on this database keeps answering and taking events. Event intake must be on (the manager, Settings → Statistics).',
+      '--dry-run checks the file and prints the same summary (how many would be accepted, repeats, conflicts, erasures, errors) without writing anything. --json prints the summary for scripts.',
+    ],
+    options: [
+      [
+        '--sender <code>',
+        'Sender of the events in the file; not needed with one',
+      ],
+      ['--dry-run', 'Only check: the database does not change'],
+      ['--json', 'The summary as JSON: for scripts and agents'],
+      _DB_EN,
+    ],
+    examples: [
+      [
+        'Check the file first',
+        'cms events import history.jsonl --dry-run --db site.db',
+      ],
+      ['Import the history', 'cms events import history.jsonl --db site.db'],
+      [
+        'Several senders: name the one',
+        'cms events import crm.jsonl --sender crm --db site.db',
+      ],
+    ],
+  },
+  {
+    name: 'analytics',
+    summary: 'The analytics setup as a set: export, import, samples',
+    usage: [
+      'cms analytics export [<file.json> | -] [--name <name>]',
+      'cms analytics import <file.json> [--dry-run] [--json]',
+      'cms analytics import --sample <code> [--language <lang>] [--dry-run]',
+      'cms analytics samples [--language <lang>] [--json]',
+    ],
+    details: [
+      'A set is the whole setup of customer analytics in one JSON file: senders with their summary hour, event types, properties, dictionaries and label parts, label schemas, referrer rules, links, milestones, funnels and checks, archived items included. It moves the setup to another site or starts one from a sample. It is a set of the setup, not of data: events are loaded by cms events import.',
+      'export writes the set to a file, eile-analytics-<day>.json by default, or to the output with -. A file that already exists is not overwritten. Two exports of the same setup are the same line by line except for the name and the moment, so diff compares them.',
+      'The set does not include sender keys, events and people, the label registry, rates, spend and statements, the intake switch, retention and the base currency: those are secrets and data of the site. A site copy (cms backup) moves them, and an events file moves events too.',
+      'import checks the whole set as a file from someone else and applies it as one change: items are created or changed by their key, everything else on the site stays as it was, and the archive of existing items does not change. An error in any item means nothing is applied. The report tells what is created, changed and kept, with warnings and errors as path — reason.',
+      '--dry-run is a trial: the same report, the database does not change. The exit code is 1 if the set has errors (on a trial too), otherwise 0; warnings are not errors. --json prints the whole report.',
+      '--sample installs a sample from the binary instead of a file: subscription is a subscription with a trial, shop is a shop without one. Names are in the --language (ru, en, de), by default in the language of the CLI; the codes are the same in every language. Samples have no links: a link to your bot or shop is added in the manager.',
+      'A set creates no keys: issue a key for a new sender in the manager, Statistics → Setup → Senders. A server on the same database sees the new setup within a minute.',
+    ],
+    options: [
+      ['--dry-run', 'Only a trial: the database does not change'],
+      ['--sample <code>', 'A sample from the binary: subscription, shop'],
+      ['--language <lang>', 'The language of sample names: ru, en, de'],
+      ['--name <name>', 'Name of the export: the site name and the day'],
+      ['--json', 'The report as JSON: for scripts'],
+      _DB_EN,
+    ],
+    examples: [
+      [
+        'Export the set of the site',
+        'cms analytics export analytics.json --db site.db',
+      ],
+      [
+        'A trial on another site first',
+        'cms analytics import analytics.json --dry-run --db new.db',
+      ],
+      ['Import the set', 'cms analytics import analytics.json --db new.db'],
+      [
+        'The sample shop with German names',
+        'cms analytics import --sample shop --language de --db site.db',
+      ],
+      ['Which samples there are', 'cms analytics samples'],
     ],
   },
   {
